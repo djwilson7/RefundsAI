@@ -43,10 +43,10 @@ This milestone proves the project can be developed safely and consistently.
 #### Repository
 
 * [x] Scaffold frontend application.
-* [ ] Scaffold backend application.
+* [x] Scaffold backend application.
 * [x] Establish frontend project directory structure.
-* [ ] Establish backend project directory structure.
-* [ ] Configure environment management.
+* [x] Establish backend project directory structure.
+* [x] Configure backend dependency management.
 * [x] Configure frontend local development workflow.
 
 #### Frontend
@@ -62,13 +62,13 @@ This milestone proves the project can be developed safely and consistently.
 
 #### Backend
 
-* [ ] FastAPI
-* [ ] Python
-* [ ] Dependency management
-* [ ] Health endpoint
-* [ ] Lint configuration
-* [ ] Testing framework
-* [ ] Coverage reporting
+* [x] FastAPI
+* [x] Python
+* [x] Dependency management
+* [x] Health endpoint
+* [x] Lint configuration
+* [x] Testing framework
+* [x] Coverage reporting
 
 #### Database
 
@@ -80,37 +80,43 @@ This milestone proves the project can be developed safely and consistently.
 #### Development Environment
 
 * [x] Frontend Dockerfile
-* [ ] Backend Dockerfile
+* [x] Backend Dockerfile
 * [x] Docker Compose frontend service
+* [x] Docker Compose backend service
 * [ ] Complete Docker Compose development environment
 * [x] Frontend local-first development workflow
+* [x] Backend local-first development workflow
 
 #### Documentation
 
 * [x] Frontend local setup instructions
-* [ ] Backend local setup instructions
-* [ ] Environment configuration
+* [x] Backend local setup instructions
+* [x] Backend dependency configuration
 * [x] Frontend development commands
+* [x] Backend development commands
 * [x] Frontend testing commands
+* [x] Backend testing commands
 * [x] Frontend Docker workflow
+* [x] Backend Docker workflow
 
 ### Validation
 
 Successfully verify:
 
 * [x] Frontend starts locally.
-* [ ] Backend starts locally.
-* [ ] Backend health endpoint responds successfully.
+* [x] Backend starts locally.
+* [x] Backend health endpoint responds successfully.
 * [ ] Backend communicates with Supabase.
 * [ ] Environment variables load correctly.
 * [ ] Docker Compose starts the complete development environment.
 * [x] Docker Compose starts the frontend service.
+* [x] Docker Compose starts the backend service.
 * [x] Frontend lint passes.
-* [ ] Backend lint passes.
+* [x] Backend lint passes.
 * [x] Frontend tests pass.
-* [ ] Backend tests pass.
+* [x] Backend tests pass.
 * [x] Frontend production build succeeds.
-* [ ] Backend coverage executes successfully.
+* [x] Backend coverage executes successfully.
 * [x] Documentation accurately reflects the frontend local development workflow.
 
 ### Out of Scope

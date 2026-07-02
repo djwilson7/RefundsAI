@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+.venv/
+apps/*/.venv/
 
 # Next.js
 .next/
@@ -7,6 +9,12 @@ out/
 
 # Test and coverage output
 coverage/
+htmlcov/
+.coverage
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
 
 # Environment
 .env

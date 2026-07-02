@@ -119,14 +119,44 @@ Production deployment is not the primary objective of this technical challenge.
 
 The frontend scaffold lives in `apps/web` and is managed through the root npm workspace.
 
+Install frontend dependencies from the repository root:
+
 ```bash
 npm install
-npm run web:dev
-npm run web:lint
-npm run web:test
-npm run web:coverage
-npm run web:build
+cd apps/web
 ```
+
+Run the frontend:
+
+```bash
+npm run dev
+```
+
+Lint:
+
+```bash
+npm run lint
+```
+
+Test:
+
+```bash
+npm run test
+```
+
+Coverage:
+
+```bash
+npm run coverage
+```
+
+Build:
+
+```bash
+npm run build
+```
+
+The same commands are also exposed from the repository root as `npm run web:dev`, `npm run web:lint`, `npm run web:test`, `npm run web:coverage`, and `npm run web:build`.
 
 The local development server runs on `http://localhost:3000`.
 
@@ -138,7 +168,88 @@ docker compose up web --build
 
 The container exposes the frontend on `http://localhost:3000`.
 
-Backend, database, and AI service setup instructions will be added as those milestones are scaffolded.
+### Backend
+
+The backend scaffold lives in `apps/api` and uses FastAPI with pinned pip requirements.
+
+Create the virtual environment from the repository root:
+
+```bash
+python --version
+python -m venv apps/api/.venv
+cd apps/api
+```
+
+Activate the virtual environment for your shell:
+
+```powershell
+# PowerShell
+.\.venv\Scripts\Activate.ps1
+```
+
+```cmd
+:: Command Prompt
+.venv\Scripts\activate.bat
+```
+
+```bash
+# Git Bash / WSL / macOS / Linux
+source .venv/bin/activate
+```
+
+Install backend dependencies:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+Run the API:
+
+```bash
+python -m uvicorn refunds_ai_api.main:app --app-dir src --reload
+```
+
+Lint:
+
+```bash
+python -m ruff check src tests
+```
+
+Test:
+
+```bash
+python -m pytest tests
+```
+
+Coverage:
+
+```bash
+python -m pytest tests --cov=refunds_ai_api --cov-report=term-missing --cov-fail-under=90
+```
+
+Build check:
+
+```bash
+python -m compileall src tests
+```
+
+Backend direct dependencies are pinned in `apps/api/requirements.txt` and `apps/api/requirements-dev.txt`. The resolved validation baseline is recorded in `apps/api/requirements.lock`.
+
+The local API server runs on `http://localhost:8000`.
+
+Uvicorn logs may show `http://0.0.0.0:8000` from inside Docker. Use `http://localhost:8000` from the host machine.
+
+### Backend Container
+
+```bash
+docker compose up api --build
+```
+
+The container exposes the backend on `http://localhost:8000`.
+
+FastAPI docs are available at `http://localhost:8000/docs`.
+
+Database and AI service setup instructions will be added as those milestones are scaffolded.
 
 ---
 

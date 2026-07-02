@@ -91,6 +91,43 @@ TOOL_EXECUTION_FAILED
 
 ---
 
+# Implemented Endpoints
+
+## GET /health
+
+Purpose
+Verify that the FastAPI backend process is running and able to return the standard API response envelope.
+
+Authentication Requirements
+None.
+
+Request Body
+None.
+
+Response Body
+
+```json
+{
+  "success": true,
+  "data": {
+    "service": "refunds-ai-api",
+    "status": "ok"
+  },
+  "error": null,
+  "meta": {
+    "timestamp": "..."
+  }
+}
+```
+
+Possible Error Codes
+None for normal readiness checks.
+
+Notes
+This endpoint is part of the development foundation scaffold only. It does not validate database, AI service, or business workflow readiness.
+
+---
+
 # Versioning
 
 As the backend evolves, this document should remain synchronized with the implemented API surface.
