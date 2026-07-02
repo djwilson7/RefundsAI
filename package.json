@@ -1,0 +1,21 @@
+{
+  "name": "refunds-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Policy-governed AI customer support for refund workflows.",
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "web:dev": "npm run dev --workspace @refunds-ai/web",
+    "web:build": "npm run build --workspace @refunds-ai/web",
+    "web:start": "npm run start --workspace @refunds-ai/web",
+    "web:lint": "npm run lint --workspace @refunds-ai/web",
+    "web:test": "npm run test --workspace @refunds-ai/web",
+    "web:coverage": "npm run coverage --workspace @refunds-ai/web"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  }
+}

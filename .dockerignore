@@ -1,0 +1,8 @@
+node_modules
+apps/*/node_modules
+.next
+apps/*/.next
+coverage
+apps/*/coverage
+.git
+*.log

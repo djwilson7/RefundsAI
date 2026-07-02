@@ -14,17 +14,17 @@ Establish the architectural and engineering foundation before implementation beg
 
 ### Deliverables
 
-* Repository initialized.
-* AI agent bootstrap process established.
-* `.ai-context` documentation completed.
-* Initial README created.
-* Initial project structure defined.
+* [x] Repository initialized.
+* [x] AI agent bootstrap process established.
+* [x] `.ai-context` documentation completed.
+* [x] Initial README created.
+* [x] Initial project structure defined.
 
 ### Validation
 
-* Repository successfully initialized.
-* Documentation committed.
-* Initial GitHub repository established.
+* [x] Repository successfully initialized.
+* [x] Documentation committed.
+* [x] Initial GitHub repository established.
 
 ---
 
@@ -42,72 +42,76 @@ This milestone proves the project can be developed safely and consistently.
 
 #### Repository
 
-* Scaffold frontend application.
-* Scaffold backend application.
-* Establish project directory structure.
-* Configure environment management.
-* Configure local development workflow.
+* [x] Scaffold frontend application.
+* [ ] Scaffold backend application.
+* [x] Establish frontend project directory structure.
+* [ ] Establish backend project directory structure.
+* [ ] Configure environment management.
+* [x] Configure frontend local development workflow.
 
 #### Frontend
 
-* Next.js
-* TypeScript
-* Tailwind CSS
-* CSS Modules
-* Local development server
-* Lint configuration
-* Testing framework
-* Production build configuration
+* [x] Next.js
+* [x] TypeScript
+* [x] Tailwind CSS
+* [x] CSS Modules
+* [x] Local development server
+* [x] Lint configuration
+* [x] Testing framework
+* [x] Production build configuration
 
 #### Backend
 
-* FastAPI
-* Python
-* Dependency management
-* Health endpoint
-* Lint configuration
-* Testing framework
-* Coverage reporting
+* [ ] FastAPI
+* [ ] Python
+* [ ] Dependency management
+* [ ] Health endpoint
+* [ ] Lint configuration
+* [ ] Testing framework
+* [ ] Coverage reporting
 
 #### Database
 
-* Configure Supabase development project.
-* Establish backend database connection.
-* Validate database connectivity.
-* Verify environment configuration.
+* [ ] Configure Supabase development project.
+* [ ] Establish backend database connection.
+* [ ] Validate database connectivity.
+* [ ] Verify environment configuration.
 
 #### Development Environment
 
-* Frontend Dockerfile
-* Backend Dockerfile
-* Docker Compose
-* Local-first development workflow
+* [x] Frontend Dockerfile
+* [ ] Backend Dockerfile
+* [x] Docker Compose frontend service
+* [ ] Complete Docker Compose development environment
+* [x] Frontend local-first development workflow
 
 #### Documentation
 
-* Local setup instructions
-* Environment configuration
-* Development commands
-* Testing commands
-* Docker workflow
+* [x] Frontend local setup instructions
+* [ ] Backend local setup instructions
+* [ ] Environment configuration
+* [x] Frontend development commands
+* [x] Frontend testing commands
+* [x] Frontend Docker workflow
 
 ### Validation
 
 Successfully verify:
 
-* Frontend starts locally.
-* Backend starts locally.
-* Backend health endpoint responds successfully.
-* Backend communicates with Supabase.
-* Environment variables load correctly.
-* Docker Compose starts the complete development environment.
-* Frontend lint passes.
-* Backend lint passes.
-* Frontend tests pass.
-* Backend tests pass.
-* Frontend production build succeeds.
-* Backend coverage executes successfully.
-* Documentation accurately reflects the local development workflow.
+* [x] Frontend starts locally.
+* [ ] Backend starts locally.
+* [ ] Backend health endpoint responds successfully.
+* [ ] Backend communicates with Supabase.
+* [ ] Environment variables load correctly.
+* [ ] Docker Compose starts the complete development environment.
+* [x] Docker Compose starts the frontend service.
+* [x] Frontend lint passes.
+* [ ] Backend lint passes.
+* [x] Frontend tests pass.
+* [ ] Backend tests pass.
+* [x] Frontend production build succeeds.
+* [ ] Backend coverage executes successfully.
+* [x] Documentation accurately reflects the frontend local development workflow.
 
 ### Out of Scope
 
@@ -132,22 +136,22 @@ Build the backend foundation that supports deterministic business logic, databas
 
 ### Planned Deliverables
 
-* Database schema
-* Initial migrations
-* Seed data generation
-* Repository pattern
-* Business service layer
-* API contracts
-* Shared models
-* Configuration layer
+* [ ] Database schema
+* [ ] Initial migrations
+* [ ] Seed data generation
+* [ ] Repository pattern
+* [ ] Business service layer
+* [ ] API contracts
+* [ ] Shared models
+* [ ] Configuration layer
 
 ### Validation
 
-* Database schema successfully deployed.
-* Seed data generated.
-* API contracts implemented.
-* Backend tests passing.
-* Coverage maintained above project targets.
+* [ ] Database schema successfully deployed.
+* [ ] Seed data generated.
+* [ ] API contracts implemented.
+* [ ] Backend tests passing.
+* [ ] Coverage maintained above project targets.
 
 ---
 
@@ -159,20 +163,20 @@ Build the customer-facing experience independent of AI functionality.
 
 ### Planned Deliverables
 
-* Customer dashboard
-* Purchase history
-* Purchase detail pages
-* Refund eligibility views
-* Navigation
-* Shared UI components
-* Persistent support panel
+* [ ] Customer dashboard
+* [ ] Purchase history
+* [ ] Purchase detail pages
+* [ ] Refund eligibility views
+* [ ] Navigation
+* [ ] Shared UI components
+* [ ] Persistent support panel
 
 ### Validation
 
-* Customer interface fully navigable.
-* Purchase information displayed correctly.
-* Refund state rendered accurately.
-* Frontend tests and build passing.
+* [ ] Customer interface fully navigable.
+* [ ] Purchase information displayed correctly.
+* [ ] Refund state rendered accurately.
+* [ ] Frontend tests and build passing.
 
 ---
 
@@ -184,20 +188,20 @@ Implement the AI orchestration layer responsible for customer interactions and d
 
 ### Planned Deliverables
 
-* OpenAI integration
-* Tool/function calling
-* Conversation management
-* Refund workflow orchestration
-* Policy-aware decision flow
-* Audit event generation
-* Reasoning trace support
+* [ ] OpenAI integration
+* [ ] Tool/function calling
+* [ ] Conversation management
+* [ ] Refund workflow orchestration
+* [ ] Policy-aware decision flow
+* [ ] Audit event generation
+* [ ] Reasoning trace support
 
 ### Validation
 
-* Agent successfully completes eligible refunds.
-* Agent correctly denies policy violations.
-* Tool execution validated.
-* AI reasoning captured through audit logs.
+* [ ] Agent successfully completes eligible refunds.
+* [ ] Agent correctly denies policy violations.
+* [ ] Tool execution validated.
+* [ ] AI reasoning captured through audit logs.
 
 ---
 
@@ -209,20 +213,20 @@ Provide administrators with operational visibility into customer interactions an
 
 ### Planned Deliverables
 
-* Admin dashboard
-* Customer verification workflow
-* Customer lookup
-* AI execution trace viewer
-* Operational metrics
-* Support session timeline
-* Administrative AI assistance
+* [ ] Admin dashboard
+* [ ] Customer verification workflow
+* [ ] Customer lookup
+* [ ] AI execution trace viewer
+* [ ] Operational metrics
+* [ ] Support session timeline
+* [ ] Administrative AI assistance
 
 ### Validation
 
-* Customer verification workflow functional.
-* AI traces visible.
-* Customer history accessible after verification.
-* Administrative workflows validated.
+* [ ] Customer verification workflow functional.
+* [ ] AI traces visible.
+* [ ] Customer history accessible after verification.
+* [ ] Administrative workflows validated.
 
 ---
 
@@ -234,17 +238,17 @@ Extend the existing AI orchestration pipeline to support voice interactions.
 
 ### Planned Deliverables
 
-* Speech transcription
-* Shared text and voice orchestration
-* Voice conversation support
-* Transcript storage
-* Voice audit events
+* [ ] Speech transcription
+* [ ] Shared text and voice orchestration
+* [ ] Voice conversation support
+* [ ] Transcript storage
+* [ ] Voice audit events
 
 ### Validation
 
-* Voice requests follow the same orchestration pipeline as text.
-* Transcripts stored successfully.
-* Voice interactions appear within audit history.
+* [ ] Voice requests follow the same orchestration pipeline as text.
+* [ ] Transcripts stored successfully.
+* [ ] Voice interactions appear within audit history.
 
 ---
 
@@ -256,19 +260,19 @@ Prepare RefundsAI for final presentation and evaluation.
 
 ### Planned Deliverables
 
-* Feature-complete implementation
-* Final documentation review
-* README completion
-* Comprehensive testing pass
-* Repository cleanup
-* Loom walkthrough
-* Public GitHub repository
+* [ ] Feature-complete implementation
+* [ ] Final documentation review
+* [ ] README completion
+* [ ] Comprehensive testing pass
+* [ ] Repository cleanup
+* [ ] Loom walkthrough
+* [ ] Public GitHub repository
 
 ### Validation
 
-* Repository builds successfully.
-* Test suite passes.
-* Coverage maintained above project targets.
-* README complete.
-* Loom walkthrough recorded.
-* Repository ready for reviewer evaluation.
+* [ ] Repository builds successfully.
+* [ ] Test suite passes.
+* [ ] Coverage maintained above project targets.
+* [ ] README complete.
+* [ ] Loom walkthrough recorded.
+* [ ] Repository ready for reviewer evaluation.

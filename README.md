@@ -115,7 +115,30 @@ This project is intentionally scoped for local-first development.
 
 Production deployment is not the primary objective of this technical challenge.
 
-Setup instructions will be added as the frontend and backend are scaffolded.
+### Frontend
+
+The frontend scaffold lives in `apps/web` and is managed through the root npm workspace.
+
+```bash
+npm install
+npm run web:dev
+npm run web:lint
+npm run web:test
+npm run web:coverage
+npm run web:build
+```
+
+The local development server runs on `http://localhost:3000`.
+
+### Frontend Container
+
+```bash
+docker compose up web --build
+```
+
+The container exposes the frontend on `http://localhost:3000`.
+
+Backend, database, and AI service setup instructions will be added as those milestones are scaffolded.
 
 ---
 
