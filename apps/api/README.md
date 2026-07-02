@@ -47,6 +47,24 @@ The local API server runs on `http://localhost:8000`.
 
 Uvicorn logs may show `http://0.0.0.0:8000` from inside Docker. Use `http://localhost:8000` from the host machine.
 
+## Supabase
+
+For local development, you can configure `SUPABASE_DB_URL` in the repository root `.env` file (the application automatically searches parent directories up to `../../.env` as a fallback) or create a local environment file:
+
+```bash
+cp .env.example .env
+```
+
+Set `SUPABASE_DB_URL` to the Supabase PostgreSQL connection string from Project Settings > Database.
+
+Check database connectivity:
+
+```bash
+curl http://localhost:8000/health/database
+```
+
+This endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` when database configuration is missing or connectivity fails. It validates the PostgreSQL handshake only; schema, migrations, seed data, and business tables are intentionally not part of this scaffold.
+
 ## Lint
 
 ```bash

@@ -249,7 +249,36 @@ The container exposes the backend on `http://localhost:8000`.
 
 FastAPI docs are available at `http://localhost:8000/docs`.
 
-Database and AI service setup instructions will be added as those milestones are scaffolded.
+### Supabase Database
+
+Create a Supabase project, then copy the PostgreSQL connection string from Project Settings > Database.
+
+For local API development, you can configure `SUPABASE_DB_URL` in the repository root `.env` file (the application automatically searches parent directories up to `../../.env` as a fallback) or create `apps/api/.env` locally:
+
+```bash
+cd apps/api
+cp .env.example .env
+```
+
+Set `SUPABASE_DB_URL` to the Supabase PostgreSQL connection string.
+
+For Docker Compose, create a root `.env` from the tracked example:
+
+```bash
+cp .env.example .env
+```
+
+Docker Compose passes `SUPABASE_DB_URL` and `DATABASE_CONNECT_TIMEOUT_SECONDS` into the API container.
+
+Check database connectivity:
+
+```bash
+curl http://localhost:8000/health/database
+```
+
+The database health check endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` when database configuration is missing or connectivity checks fail. It validates connectivity only; schema, migrations, seed data, and business tables remain part of the next milestone.
+
+AI service setup instructions will be added as those milestones are scaffolded.
 
 ---
 

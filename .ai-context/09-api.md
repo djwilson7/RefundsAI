@@ -126,6 +126,77 @@ None for normal readiness checks.
 Notes
 This endpoint is part of the development foundation scaffold only. It does not validate database, AI service, or business workflow readiness.
 
+## GET /health/database
+
+Purpose
+Verify that the backend can complete a Supabase PostgreSQL handshake using the configured database connection string.
+
+Authentication Requirements
+None.
+
+Request Body
+None.
+
+Success Response Body
+
+```json
+{
+  "success": true,
+  "data": {
+    "provider": "supabase-postgres",
+    "configured": true,
+    "connected": true
+  },
+  "error": null,
+  "meta": {
+    "timestamp": "..."
+  }
+}
+```
+
+Configuration Error Response Body
+
+```json
+{
+  "success": false,
+  "data": {
+    "provider": "supabase-postgres",
+    "configured": false,
+    "connected": false
+  },
+  "error": {
+    "code": "DATABASE_NOT_CONFIGURED",
+    "message": "SUPABASE_DB_URL is not configured."
+  },
+  "meta": {
+    "timestamp": "..."
+  }
+}
+```
+
+Connection Error Response Body
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "DATABASE_CONNECTION_FAILED",
+    "message": "Database handshake failed."
+  },
+  "meta": {
+    "timestamp": "..."
+  }
+}
+```
+
+Possible Error Codes
+DATABASE_NOT_CONFIGURED
+DATABASE_CONNECTION_FAILED
+
+Notes
+This endpoint validates database connectivity only. It returns an HTTP status code `503 Service Unavailable` when database configuration is missing or connectivity checks fail. It does not validate schema, migrations, seed data, or business readiness.
+
 ---
 
 # Versioning

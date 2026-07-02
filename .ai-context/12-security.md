@@ -54,6 +54,7 @@ These features remain outside the scope of this technical challenge.
 * API keys must never be committed to source control.
 * Secrets must never be exposed to the frontend.
 * Environment files should remain local and be excluded from version control.
+* `SUPABASE_DB_URL` is backend-only and must not be exposed to frontend code.
 
 ---
 

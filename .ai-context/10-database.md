@@ -125,3 +125,19 @@ Every migration should be accompanied by corresponding updates to:
 * API contracts
 * Business logic documentation
 * Tests (when applicable)
+
+---
+
+# Development Foundation Connectivity
+
+The backend reads Supabase PostgreSQL connectivity from `SUPABASE_DB_URL`.
+
+`GET /health/database` performs a non-mutating database handshake by executing `select 1 as ok`.
+
+This confirms that:
+
+* database environment configuration is present
+* the backend can reach Supabase PostgreSQL
+* credentials are valid enough to open a connection
+
+This does not introduce schema, migrations, seed data, business tables, or Supabase client access from the frontend.

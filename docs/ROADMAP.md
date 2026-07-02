@@ -30,7 +30,7 @@ Establish the architectural and engineering foundation before implementation beg
 
 # v0.1.0 — Development Foundation
 
-**Status:** In Progress
+**Status:** Complete
 
 ## Objective
 
@@ -72,10 +72,10 @@ This milestone proves the project can be developed safely and consistently.
 
 #### Database
 
-* [ ] Configure Supabase development project.
-* [ ] Establish backend database connection.
-* [ ] Validate database connectivity.
-* [ ] Verify environment configuration.
+* [x] Add Supabase environment configuration scaffolding.
+* [x] Add backend database health endpoint.
+* [x] Configure Supabase development project credentials.
+* [x] Validate live Supabase database connectivity.
 
 #### Development Environment
 
@@ -83,7 +83,7 @@ This milestone proves the project can be developed safely and consistently.
 * [x] Backend Dockerfile
 * [x] Docker Compose frontend service
 * [x] Docker Compose backend service
-* [ ] Complete Docker Compose development environment
+* [x] Complete Docker Compose development environment
 * [x] Frontend local-first development workflow
 * [x] Backend local-first development workflow
 
@@ -106,9 +106,9 @@ Successfully verify:
 * [x] Frontend starts locally.
 * [x] Backend starts locally.
 * [x] Backend health endpoint responds successfully.
-* [ ] Backend communicates with Supabase.
-* [ ] Environment variables load correctly.
-* [ ] Docker Compose starts the complete development environment.
+* [x] Backend communicates with Supabase.
+* [x] Environment variables load correctly.
+* [x] Docker Compose starts the complete development environment.
 * [x] Docker Compose starts the frontend service.
 * [x] Docker Compose starts the backend service.
 * [x] Frontend lint passes.
