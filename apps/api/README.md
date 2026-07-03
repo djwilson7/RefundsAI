@@ -89,6 +89,8 @@ Migration modules live in `src/refunds_ai_api/database/migrations/`. Seed steps 
 
 Mock data fixtures live in `mockdata/`. The identity fixture is `mockdata/identity_seed.json`; the product and purchase fixture is `mockdata/purchase_seed.json`.
 
+Refund lifecycle state is stored in the purchase detail tables, not in a standalone `refunds` table. Backend policy services should load `purchases` plus the matching detail table, evaluate eligibility, and persist approved lifecycle changes back to that detail table. Database triggers compute refund deadline fields and derivable defaults, so service code should send event facts rather than client-computed deadline values.
+
 ## Lint
 
 ```bash

@@ -15,6 +15,7 @@ This document defines the security boundaries of the application, including impl
 * Sensitive operations require backend validation.
 * Business policy is enforced server-side.
 * API keys and secrets remain server-side at all times.
+* Refund state is authoritative database state and cannot be overridden by clients or AI-generated reasoning.
 
 ---
 
@@ -64,6 +65,7 @@ These features remain outside the scope of this technical challenge.
 * The language model never communicates directly with the database.
 * Tool access is validated by backend services.
 * The language model may not bypass deterministic business logic or policy enforcement.
+* AI refund tools expose backend-evaluated information rather than trusting model reasoning.
 
 ---
 
@@ -79,6 +81,8 @@ Administrator access:
 * Administrative access should remain scoped to the active customer session.
 
 Backend services determine what data may be returned for every request.
+
+Refund decisions occur only inside backend policy services. Clients may request a refund, but they cannot provide authoritative eligibility, lifecycle status, or refund outcome values.
 
 ---
 
@@ -104,6 +108,10 @@ The `purchases` table enables row-level security when created. Its initial polic
 
 The purchase detail tables enable row-level security when created. Their initial policies grant access only to Supabase `service_role`, preserving backend ownership of type-specific purchase state.
 
+Refund lifecycle state is stored inside purchase detail tables. The backend service role is the only application path allowed to read or mutate this state. No standalone `refunds` table should be introduced, and no frontend Supabase client should be allowed to write refund eligibility or lifecycle fields.
+
+Refund deadline fields are database-managed through PostgreSQL triggers. Clients and AI tools must not provide authoritative deadline values.
+
 ---
 
 # Frontend Trust Boundary
@@ -116,6 +124,7 @@ Frontend state should never be trusted for:
 
 * Customer identity
 * Refund eligibility
+* Refund lifecycle state
 * Business policy
 * Financial state
 * Administrative permissions

@@ -17,6 +17,8 @@ All API endpoints should follow consistent request, response, and error patterns
 * API responses should follow a consistent structure.
 * Business logic remains within backend services.
 * Backend implementation details should remain hidden behind API contracts.
+* Refund endpoints should expose backend-evaluated eligibility and lifecycle outcomes.
+* Clients must not submit or override authoritative refund eligibility state.
 
 ---
 
@@ -196,6 +198,30 @@ DATABASE_CONNECTION_FAILED
 
 Notes
 This endpoint validates database connectivity only. It returns an HTTP status code `503 Service Unavailable` when database configuration is missing or connectivity checks fail. It does not validate schema, migrations, seed data, or business readiness.
+
+---
+
+# Planned Refund API Contract
+
+Refund API endpoints should follow the embedded-detail-table architecture.
+
+Read endpoints should load `purchases` and the matching purchase detail record, then return backend-evaluated refund eligibility and supporting facts.
+
+Mutating endpoints should:
+
+1. Accept a refund request command.
+2. Load the purchase.
+3. Load the matching purchase detail record.
+4. Verify the refund window.
+5. Evaluate product-specific policy.
+6. Execute the approved strategy.
+7. Persist lifecycle updates to the owning detail table.
+
+Clients should never send fields such as `eligible`, `refunded`, `refund_pending`, or model-generated policy conclusions as authoritative input. Those values are computed inside backend services.
+
+Clients should also never send database-derived refund deadline values. Deadline fields are computed by PostgreSQL triggers from persisted purchase and detail-table state.
+
+No API contract should require or expose a standalone `refunds` table.
 
 ---
 

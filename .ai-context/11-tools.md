@@ -19,6 +19,8 @@ As new tools are introduced, they should be added to this document.
 * Tools should be deterministic and repeatable.
 * Tools should validate inputs before execution.
 * Business logic remains within backend services, not the language model.
+* Refund tools should expose backend-evaluated eligibility from purchase detail state.
+* Refund tools must not let the model submit or override authoritative refund state.
 
 ---
 
@@ -90,6 +92,16 @@ Every tool should clearly indicate whether it is:
 * **Mutating** – Creates, updates, or modifies business state.
 
 Mutating tools should execute only after deterministic backend validation and policy enforcement.
+
+Refund mutating tools should update only the owning purchase detail table for the product type being processed:
+
+* digital refund actions update `digital_purchase_details`
+* physical refund actions update `physical_purchase_details`
+* subscription refund actions update `subscription_purchase_details`
+
+No tool should create or depend on a standalone `refunds` table.
+
+Tools should not send database-derived refund deadlines. PostgreSQL triggers compute refund window fields from persisted purchase/detail state.
 
 ---
 

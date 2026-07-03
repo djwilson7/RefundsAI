@@ -200,17 +200,15 @@ def seed_purchase_details(connection: Connection) -> None:
                     delivered_at,
                     return_status,
                     carrier,
-                    tracking_number,
-                    accepted_by_carrier_at
+                    tracking_number
                 )
-                values (%s, %s, %s, %s, %s, %s, %s, %s)
+                values (%s, %s, %s, %s, %s, %s, %s)
                 on conflict (purchase_id) do update
                 set scheduled_delivery_at = excluded.scheduled_delivery_at,
                     delivered_at = excluded.delivered_at,
                     return_status = excluded.return_status,
                     carrier = excluded.carrier,
                     tracking_number = excluded.tracking_number,
-                    accepted_by_carrier_at = excluded.accepted_by_carrier_at,
                     updated_at = now()
                 """,
                 (
@@ -221,7 +219,6 @@ def seed_purchase_details(connection: Connection) -> None:
                     detail["return_status"],
                     detail["carrier"],
                     detail["tracking_number"],
-                    detail["accepted_by_carrier_at"],
                 ),
             )
 
@@ -232,14 +229,12 @@ def seed_purchase_details(connection: Connection) -> None:
                     id,
                     purchase_id,
                     period_start,
-                    period_end,
-                    cancelled_at
+                    period_end
                 )
-                values (%s, %s, %s, %s, %s)
+                values (%s, %s, %s, %s)
                 on conflict (purchase_id) do update
                 set period_start = excluded.period_start,
                     period_end = excluded.period_end,
-                    cancelled_at = excluded.cancelled_at,
                     updated_at = now()
                 """,
                 (
@@ -247,7 +242,6 @@ def seed_purchase_details(connection: Connection) -> None:
                     detail["purchase_id"],
                     detail["period_start"],
                     detail["period_end"],
-                    detail["cancelled_at"],
                 ),
             )
 
@@ -366,7 +360,6 @@ def build_purchase_detail_seed_rows(
                     "return_status": "not_requested",
                     "carrier": carriers[physical_index % len(carriers)],
                     "tracking_number": f"TRK-{purchase['order_number']}",
-                    "accepted_by_carrier_at": None,
                 }
             )
             continue
@@ -379,7 +372,6 @@ def build_purchase_detail_seed_rows(
                     "purchase_id": purchase["id"],
                     "period_start": format_seed_datetime(purchased_at),
                     "period_end": format_seed_datetime(purchased_at + timedelta(days=30)),
-                    "cancelled_at": None,
                 }
             )
 
@@ -521,6 +513,9 @@ def validate_purchase_detail_seed_rows(
         raise SeedDataError("Digital issued_code values must be unique.")
     if any(row["code_invalidated_at"] is not None for row in detail_rows["digital"]):
         raise SeedDataError("Digital code_invalidated_at values must remain null.")
+    for row in detail_rows["digital"]:
+        if row["code_redeemed"] and row["code_redeemed_at"] is None:
+            raise SeedDataError("Redeemed digital codes must include code_redeemed_at.")
 
     purchases_by_id = {purchase["id"]: purchase for purchase in purchases}
     for row in detail_rows["physical"]:
@@ -539,13 +534,9 @@ def validate_purchase_detail_seed_rows(
                 raise SeedDataError("Physical delivered_at must be on or before delivery.")
         if row["return_status"] != "not_requested":
             raise SeedDataError("Physical return_status must remain not_requested.")
-        if row["accepted_by_carrier_at"] is not None:
-            raise SeedDataError("Physical accepted_by_carrier_at must remain null.")
 
     for row in detail_rows["subscription"]:
         period_start = parse_seed_datetime(row["period_start"])
         period_end = parse_seed_datetime(row["period_end"])
         if period_end <= period_start:
             raise SeedDataError("Subscription period_end must be after period_start.")
-        if row["cancelled_at"] is not None:
-            raise SeedDataError("Subscription cancelled_at must remain null.")

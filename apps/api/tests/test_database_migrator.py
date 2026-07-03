@@ -42,6 +42,12 @@ create_physical_purchase_details = importlib.import_module(
 create_subscription_purchase_details = importlib.import_module(
     "refunds_ai_api.database.migrations.008_create_subscription_purchase_details"
 )
+expand_purchase_details_for_refund_state = importlib.import_module(
+    "refunds_ai_api.database.migrations.009_expand_purchase_details_for_refund_state"
+)
+add_refund_deadline_triggers = importlib.import_module(
+    "refunds_ai_api.database.migrations.010_add_refund_deadline_triggers"
+)
 
 
 class StubCursor:
@@ -145,7 +151,7 @@ def test_discover_migrations_returns_ordered_modules() -> None:
     migration_ids = [migration.migration_id for migration in discover_migrations()]
 
     assert migration_ids == sorted(migration_ids)
-    assert migration_ids[:9] == [
+    assert migration_ids[:11] == [
         "000_schema_foundation",
         "001_create_users",
         "002_create_roles",
@@ -155,6 +161,8 @@ def test_discover_migrations_returns_ordered_modules() -> None:
         "006_create_digital_purchase_details",
         "007_create_physical_purchase_details",
         "008_create_subscription_purchase_details",
+        "009_expand_purchase_details_for_refund_state",
+        "010_add_refund_deadline_triggers",
     ]
 
 
@@ -357,7 +365,6 @@ def test_build_purchase_detail_seed_rows_matches_lifecycle_contract() -> None:
         assert row["return_status"] == "not_requested"
         assert row["carrier"] is not None
         assert row["tracking_number"] is not None
-        assert row["accepted_by_carrier_at"] is None
 
         if scheduled_delivery_at <= seeds.PURCHASE_DETAIL_SEED_NOW:
             assert row["delivered_at"] == row["scheduled_delivery_at"]
@@ -375,7 +382,6 @@ def test_build_purchase_detail_seed_rows_matches_lifecycle_contract() -> None:
         purchased_at = datetime.fromisoformat(purchase["purchased_at"].replace("Z", "+00:00"))
         assert period_start == purchased_at
         assert period_end > period_start
-        assert row["cancelled_at"] is None
 
     seeds.validate_purchase_detail_seed_rows(purchases, detail_rows)
 
@@ -433,6 +439,16 @@ def test_seed_entry_point_seeds_identity_data() -> None:
     assert "on conflict (sku) do update" in executed_sql
     assert "on conflict (order_number) do update" in executed_sql
     assert "on conflict (purchase_id) do update" in executed_sql
+    assert "code_delivered_at" not in executed_sql
+    assert "refund_lock_reason" not in executed_sql
+    assert "return_requested_at" not in executed_sql
+    assert "return_authorized_at" not in executed_sql
+    assert "return_received_at" not in executed_sql
+    assert "return_rejected_at" not in executed_sql
+    assert "return_rejection_reason" not in executed_sql
+    assert "service_ended_at" not in executed_sql
+    assert "auto_renew" not in executed_sql
+    assert "refund_proration_mode" not in executed_sql
 
 
 def test_schema_foundation_migration_creates_extensions_metadata_and_index() -> None:
@@ -711,3 +727,81 @@ def test_create_subscription_purchase_details_migration_creates_one_to_one_exten
         in executed_sql
     )
     assert "create policy subscription_purchase_details_service_role_all" in executed_sql
+
+
+def test_expand_purchase_details_for_refund_state_adds_authoritative_columns() -> None:
+    connection = StubConnection()
+
+    expand_purchase_details_for_refund_state.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert "alter table public.purchases" in executed_sql
+    assert "drop constraint if exists purchases_status_check" in executed_sql
+    assert "check (status in ('completed', 'cancelled'))" in executed_sql
+    assert "alter table public.digital_purchase_details" in executed_sql
+    assert "add column if not exists code_delivered_at timestamptz null" in executed_sql
+    assert "add column if not exists refund_lock_reason text null" in executed_sql
+    assert "digital_purchase_details_redeemed_at_check" in executed_sql
+    assert "code_redeemed = false" in executed_sql
+    assert "code_redeemed_at is not null" in executed_sql
+    assert "digital_purchase_details_refund_lock_reason_idx" in executed_sql
+
+    assert "alter table public.physical_purchase_details" in executed_sql
+    assert "add column if not exists return_requested_at timestamptz null" in executed_sql
+    assert "add column if not exists return_authorized_at timestamptz null" in executed_sql
+    assert "add column if not exists return_received_at timestamptz null" in executed_sql
+    assert "add column if not exists return_rejected_at timestamptz null" in executed_sql
+    assert "add column if not exists return_rejection_reason text null" in executed_sql
+    assert "drop constraint if exists physical_purchase_details_return_status_check" in executed_sql
+    assert "'authorized'" in executed_sql
+    assert "'received'" in executed_sql
+    assert "'rejected'" in executed_sql
+    assert "physical_purchase_details_rejection_check" in executed_sql
+    assert "return_rejected_at is not null" in executed_sql
+    assert "return_rejection_reason is not null" in executed_sql
+    assert "physical_purchase_details_return_requested_at_idx" in executed_sql
+
+    assert "alter table public.subscription_purchase_details" in executed_sql
+    assert "add column if not exists service_ended_at timestamptz null" in executed_sql
+    assert "add column if not exists auto_renew boolean not null default true" in executed_sql
+    assert (
+        "add column if not exists refund_proration_mode text not null default 'none'"
+        in executed_sql
+    )
+    assert "subscription_purchase_details_proration_check" in executed_sql
+    assert "refund_proration_mode in ('none', 'full', 'prorated')" in executed_sql
+    assert "subscription_purchase_details_proration_mode_idx" in executed_sql
+
+
+def test_add_refund_deadline_triggers_derives_policy_fields_in_database() -> None:
+    connection = StubConnection()
+
+    add_refund_deadline_triggers.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert "add column if not exists refund_window_expires_at timestamptz null" in executed_sql
+    assert "full_refund_window_expires_at timestamptz null" in executed_sql
+
+    assert "public.set_digital_purchase_refund_fields()" in executed_sql
+    assert "purchase_purchased_at + interval '15 days'" in executed_sql
+    assert "purchase_purchased_at + interval '5 minutes'" in executed_sql
+    assert "new.refund_lock_reason := coalesce" in executed_sql
+    assert "new.refund_lock_reason := null" in executed_sql
+    assert "create trigger set_digital_purchase_refund_fields" in executed_sql
+
+    assert "public.set_physical_purchase_refund_fields()" in executed_sql
+    assert "purchase_purchased_at + interval '30 days'" in executed_sql
+    assert "create trigger set_physical_purchase_refund_fields" in executed_sql
+
+    assert "public.set_subscription_purchase_refund_fields()" in executed_sql
+    assert "purchase_purchased_at + interval '48 hours'" in executed_sql
+    assert "new.refund_window_expires_at := new.period_end" in executed_sql
+    assert "new.auto_renew := false" in executed_sql
+    assert "create trigger set_subscription_purchase_refund_fields" in executed_sql
+
+    assert "alter column refund_window_expires_at set not null" in executed_sql
+    assert "alter column code_delivered_at set not null" in executed_sql
+    assert "digital_purchase_details_refund_window_idx" in executed_sql
+    assert "physical_purchase_details_refund_window_idx" in executed_sql
+    assert "subscription_purchase_details_refund_window_idx" in executed_sql
+    assert "subscription_purchase_details_full_refund_window_idx" in executed_sql

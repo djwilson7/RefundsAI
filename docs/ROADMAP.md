@@ -134,25 +134,23 @@ Successfully verify:
 
 ---
 
-# v0.2.0 — Backend Foundation
+# v0.2.0 — Database Schema Integration
 
-**Status:** In Progress
+**Status:** Complete
 
 ## Objective
 
-Build the backend foundation that supports deterministic business logic, database operations, and future AI orchestration.
+Build the database schema, migration flow, seed data, and database-owned lifecycle state needed by future backend services, frontend experiences, and AI orchestration.
+
+This milestone is focused on durable data structures and realistic mock data. Backend business services, API contracts, and LangGraph orchestration are intentionally deferred to v0.3.0.
 
 ### Planned Deliverables
 
 * [x] Backend-owned database migration runner
-* [ ] Complete database schema
-* [ ] Complete migration set
-* [ ] Complete seed data set
-* [ ] Repository pattern
-* [ ] Business service layer
-* [ ] API contracts
-* [ ] Shared models
-* [ ] Configuration layer
+* [x] Complete database schema
+* [x] Complete migration set
+* [x] Complete seed data set
+* [x] Refund management architecture
 
 #### Database Foundation Progress
 
@@ -168,7 +166,8 @@ Build the backend foundation that supports deterministic business logic, databas
 * [x] Define product-type-specific purchase detail migrations.
 * [x] Deploy products and purchases migrations to Supabase.
 * [x] Deploy purchase detail migrations to Supabase.
-* [ ] Define and deploy remaining v0.2.0 business tables.
+* [x] Expand purchase detail tables with embedded refund lifecycle fields and database-managed deadline triggers.
+* [x] Confirm v0.2.0 schema scope is complete before backend service work begins.
 
 #### Seed Data Progress
 
@@ -183,24 +182,74 @@ Build the backend foundation that supports deterministic business logic, databas
 * [x] Generate 180 customer purchases across the seeded customer users.
 * [x] Define deterministic purchase detail seed generation for digital, physical, and subscription lifecycle state.
 * [x] Seed purchase detail lifecycle rows for digital, physical, and subscription purchases.
-* [ ] Define and seed remaining v0.2.0 mock data.
+* [x] Update seed data to rely on database-managed refund lifecycle defaults and deadlines.
+* [x] Confirm v0.2.0 seed scope is complete before backend service work begins.
+
+#### Refund Management Progress
+
+* [x] Decide that refund state is owned by purchase detail tables.
+* [x] Deploy refund lifecycle fields to purchase detail tables.
+* [x] Deploy database triggers for refund deadline and derived field calculation.
+* [x] Prepare schema for backend refund policy services.
+* [x] Prepare schema for future refund API endpoints.
+* [x] Prepare schema for future AI refund tools.
 
 ### Validation
 
-* [ ] Complete database schema successfully deployed.
-* [ ] Complete seed data generated.
+* [x] Complete database schema successfully deployed.
+* [x] Complete seed data generated.
 * [x] Backend lint passing.
 * [x] Backend tests passing.
 * [x] Coverage maintained above project targets.
-* [ ] API contracts implemented.
+* [x] Database-backed refund state validated.
 
 ---
 
-# v0.3.0 — Customer Experience
+# v0.3.0 — Backend Business Logic Foundation
 
 ## Objective
 
-Build the customer-facing experience independent of AI functionality.
+Build the backend service layer on top of the v0.2.0 database schema.
+
+This milestone is primarily focused on making business logic sound, testable, and accessible through clear API contracts. The frontend does not need to be connected yet, but the backend should expose stable endpoints and response models that the frontend can call in v0.4.0.
+
+The backend services should read from the concrete tables introduced in v0.2.0, including `users`, `roles`, `user_roles`, `products`, `purchases`, `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details`.
+
+This milestone also prepares deterministic services for later AI orchestration. LangGraph nodes and AI tools should call backend services rather than reaching into database logic directly.
+
+### Planned Deliverables
+
+* [ ] Repository pattern
+* [ ] Business service layer
+* [ ] API contracts
+* [ ] Shared request and response models
+* [ ] Identity and role lookup services over `users`, `roles`, and `user_roles`
+* [ ] Product catalog services over `products`
+* [ ] Purchase history services over `purchases`
+* [ ] Purchase detail services over `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details`
+* [ ] Refund policy evaluation services
+* [ ] Refund API endpoints that expose evaluated eligibility and execute approved workflows
+* [ ] Customer and admin data access endpoints
+* [ ] LangGraph node definitions for backend tool orchestration
+* [ ] Tool contracts for refund eligibility lookup and policy-approved refund execution
+* [ ] Backend integration tests for repositories, services, policy, API, and graph-node boundaries
+
+### Validation
+
+* [ ] API contracts implemented.
+* [ ] Repository and service layers validated.
+* [ ] Backend services return frontend-ready response shapes.
+* [ ] Refund eligibility and lifecycle transitions covered by tests.
+* [ ] LangGraph nodes can call backend services through stable contracts.
+* [ ] Backend lint, build, tests, and coverage passing.
+
+---
+
+# v0.4.0 — Customer Experience
+
+## Objective
+
+Build the customer-facing experience on top of the backend API contracts from v0.3.0.
 
 ### Planned Deliverables
 
@@ -208,6 +257,7 @@ Build the customer-facing experience independent of AI functionality.
 * [ ] Purchase history
 * [ ] Purchase detail pages
 * [ ] Refund eligibility views
+* [ ] Refund request experience
 * [ ] Navigation
 * [ ] Shared UI components
 * [ ] Persistent support panel
@@ -221,17 +271,18 @@ Build the customer-facing experience independent of AI functionality.
 
 ---
 
-# v0.4.0 — AI Orchestration
+# v0.5.0 — AI Orchestration
 
 ## Objective
 
-Implement the AI orchestration layer responsible for customer interactions and deterministic workflow execution.
+Implement the AI orchestration layer responsible for customer interactions and deterministic workflow execution, using the backend services and LangGraph nodes established in v0.3.0.
 
 ### Planned Deliverables
 
 * [ ] OpenAI integration
 * [ ] Tool/function calling
 * [ ] Conversation management
+* [ ] LangGraph workflow assembly
 * [ ] Refund workflow orchestration
 * [ ] Policy-aware decision flow
 * [ ] Audit event generation
@@ -246,7 +297,7 @@ Implement the AI orchestration layer responsible for customer interactions and d
 
 ---
 
-# v0.5.0 — Administrative Experience
+# v0.6.0 — Administrative Experience
 
 ## Objective
 
@@ -271,7 +322,7 @@ Provide administrators with operational visibility into customer interactions an
 
 ---
 
-# v0.6.0 — Voice Support
+# v0.7.0 — Voice Support
 
 ## Objective
 

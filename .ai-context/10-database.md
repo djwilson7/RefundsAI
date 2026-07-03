@@ -13,9 +13,12 @@ The database remains the authoritative source for all persistent business state.
 # Database Principles
 
 * The database is the system of record.
+* The database is the source of truth for refund eligibility facts.
 * Business services own all database interactions.
 * The frontend never communicates directly with the database.
 * The language model retrieves database information exclusively through backend tools.
+* Refund lifecycle state is owned by purchase detail tables, not by a standalone `refunds` table.
+* No duplicate refund state should be introduced outside the owning purchase detail table.
 
 ---
 
@@ -309,7 +312,7 @@ Columns
 
 Constraints
 `purchase_type` must be one of `physical`, `digital`, or `subscription`.
-`status` must be one of `completed`, `refund_pending`, `refunded`, or `cancelled`.
+`status` must be one of `completed` or `cancelled`.
 `amount_cents` must be greater than or equal to zero.
 `order_number` is unique through `purchases_order_number_idx`.
 
@@ -325,6 +328,9 @@ Only fields returned through documented backend APIs.
 
 Backend
 Full record.
+
+Refund Exclusion
+Refund lifecycle state does not belong on `purchases`. Refund-specific state such as digital entitlement invalidation, physical return progress, and subscription cancellation or proration belongs to the matching purchase detail table.
 
 ## Purchase Query Patterns
 
@@ -376,11 +382,11 @@ The purchase detail seed step derives one detail row from every deterministic pu
 * 90 `physical_purchase_details` rows
 * 36 `subscription_purchase_details` rows
 
-Digital purchase detail rows issue one unique code per digital purchase. Most codes remain unredeemed, some are marked redeemed, and `code_invalidated_at` remains null.
+Digital purchase detail rows issue one unique code per digital purchase. Most codes remain unredeemed, some are marked redeemed, and `code_invalidated_at` remains null. Database triggers populate `code_delivered_at`, `refund_window_expires_at`, and the DB-derived `refund_lock_reason` for redeemed codes.
 
-Physical purchase detail rows set `scheduled_delivery_at`, keep `return_status = 'not_requested'`, populate carrier and tracking values, and keep `accepted_by_carrier_at` null. `delivered_at` is set only when `scheduled_delivery_at` is on or before the detail seed reference time; future scheduled deliveries keep `delivered_at` null.
+Physical purchase detail rows set `scheduled_delivery_at`, keep `return_status = 'not_requested'`, and populate carrier and tracking values. `delivered_at` is set only when `scheduled_delivery_at` is on or before the detail seed reference time; future scheduled deliveries keep `delivered_at` null. Database triggers populate `refund_window_expires_at`.
 
-Subscription purchase detail rows set `period_start` to `purchased_at`, set `period_end` to 30 days after `purchased_at`, and keep `cancelled_at` null.
+Subscription purchase detail rows set `period_start` to `purchased_at` and set `period_end` to 30 days after `purchased_at`. Database defaults and triggers populate cancellation defaults, `full_refund_window_expires_at`, and `refund_window_expires_at`.
 
 The seed validator confirms detail row counts match purchase counts by type, each purchase receives exactly one matching type detail row, no purchase receives multiple type detail rows, digital issued codes are unique, physical delivery timestamps obey the delivery-window rules, and subscription periods are ordered correctly.
 
@@ -408,13 +414,35 @@ For v1.0, cross-table exclusivity is not enforced with database triggers. Seed t
 ## digital_purchase_details
 
 Purpose
-Mutable state for digital purchases.
+Mutable lifecycle state for digital purchases, including code issuance, redemption, invalidation, and refund-blocking facts.
 
 Owner
 Backend
 
 Columns
-`id`, `purchase_id`, `issued_code`, `code_redeemed`, `code_redeemed_at`, `code_invalidated_at`, `created_at`, `updated_at`
+`id`, `purchase_id`, `issued_code`, `code_redeemed`, `code_redeemed_at`, `code_invalidated_at`, `code_delivered_at`, `refund_window_expires_at`, `refund_lock_reason`, `created_at`, `updated_at`
+
+Constraints
+`issued_code` must be unique.
+`code_redeemed` defaults to `false`.
+If `code_redeemed = true`, `code_redeemed_at` must be present.
+`code_invalidated_at` and `refund_lock_reason` may be null.
+`code_delivered_at` and `refund_window_expires_at` are database-managed and required after trigger backfill.
+
+Database-Managed Fields
+On insert or relevant update, `set_digital_purchase_refund_fields` derives:
+
+* `refund_window_expires_at = purchases.purchased_at + 15 days`
+* `code_delivered_at = purchases.purchased_at + 5 minutes` when not explicitly provided
+* `refund_lock_reason = 'code_redeemed'` when `code_redeemed = true`
+
+Refund Rules
+Digital refund policy depends on persisted detail state:
+
+* A digital purchase can be considered for refund only if the code has not been redeemed.
+* If a refund is approved, the issued code is invalidated by setting `code_invalidated_at`.
+* If `code_redeemed = true`, `refund_lock_reason` should explain the refund block.
+* If `code_invalidated_at` is present, the code should no longer be usable.
 
 Relationships
 `digital_purchase_details.purchase_id` references `purchases(id)` with `on delete cascade`.
@@ -428,16 +456,17 @@ Full record.
 ## physical_purchase_details
 
 Purpose
-Mutable state for physical purchase delivery and return flow.
+Mutable lifecycle state for physical purchases, including delivery, return authorization, carrier acceptance, and return completion facts.
 
 Owner
 Backend
 
 Columns
-`id`, `purchase_id`, `scheduled_delivery_at`, `delivered_at`, `return_status`, `carrier`, `tracking_number`, `accepted_by_carrier_at`, `created_at`, `updated_at`
+`id`, `purchase_id`, `scheduled_delivery_at`, `delivered_at`, `return_status`, `carrier`, `tracking_number`, `accepted_by_carrier_at`, `return_requested_at`, `return_authorized_at`, `return_received_at`, `return_rejected_at`, `return_rejection_reason`, `refund_window_expires_at`, `created_at`, `updated_at`
 
 Constraints
-`return_status` must be one of `not_requested`, `requested`, `accepted_by_carrier`, or `cancelled`.
+`return_status` must be one of `not_requested`, `requested`, `authorized`, `accepted_by_carrier`, `received`, `rejected`, or `cancelled`.
+If `return_status = 'rejected'`, `return_rejected_at` and `return_rejection_reason` must be present.
 
 Delivery timing is validated against the owning `purchases.purchased_at` value:
 
@@ -449,6 +478,28 @@ Delivery timing is validated against the owning `purchases.purchased_at` value:
 * When present, `delivered_at` must be on or before `now()`.
 
 These delivery timing rules are enforced through a trigger because PostgreSQL table check constraints cannot reference `purchases.purchased_at`.
+
+Database-Managed Fields
+On insert or relevant update, `set_physical_purchase_refund_fields` derives:
+
+* `refund_window_expires_at = purchases.purchased_at + 30 days`
+
+Return Lifecycle Rules
+
+* `return_requested_at` may be null until the customer requests a return.
+* `return_authorized_at` may be null until the backend authorizes the return.
+* `accepted_by_carrier_at` may be null until the carrier accepts the returned item.
+* `return_received_at` may be null until the returned item is received.
+* `return_rejected_at` may be null unless the return is rejected.
+* `return_rejection_reason` may be null unless the return is rejected.
+
+Refund Rules
+Physical refund policy depends on persisted detail state:
+
+* A physical purchase can be considered for refund if it is within the 30-day refund window and return state satisfies policy.
+* The return package must be accepted by the designated carrier before the refund begins processing.
+* For v1.0, the primary processing gate is `accepted_by_carrier_at is not null`.
+* If the return is rejected, `return_status` should be `rejected`, `return_rejected_at` should be present, and `return_rejection_reason` should explain why.
 
 Relationships
 `physical_purchase_details.purchase_id` references `purchases(id)` with `on delete cascade`.
@@ -462,16 +513,36 @@ Full record.
 ## subscription_purchase_details
 
 Purpose
-Mutable state for subscription purchase periods.
+Mutable lifecycle state for subscription purchases, including billing period, cancellation, service end, renewal, and refund-proration facts.
 
 Owner
 Backend
 
 Columns
-`id`, `purchase_id`, `period_start`, `period_end`, `cancelled_at`, `created_at`, `updated_at`
+`id`, `purchase_id`, `period_start`, `period_end`, `cancelled_at`, `service_ended_at`, `auto_renew`, `refund_proration_mode`, `full_refund_window_expires_at`, `refund_window_expires_at`, `created_at`, `updated_at`
 
 Constraints
 `period_end` must be greater than `period_start`.
+`auto_renew` defaults to `true`.
+`refund_proration_mode` must be one of `none`, `full`, or `prorated`.
+`full_refund_window_expires_at` and `refund_window_expires_at` are database-managed and required after trigger backfill.
+
+Database-Managed Fields
+On insert or relevant update, `set_subscription_purchase_refund_fields` derives:
+
+* `full_refund_window_expires_at = purchases.purchased_at + 48 hours`
+* `refund_window_expires_at = period_end`
+* `auto_renew = false` when `cancelled_at` is present
+* `service_ended_at = cancelled_at` when cancellation is present and no service end is explicitly provided
+
+Refund Rules
+Subscription refund policy depends on persisted detail state:
+
+* A subscription can be considered for refund only while the current billing period is active.
+* A subscription is active when the evaluation timestamp is greater than or equal to `period_start` and less than or equal to `period_end`.
+* Full refunds may be available inside the initial 48-hour window when the subscription remains active.
+* After 48 hours, eligible refunds are calculated from unused time in the current active billing period.
+* If a refund is approved, the backend may set `cancelled_at`, `service_ended_at`, `auto_renew = false`, and `refund_proration_mode`.
 
 Relationships
 `subscription_purchase_details.purchase_id` references `purchases(id)` with `on delete cascade`.
@@ -495,7 +566,7 @@ Customer
     │
     ├── Orders
     │      └── Order Items
-    │               └── Refund Eligibility
+    │               └── Purchase Detail State
     │
     ├── Support Sessions
     │      └── Support Messages
@@ -536,7 +607,7 @@ Example:
 ```text id="c6x1js"
 2026-07-03
 
-Added refund_eligibility table.
+Added refund policy fields to purchase detail tables.
 
 Reason
 
@@ -629,7 +700,23 @@ Added purchase detail seed generation and execution.
 
 Reason
 
-Populate product lifecycle state for digital codes, physical delivery state, and subscription periods without touching refund state.
+Populate product lifecycle state for digital codes, physical delivery state, and subscription periods before active refund workflows are introduced.
+
+2026-07-03
+
+Embedded refund state into purchase detail tables.
+
+Reason
+
+Make the database authoritative for refund eligibility by storing product-type-specific refund facts on `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details`, while preventing duplicate refund state in `purchases` or a standalone `refunds` table.
+
+2026-07-03
+
+Added database-managed refund deadline triggers.
+
+Reason
+
+Compute refund deadlines and derivable refund defaults inside PostgreSQL so backend seed and future service calls only send event facts, while the database owns deadline calculation and derived refund fields.
 
 --- 
 

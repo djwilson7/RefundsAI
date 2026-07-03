@@ -75,6 +75,14 @@ Business policy remains authoritative.
 
 The language model orchestrates workflows rather than making business decisions.
 
+Refund eligibility is computed from persisted database state. The shared `purchases` table records purchase history, while each purchase type owns its own refund-blocking and refund-lifecycle facts in its detail table:
+
+* `digital_purchase_details`
+* `physical_purchase_details`
+* `subscription_purchase_details`
+
+The project intentionally does not use a standalone `refunds` table. Backend policy services load the purchase and its matching detail record, evaluate the policy, and persist any lifecycle updates back to the owning detail table. PostgreSQL triggers compute refund deadlines and derivable defaults from persisted purchase/detail state. AI tools expose backend-evaluated information rather than asking the model to infer eligibility from incomplete context.
+
 ---
 
 ## Technology Stack

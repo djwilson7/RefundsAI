@@ -24,7 +24,15 @@ Policy determines:
 * Product-specific behavior
 * Administrative review requirements
 
-The database and business services remain responsible for enforcing policy.
+The database stores the authoritative facts required for policy evaluation, and business services remain responsible for enforcing policy.
+
+Refund state is owned by purchase detail tables:
+
+* `digital_purchase_details`
+* `physical_purchase_details`
+* `subscription_purchase_details`
+
+No standalone `refunds` table should be introduced.
 
 ---
 
@@ -40,6 +48,12 @@ Example categories include:
 
 Each policy is maintained independently and evaluated according to the purchased item's type.
 
+Each policy consumes the matching purchase detail record:
+
+* Digital policy reads redemption, delivery, invalidation, and lock fields.
+* Physical policy reads delivery, return, carrier, and rejection fields.
+* Subscription policy reads billing period, cancellation, service end, renewal, and proration fields.
+
 ---
 
 # Policy Evaluation
@@ -50,6 +64,18 @@ The language model never evaluates policy directly.
 
 Instead, the model retrieves policy outcomes through backend tools and communicates those outcomes to customers or administrators.
 
+Refund evaluation flow:
+
+1. User requests refund.
+2. Backend loads the purchase.
+3. Backend loads the matching purchase detail record.
+4. Backend verifies the refund window.
+5. Backend evaluates product-specific policy.
+6. Backend executes the refund strategy.
+7. Backend persists updated refund state to the owning purchase detail table.
+
+Database triggers compute derivable refund fields such as refund window deadlines and default lock/proration fields. Backend services should send event facts and commands, not recompute or transmit values the database can derive from `purchases.purchased_at` or the detail row.
+
 ---
 
 # Business Services
@@ -58,7 +84,7 @@ Business services are responsible for:
 
 * Evaluating policy
 * Updating business state
-* Creating refund requests
+* Updating purchase detail refund lifecycle state
 * Preventing duplicate actions
 * Recording audit events
 
@@ -95,5 +121,6 @@ This allows policy to evolve independently while maintaining consistent system b
 * Business logic remains deterministic.
 * Policy enforcement occurs in backend services.
 * The database remains the authoritative system of record.
+* Refund eligibility is computed from persisted purchase detail state.
 * The language model communicates policy rather than defining it.
 * Policy should be modular, reusable, and independently maintainable.

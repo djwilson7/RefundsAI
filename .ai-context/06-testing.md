@@ -54,6 +54,27 @@ Changes to application behavior should be reflected in the test suite.
 
 ---
 
+# Refund Policy Coverage
+
+Refund management tests should validate database-backed policy behavior rather than model reasoning.
+
+Expected coverage includes:
+
+* refund eligibility derived from purchase and purchase detail state
+* product-specific refund window validation
+* digital policy failures for redeemed codes
+* digital success paths that invalidate issued entitlements
+* physical policy failures for missing carrier acceptance, rejected returns, or expired windows
+* physical success paths that progress return lifecycle state
+* subscription full-refund and prorated-refund paths
+* subscription failures for expired or inactive billing periods
+* invalid state transitions, such as rejected physical returns without a rejection reason
+* prevention of duplicate refund state outside the owning detail table
+
+Tests should assert that backend services consume `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details` directly when evaluating refund policy.
+
+---
+
 # Validation
 
 Before completing work:

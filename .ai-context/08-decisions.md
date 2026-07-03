@@ -157,3 +157,29 @@ Keeping all of those fields on `purchases` would turn the primary purchase table
 The application should treat `purchases` as the shared lookup and history table, then load exactly one matching detail row based on `purchases.purchase_type`. For v1.0, cross-table exclusivity is validated in seed tests and backend service logic rather than enforced through database triggers. If production scope requires stronger guarantees, add database-level enforcement after the service behavior is stable.
 
 Physical delivery timing is a narrower integrity rule and is enforced in the database with a trigger because it compares `physical_purchase_details` values against `purchases.purchased_at`. This preserves the decision to avoid cross-table exclusivity triggers while still keeping delivery-window rules authoritative.
+
+---
+
+# Decision 008: Refund State Lives in Purchase Detail Tables
+
+### Decision
+
+Refund state is embedded in the product-type-specific purchase detail tables instead of using a standalone `refunds` table.
+
+The owning tables are:
+
+* `digital_purchase_details`
+* `physical_purchase_details`
+* `subscription_purchase_details`
+
+The shared `purchases` table remains purchase history and should not duplicate refund lifecycle state.
+
+### Reason
+
+Refund policy depends on different facts for each product type. Digital purchases depend on code delivery, redemption, invalidation, and refund lock reasons. Physical purchases depend on delivery, return authorization, carrier acceptance, receipt, and rejection state. Subscriptions depend on billing period, cancellation, service end, renewal, and proration state.
+
+Embedding those facts in the detail table that owns the product lifecycle avoids duplicated state, keeps ownership with the purchase type, simplifies policy evaluation, makes SQL state authoritative, reduces synchronization problems, and allows backend services and AI tools to consume the same database-backed facts.
+
+### Consequence
+
+No standalone `refunds` table should be introduced under the current architecture. Refund eligibility is computed by backend policy services from `purchases` plus the matching purchase detail record. AI tools expose evaluated information from backend services and must not ask the model to infer eligibility from partial context.

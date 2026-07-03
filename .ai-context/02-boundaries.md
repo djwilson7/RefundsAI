@@ -59,6 +59,7 @@ The frontend is not an authoritative source for:
 * refund eligibility
 * policy decisions
 * financial state
+* refund lifecycle state
 
 Business data should always be retrieved through backend APIs.
 
@@ -76,6 +77,8 @@ The backend is responsible for:
 * tool execution
 * audit logging
 * database communication
+* loading purchase detail state for refund evaluation
+* persisting approved refund lifecycle updates to the owning detail table
 
 The backend is the only layer permitted to communicate with external AI services and the database.
 
@@ -98,6 +101,7 @@ The language model may automate business workflows only when deterministic polic
 The language model is not the authoritative source for:
 
 * refund eligibility
+* refund lifecycle state
 * customer records
 * financial state
 * business policy
@@ -111,6 +115,8 @@ Authoritative information must always be retrieved through backend tools.
 
 Business policy is the authoritative source for operational decisions.
 
+Refund eligibility is determined from persisted database facts plus deterministic backend policy evaluation. The database owns the state required to evaluate policy; backend services own the evaluation and valid state transitions.
+
 Policy determines:
 
 * refund eligibility
@@ -120,6 +126,8 @@ Policy determines:
 * product-specific rules
 
 Neither the frontend nor the language model may override business policy.
+
+No standalone `refunds` table should be introduced. Refund state belongs to `digital_purchase_details`, `physical_purchase_details`, or `subscription_purchase_details` depending on the purchase type.
 
 ---
 
@@ -173,3 +181,18 @@ Frontend
 ```
 
 Each layer should operate only within its defined responsibilities.
+
+## Refund Authority
+
+For refund workflows, the authority order is:
+
+```text
+Database detail state
+-> Business policy
+-> Business services
+-> Backend APIs and tools
+-> Language model
+-> Frontend
+```
+
+The purchase detail tables hold the facts. Backend services apply policy to those facts. The language model and frontend receive evaluated outcomes only.

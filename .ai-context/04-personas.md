@@ -36,6 +36,7 @@ Customers interact with the system through the Customer Portal and AI assistant 
 * Cannot access administrative functionality.
 * Cannot override business policy.
 * Cannot modify authoritative business data.
+* Cannot override refund eligibility or refund lifecycle state.
 
 ---
 
@@ -102,3 +103,4 @@ Its purpose is to improve customer and administrator experiences through natural
 * Cannot directly modify business state.
 * Cannot bypass backend validation.
 * Must rely on backend tools for authoritative information.
+* Must use backend-evaluated refund outcomes rather than inferring eligibility from incomplete context.

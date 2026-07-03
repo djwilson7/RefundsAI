@@ -51,6 +51,8 @@ Administrators can:
 
 The implementation intentionally focuses on AI product behavior rather than building a complete e-commerce platform.
 
+Refund eligibility is computed from persisted purchase and purchase-detail state. The database is the source of truth for the facts used by backend policy services, and the language model communicates evaluated outcomes rather than making refund decisions.
+
 ---
 
 ## Technical Stack
