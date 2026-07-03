@@ -91,3 +91,43 @@ Both human contributors and AI agents require a centralized, authoritative sourc
 ### Consequence
 
 Architectural changes should be reflected in `.ai-context/` as part of implementation to keep documentation synchronized with the codebase.
+
+---
+
+# Decision 005: Identity Layer Established
+
+### Decision
+
+The system uses a normalized identity model consisting of `users`, `roles`, and `user_roles`.
+
+### Reason
+
+This separates identity from permissions while avoiding duplicated customer/admin tables. The schema supports mocked authentication today while remaining compatible with future production authentication.
+
+### Consequence
+
+All future domain entities reference `users.id` as the authoritative owner. Role-based behavior is determined through `user_roles`, allowing the application to distinguish customer and administrator experiences without embedding role information directly into the `users` table.
+
+---
+
+# Decision 006: Consolidated Mock Product Catalog
+
+### Decision
+
+The project uses one consolidated `products` table for physical products, digital products, and subscription offerings. Product and purchase seed data is mocked with enough variety and distribution to approximate real customer purchase history:
+
+* 14 physical products
+* 10 digital products
+* 6 subscription products
+* 180 seeded purchases across 15 customer users
+* purchase distribution weighted toward physical products, then digital products, then subscriptions
+
+### Reason
+
+RefundsAI needs realistic catalog and purchase-history data for the customer UI, admin views, reporting, and agent responses. For this project, a universal limited catalog table keeps the schema understandable while still providing enough variety to mimic real-world customer behavior.
+
+In a production catalog, physical inventory, digital goods, and subscriptions would likely deserve separate tables or subtype-specific structures because they have different operational metadata, lifecycle rules, fulfillment concerns, and expected volume. This project intentionally avoids that additional catalog complexity until the product scope requires it.
+
+### Consequence
+
+Product-specific behavior should use `products.product_type` and `purchases.purchase_type` rather than introducing separate product tables during the current scope. The mock catalog should remain intentionally limited and representative, not a full ecommerce inventory model. If future scope requires production-scale catalog behavior, split product types into more specialized tables or subtype models before adding complex inventory, entitlement, or subscription metadata.
