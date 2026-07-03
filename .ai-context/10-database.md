@@ -308,12 +308,14 @@ Owner
 Backend
 
 Columns
-`id`, `user_id`, `product_id`, `order_number`, `purchase_type`, `amount_cents`, `purchased_at`, `status`, `created_at`, `updated_at`
+`id`, `user_id`, `product_id`, `order_number`, `purchase_type`, `amount_cents`, `purchased_at`, `status`, `refund_requested_at`, `refunded_at`, `refund_amount_cents`, `refund_outcome`, `created_at`, `updated_at`
 
 Constraints
 `purchase_type` must be one of `physical`, `digital`, or `subscription`.
-`status` must be one of `completed` or `cancelled`.
+`status` must be one of `completed`, `subscribed`, `redeemed`, `refund_pending`, `refunded`, or `cancelled`.
 `amount_cents` must be greater than or equal to zero.
+`refund_amount_cents` must be null or greater than or equal to zero.
+`refund_outcome` must be null, `full`, or `prorated`.
 `order_number` is unique through `purchases_order_number_idx`.
 
 Relationships
@@ -329,8 +331,14 @@ Only fields returned through documented backend APIs.
 Backend
 Full record.
 
-Refund Exclusion
-Refund lifecycle state does not belong on `purchases`. Refund-specific state such as digital entitlement invalidation, physical return progress, and subscription cancellation or proration belongs to the matching purchase detail table.
+Refund State Boundary
+`purchases.status` is a workflow summary used for purchase cards and broad lifecycle filtering. Product-type-specific refund state such as digital entitlement invalidation, physical return progress, and subscription cancellation or proration belongs to the matching purchase detail table.
+
+Issued Refund Facts
+`refund_requested_at` records the successful backend preparation timestamp. `refunded_at`, `refund_amount_cents`, and `refund_outcome` record the final mock fund issuance facts. Already-refunded policy decisions must read these persisted values rather than recomputing refund amount or outcome.
+
+Refund Mutation Guards
+Refund workflow writes are guarded with expected SQL state. Duplicate calls, stale reads, and partial lifecycle state should affect zero rows and raise a repository conflict, causing the surrounding transaction to roll back.
 
 ## Purchase Query Patterns
 
@@ -462,7 +470,7 @@ Owner
 Backend
 
 Columns
-`id`, `purchase_id`, `scheduled_delivery_at`, `delivered_at`, `return_status`, `carrier`, `tracking_number`, `accepted_by_carrier_at`, `return_requested_at`, `return_authorized_at`, `return_received_at`, `return_rejected_at`, `return_rejection_reason`, `refund_window_expires_at`, `created_at`, `updated_at`
+`id`, `purchase_id`, `scheduled_delivery_at`, `delivered_at`, `return_status`, `carrier`, `tracking_number`, `return_barcode_generated`, `return_label_created_at`, `accepted_by_carrier_at`, `return_requested_at`, `return_authorized_at`, `return_received_at`, `return_rejected_at`, `return_rejection_reason`, `refund_window_expires_at`, `created_at`, `updated_at`
 
 Constraints
 `return_status` must be one of `not_requested`, `requested`, `authorized`, `accepted_by_carrier`, `received`, `rejected`, or `cancelled`.
@@ -487,6 +495,8 @@ On insert or relevant update, `set_physical_purchase_refund_fields` derives:
 Return Lifecycle Rules
 
 * `return_requested_at` may be null until the customer requests a return.
+* `return_barcode_generated` defaults to false and becomes true when the backend prepares a physical return.
+* `return_label_created_at` may be null until the backend prepares a physical return.
 * `return_authorized_at` may be null until the backend authorizes the return.
 * `accepted_by_carrier_at` may be null until the carrier accepts the returned item.
 * `return_received_at` may be null until the returned item is received.
@@ -717,6 +727,22 @@ Added database-managed refund deadline triggers.
 Reason
 
 Compute refund deadlines and derivable refund defaults inside PostgreSQL so backend seed and future service calls only send event facts, while the database owns deadline calculation and derived refund fields.
+
+2026-07-03
+
+Added refund workflow preparation state.
+
+Reason
+
+Represent refund lifecycle as eligibility, preparation, and issuance stages. Re-expanded purchase status as a workflow summary and added physical return preparation fields for simulated return barcode and label creation.
+
+2026-07-03
+
+Added persisted refund issue facts and guarded mutation expectations.
+
+Reason
+
+Prevent duplicate or stale refund workflow mutations from rewriting timestamps or issuing ghost credits. `purchases` now records refund request and issued refund facts, while repository writes guard expected lifecycle state and treat rowcount mismatches as conflicts.
 
 --- 
 

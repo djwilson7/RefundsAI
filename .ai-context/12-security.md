@@ -82,7 +82,7 @@ Administrator access:
 
 Backend services determine what data may be returned for every request.
 
-Refund decisions occur only inside backend policy services. Clients may request a refund, but they cannot provide authoritative eligibility, lifecycle status, or refund outcome values.
+Refund decisions occur only inside backend policy services. Clients may request workflow actions, but they cannot provide authoritative eligibility, lifecycle status, refund outcome, refund amount, or refund deadline values.
 
 ---
 
@@ -111,6 +111,12 @@ The purchase detail tables enable row-level security when created. Their initial
 Refund lifecycle state is stored inside purchase detail tables. The backend service role is the only application path allowed to read or mutate this state. No standalone `refunds` table should be introduced, and no frontend Supabase client should be allowed to write refund eligibility or lifecycle fields.
 
 Refund deadline fields are database-managed through PostgreSQL triggers. Clients and AI tools must not provide authoritative deadline values.
+
+Refund preparation and issuance are separate backend-controlled operations. Fund issuance must not skip the type-specific preparation step, even when preparation is immediate for digital or subscription purchases.
+
+Refund workflow mutations are strict commands. Repository writes guard expected database state and raise conflicts when duplicate calls, stale reads, or partial lifecycle state prevent exactly one row from being updated. Routes expose those conflicts as endpoint-specific `409` responses instead of silently returning current state or rewriting timestamps.
+
+Issued mock refunds persist `refunded_at`, `refund_amount_cents`, and `refund_outcome` on `purchases`. Backend policy reads those persisted facts for already-refunded purchases so the system cannot forget or recompute issued credit after the status changes to `refunded`.
 
 ---
 

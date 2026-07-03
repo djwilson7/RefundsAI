@@ -219,29 +219,58 @@ This milestone also prepares deterministic services for later AI orchestration. 
 
 ### Planned Deliverables
 
-* [ ] Repository pattern
-* [ ] Business service layer
-* [ ] API contracts
-* [ ] Shared request and response models
-* [ ] Identity and role lookup services over `users`, `roles`, and `user_roles`
+* [x] Repository pattern
+* [x] Business service layer
+* [x] API contracts
+* [x] Shared request and response models
+* [x] Identity and role lookup services over `users`, `roles`, and `user_roles`
 * [ ] Product catalog services over `products`
-* [ ] Purchase history services over `purchases`
-* [ ] Purchase detail services over `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details`
-* [ ] Refund policy evaluation services
-* [ ] Refund API endpoints that expose evaluated eligibility and execute approved workflows
+* [x] Purchase history services over `purchases`
+* [x] Purchase detail services over `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details`
+* [x] Refund policy evaluation services
+* [x] Refund API endpoints that expose evaluated eligibility and execute approved workflows
 * [ ] Customer and admin data access endpoints
 * [ ] LangGraph node definitions for backend tool orchestration
 * [ ] Tool contracts for refund eligibility lookup and policy-approved refund execution
-* [ ] Backend integration tests for repositories, services, policy, API, and graph-node boundaries
+* [x] Backend tests for repositories, services, policy, API, and migration boundaries
+* [ ] Backend tests for graph-node boundaries
+
+#### Frontend Read Path Progress
+
+* [x] Add repository-backed read path for selectable mock users.
+* [x] Add `GET /api/users/mock`.
+* [x] Add `GET /api/users/{user_id}` with role information.
+* [x] Add `GET /api/users/{user_id}/purchases` with product metadata and `details_url`.
+* [x] Add `GET /api/purchases/{purchase_id}/details`.
+* [x] Resolve purchase detail tables internally from `purchases.purchase_type`.
+* [x] Keep frontend contract independent of digital, physical, and subscription detail table names.
+* [x] Document the first frontend read-path API contracts in `.ai-context/09-api.md`.
+* [x] Add backend unit tests for the first frontend read-path API contracts and detail-table resolution.
+
+#### Refund Eligibility Progress
+
+* [x] Add deterministic refund policy helper functions for physical, digital, and subscription purchases.
+* [x] Add read-only `GET /api/purchases/{purchase_id}/refund/eligibility`.
+* [x] Evaluate refund eligibility from `purchases` plus the matching purchase detail table.
+* [x] Distinguish workflow entry, preparation, and fund issuance decisions.
+* [x] Support full and prorated subscription eligibility calculations.
+* [x] Add backend unit tests that cross-check refund rules against `docs/REFUND_POLICY.md`.
+* [x] Refactor refund decisions into eligibility, preparation, and issuance stages.
+* [x] Add physical return preparation schema fields for simulated barcode and label creation.
+* [x] Add refund request, refund issue, digital code redemption, and carrier acceptance endpoints.
+* [x] Add backend tests for workflow guards, preparation, issuance gates, mutation endpoints, and migration SQL.
+* [x] Persist issued refund facts on `purchases` and read them for already-refunded workflow responses.
+* [x] Add strict duplicate/stale mutation handling with repository conflict errors and endpoint-specific `409` responses.
+* [x] Rename the mutating application service from `ApplicationReadService` to `ApplicationService`.
 
 ### Validation
 
-* [ ] API contracts implemented.
-* [ ] Repository and service layers validated.
-* [ ] Backend services return frontend-ready response shapes.
-* [ ] Refund eligibility and lifecycle transitions covered by tests.
+* [x] API contracts implemented for the frontend read path and refund workflow endpoints.
+* [x] Repository and service layers validated.
+* [x] Backend services return frontend-ready response shapes.
+* [x] Refund eligibility and lifecycle transitions covered by tests.
 * [ ] LangGraph nodes can call backend services through stable contracts.
-* [ ] Backend lint, build, tests, and coverage passing.
+* [x] Backend lint, build, tests, and coverage passing.
 
 ---
 

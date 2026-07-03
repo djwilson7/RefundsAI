@@ -76,6 +76,26 @@ Refund evaluation flow:
 
 Database triggers compute derivable refund fields such as refund window deadlines and default lock/proration fields. Backend services should send event facts and commands, not recompute or transmit values the database can derive from `purchases.purchased_at` or the detail row.
 
+Refund workflow responses distinguish between:
+
+* `can_enter_refund_workflow`: the purchase may enter refund handling.
+* `can_prepare_refund`: backend policy permits the product-specific preparation step.
+* `can_issue_funds`: backend policy permits mock fund release.
+
+Refund workflow is intentionally staged:
+
+1. Eligibility verifies the policy gate.
+2. Preparation mutates the owning purchase detail table into refund-ready state.
+3. Issuance finalizes the mock refund by marking the purchase as refunded.
+
+Physical purchases may be prepared before they are issuable because carrier acceptance is required before refund processing begins. Digital purchases are prepared by invalidating the issued entitlement. Subscription purchases are prepared by cancelling service access, disabling renewal, and recording full or prorated refund mode.
+
+Refund execution must not skip preparation. Fund issuance requires prepared state for every purchase type.
+
+Refund mutations use strict conflict behavior. Duplicate requests, stale reads, or partially prepared state must not silently rewrite timestamps or issue funds. Backend repositories guard each mutation with expected persisted state and raise a repository conflict when the database update does not affect exactly one row. Services map those conflicts to the same workflow-level denial used by the corresponding endpoint.
+
+Issued mock refunds persist final facts on `purchases`: `refunded_at`, `refund_amount_cents`, and `refund_outcome`. Policy evaluation for already-refunded purchases reads these persisted values rather than recomputing after status changes to `refunded`.
+
 ---
 
 # Business Services

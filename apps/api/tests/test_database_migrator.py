@@ -48,6 +48,12 @@ expand_purchase_details_for_refund_state = importlib.import_module(
 add_refund_deadline_triggers = importlib.import_module(
     "refunds_ai_api.database.migrations.010_add_refund_deadline_triggers"
 )
+add_refund_workflow_state = importlib.import_module(
+    "refunds_ai_api.database.migrations.011_add_refund_workflow_state"
+)
+add_refund_issued_facts = importlib.import_module(
+    "refunds_ai_api.database.migrations.012_add_refund_issued_facts"
+)
 
 
 class StubCursor:
@@ -151,7 +157,7 @@ def test_discover_migrations_returns_ordered_modules() -> None:
     migration_ids = [migration.migration_id for migration in discover_migrations()]
 
     assert migration_ids == sorted(migration_ids)
-    assert migration_ids[:11] == [
+    assert migration_ids[:12] == [
         "000_schema_foundation",
         "001_create_users",
         "002_create_roles",
@@ -163,6 +169,7 @@ def test_discover_migrations_returns_ordered_modules() -> None:
         "008_create_subscription_purchase_details",
         "009_expand_purchase_details_for_refund_state",
         "010_add_refund_deadline_triggers",
+        "011_add_refund_workflow_state",
     ]
 
 
@@ -805,3 +812,47 @@ def test_add_refund_deadline_triggers_derives_policy_fields_in_database() -> Non
     assert "physical_purchase_details_refund_window_idx" in executed_sql
     assert "subscription_purchase_details_refund_window_idx" in executed_sql
     assert "subscription_purchase_details_full_refund_window_idx" in executed_sql
+
+
+def test_add_refund_workflow_state_expands_statuses_and_physical_preparation() -> None:
+    connection = StubConnection()
+
+    add_refund_workflow_state.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert "drop constraint if exists purchases_status_check" in executed_sql
+    assert "'completed'" in executed_sql
+    assert "'subscribed'" in executed_sql
+    assert "'redeemed'" in executed_sql
+    assert "'refund_pending'" in executed_sql
+    assert "'refunded'" in executed_sql
+    assert "'cancelled'" in executed_sql
+    assert (
+        "add column if not exists return_barcode_generated boolean not null default false"
+        in executed_sql
+    )
+    assert "add column if not exists return_label_created_at timestamptz null" in executed_sql
+    assert "set status = 'redeemed'" in executed_sql
+    assert "details.code_redeemed = true" in executed_sql
+    assert "set status = 'subscribed'" in executed_sql
+    assert "details.period_start <= now()" in executed_sql
+    assert "details.period_end >= now()" in executed_sql
+    assert "physical_purchase_details_return_label_created_at_idx" in executed_sql
+
+
+def test_add_refund_issued_facts_adds_purchase_refund_fact_columns() -> None:
+    connection = StubConnection()
+
+    add_refund_issued_facts.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert "add column if not exists refund_requested_at timestamptz null" in executed_sql
+    assert "add column if not exists refunded_at timestamptz null" in executed_sql
+    assert "add column if not exists refund_amount_cents integer null" in executed_sql
+    assert "add column if not exists refund_outcome text null" in executed_sql
+    assert "purchases_refund_amount_cents_check" in executed_sql
+    assert "refund_amount_cents is null or refund_amount_cents >= 0" in executed_sql
+    assert "purchases_refund_outcome_check" in executed_sql
+    assert "refund_outcome is null or refund_outcome in ('full', 'prorated')" in executed_sql
+    assert "purchases_refund_requested_at_idx" in executed_sql
+    assert "purchases_refunded_at_idx" in executed_sql

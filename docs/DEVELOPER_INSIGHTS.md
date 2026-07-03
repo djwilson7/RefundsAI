@@ -69,3 +69,17 @@ Tradeoff:
 Policy queries need to join `purchases` to the matching detail table before evaluation. That is acceptable because the purchase type already determines which detail table is authoritative, and it avoids a generic refund table that would either duplicate state or become a sparse catch-all model.
 
 The database should also compute derivable refund deadlines. Letting PostgreSQL triggers derive refund windows from `purchases.purchased_at` reduces network payloads, prevents clients from spoofing deadline values, and keeps future backend services focused on sending event facts instead of recalculating database-owned state.
+
+---
+
+## Insight 005 - Deterministic Policy Functions Before API Wrappers
+
+Core refund behavior should live in reusable, testable business functions that validate persisted database state against documented policy guidelines.
+
+Reason:
+
+Refund workflows need to serve both standard API calls and future agentic tool calls. Putting the core policy and lifecycle decisions in deterministic business functions lets the backend expose the same behavior through REST endpoints, AI tools, and service orchestration without duplicating rules or trusting frontend/model input. API routes should remain thin wrappers around these workflows: load authoritative state, call policy functions, perform guarded mutations, and return standardized response shapes.
+
+Tradeoff:
+
+This adds a small service layer before the frontend needs it, but it keeps refund decisions testable outside HTTP, makes stale or duplicate mutations easier to reason about, and prepares the same deterministic logic for agent orchestration later.

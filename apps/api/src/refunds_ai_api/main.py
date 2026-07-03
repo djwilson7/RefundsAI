@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from refunds_ai_api.routes.application import router as application_router
 from refunds_ai_api.routes.health import router as health_router
 
 logger = logging.getLogger("uvicorn.error")
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    app.include_router(application_router)
     app.include_router(health_router)
     return app
 
