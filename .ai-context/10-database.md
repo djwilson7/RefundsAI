@@ -195,6 +195,8 @@ The initial seed includes:
 * 2 roles: `customer`, `admin`
 * 16 role assignments
 
+The executable seed fixture lives at `apps/api/mockdata/identity_seed.json`.
+
 Recommended role values:
 
 ```text
@@ -208,6 +210,8 @@ name: Administrator
 The `users` seed includes exactly 16 rows: 15 customers and 1 administrator. User seed rows include `first_name`, `last_name`, and `created_at`.
 
 The `user_roles` seed includes exactly 16 rows: 15 assignments to `customer` and 1 assignment to `admin`.
+
+Identity seed data is deterministic and idempotent. Roles and users are upserted by stable identifiers or keys, and role assignments use the `primary key (user_id, role_id)` constraint to prevent duplicates.
 
 ## Identity Query Patterns
 
@@ -343,6 +347,14 @@ Clarified identity layer contract.
 Reason
 
 Document table ownership, many-to-many role assignment behavior, cascade rules, seed expectations, query patterns, and exclusions before applying identity migrations.
+
+2026-07-03
+
+Added identity seed fixture and seed execution.
+
+Reason
+
+Populate the mock identity layer with deterministic users, roles, and assignments for customer and administrator interface configuration.
 
 --- 
 

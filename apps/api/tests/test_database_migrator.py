@@ -18,6 +18,7 @@ from refunds_ai_api.database.migrator import (
     record_migration,
     run_seed_steps,
 )
+from refunds_ai_api.database.seeds import SeedDataError
 
 schema_foundation = importlib.import_module(
     "refunds_ai_api.database.migrations.000_schema_foundation"
@@ -40,7 +41,7 @@ class StubCursor:
     def __exit__(self, exc_type, exc, traceback) -> None:
         return None
 
-    def execute(self, statement: str, params: tuple[str, str] | None = None) -> None:
+    def execute(self, statement: str, params=None) -> None:
         self.connection.executed.append((statement, params))
 
         normalized = " ".join(statement.split()).lower()
@@ -232,8 +233,40 @@ def test_run_seed_steps_delegates_to_seed_module(monkeypatch) -> None:
     assert run_seed_steps(connection) == ["customers"]
 
 
-def test_seed_entry_point_starts_empty() -> None:
-    assert seeds.seed(StubConnection()) == []
+def test_identity_seed_fixture_matches_documented_shape() -> None:
+    seed_data = seeds.load_identity_seed_data()
+
+    assert {role["key"] for role in seed_data["roles"]} == {"customer", "admin"}
+    assert len(seed_data["users"]) == 16
+    assert len(seed_data["user_roles"]) == 16
+    assert sum(1 for row in seed_data["user_roles"] if row["role_key"] == "customer") == 15
+    assert sum(1 for row in seed_data["user_roles"] if row["role_key"] == "admin") == 1
+
+
+def test_validate_identity_seed_data_rejects_invalid_shape() -> None:
+    with pytest.raises(SeedDataError, match="customer and admin roles"):
+        seeds.validate_identity_seed_data(
+            {
+                "roles": [],
+                "users": [],
+                "user_roles": [],
+            }
+        )
+
+
+def test_seed_entry_point_seeds_identity_data() -> None:
+    connection = StubConnection()
+
+    completed_steps = seeds.seed(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert completed_steps == ["identity"]
+    assert executed_sql.count("insert into public.roles") == 2
+    assert executed_sql.count("insert into public.users") == 16
+    assert executed_sql.count("insert into public.user_roles") == 16
+    assert "on conflict (key) do update" in executed_sql
+    assert "on conflict (id) do update" in executed_sql
+    assert "on conflict (user_id, role_id) do nothing" in executed_sql
 
 
 def test_schema_foundation_migration_creates_extensions_metadata_and_index() -> None:
@@ -299,7 +332,7 @@ def test_main_status_command_reports_migration_state(monkeypatch, capsys) -> Non
     assert "001_create_users: pending" in output
 
 
-def test_main_seed_command_reports_empty_seed_plan(monkeypatch, capsys) -> None:
+def test_main_seed_command_reports_identity_seed_step(monkeypatch, capsys) -> None:
     connection = StubConnection()
     monkeypatch.setattr("refunds_ai_api.database.migrator.connect", lambda settings: connection)
 
@@ -308,7 +341,7 @@ def test_main_seed_command_reports_empty_seed_plan(monkeypatch, capsys) -> None:
     exit_code = migrator.main(["seed"])
 
     assert exit_code == 0
-    assert "No seed steps configured." in capsys.readouterr().out
+    assert "Seeded identity" in capsys.readouterr().out
 
 
 def test_create_roles_migration_creates_requested_columns_and_security() -> None:
