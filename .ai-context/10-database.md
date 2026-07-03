@@ -52,6 +52,197 @@ Backend
 Full record.
 ```
 
+# Identity Layer
+
+The identity layer defines human actors in the mock CRM system.
+
+## Tables
+
+* `users`
+* `roles`
+* `user_roles`
+
+## Identity Relationship
+
+`users` connects to `roles` through `user_roles`.
+
+```text
+users
+  -> user_roles
+       -> roles
+```
+
+```text
+users.id -> user_roles.user_id
+roles.id -> user_roles.role_id
+```
+
+This creates a many-to-many relationship:
+
+* one user can have many roles
+* one role can belong to many users
+
+For v1.0, each seeded user has one role. The join table keeps the schema flexible without adding production authentication complexity.
+
+## users
+
+Purpose
+Owns the human entity and stores only identity basics.
+
+Owner
+Backend
+
+Columns
+`id`, `first_name`, `last_name`, `created_at`
+
+Belongs Here
+Who the person is.
+
+Does Not Belong Here
+Authentication data, email, password, avatar, store credit, purchase metadata, support metadata, or admin-only metadata.
+
+Relationships
+`users.id` -> `user_roles.user_id`
+
+Frontend
+Only fields returned through documented backend APIs.
+
+Backend
+Full record.
+
+## roles
+
+Purpose
+Owns role definitions used to determine which mock interface a user enters.
+
+Owner
+Backend
+
+Columns
+`id`, `key`, `name`
+
+Belongs Here
+Role definitions such as `customer` and `admin`.
+
+Does Not Belong Here
+Permissions matrices, feature flags, or authentication logic.
+
+Relationships
+`roles.id` -> `user_roles.role_id`
+
+Frontend
+Only fields returned through documented backend APIs.
+
+Backend
+Full record.
+
+## user_roles
+
+Purpose
+Owns the many-to-many assignment between a user and a role.
+
+Owner
+Backend
+
+Columns
+`user_id`, `role_id`, `created_at`
+
+Belongs Here
+Assignments such as `John Smith -> customer` and `System Administrator -> admin`.
+
+Relationships
+`user_roles.user_id` references `users(id)` with `on delete cascade`.
+`user_roles.role_id` references `roles(id)` with `on delete cascade`.
+
+Frontend
+Only fields returned through documented backend APIs.
+
+Backend
+Full record.
+
+## Identity Relationship Rules
+
+`users -> user_roles`
+
+```sql
+user_roles.user_id references users(id) on delete cascade
+```
+
+If a mock user is deleted, their role assignments should disappear.
+
+`roles -> user_roles`
+
+```sql
+user_roles.role_id references roles(id) on delete cascade
+```
+
+If a role is removed, assignments for that role should disappear.
+
+Uniqueness:
+
+```sql
+primary key (user_id, role_id)
+```
+
+This prevents duplicate role assignments.
+
+## Identity Seed Data
+
+The initial seed includes:
+
+* 15 customer users
+* 1 administrator user
+* 2 roles: `customer`, `admin`
+* 16 role assignments
+
+Recommended role values:
+
+```text
+key: customer
+name: Customer
+
+key: admin
+name: Administrator
+```
+
+The `users` seed includes exactly 16 rows: 15 customers and 1 administrator. User seed rows include `first_name`, `last_name`, and `created_at`.
+
+The `user_roles` seed includes exactly 16 rows: 15 assignments to `customer` and 1 assignment to `admin`.
+
+## Identity Query Patterns
+
+Mock customer login:
+
+```text
+select users
+join user_roles
+join roles
+where roles.key = 'customer'
+```
+
+Displays selectable customer profiles.
+
+Mock admin login:
+
+```text
+select users
+join user_roles
+join roles
+where roles.key = 'admin'
+```
+
+Displays the single admin profile.
+
+Role check:
+
+```text
+given user_id
+-> lookup assigned roles
+-> determine portal access
+```
+
+Authentication, permissions, purchases, support history, and financial state are intentionally excluded from this layer.
+
 ---
 
 # Relationships
@@ -113,7 +304,47 @@ Reason
 Support deterministic policy evaluation without requiring the language model to infer refund state.
 ```
 
----
+2026-07-03
+
+Added backend-owned database migration infrastructure.
+
+Reason
+
+Provide a reproducible entry point for creating Supabase PostgreSQL tables, indexes, primary keys, foreign keys, row-level security policies, and seed data without allowing the frontend or language model to access the database directly.
+
+2026-07-03
+
+Added users table.
+
+Reason
+
+Establish the first root application identity table for later customer, administrator, purchase, support, and refund workflow relationships.
+
+2026-07-03
+
+Added roles table.
+
+Reason
+
+Establish stable role definitions before introducing user-to-role relationships and role-scoped workflow behavior.
+
+2026-07-03
+
+Added user_roles table.
+
+Reason
+
+Connect users to roles through a constrained many-to-many relationship before role-scoped backend workflows are introduced.
+
+2026-07-03
+
+Clarified identity layer contract.
+
+Reason
+
+Document table ownership, many-to-many role assignment behavior, cascade rules, seed expectations, query patterns, and exclusions before applying identity migrations.
+
+--- 
 
 # Migration Philosophy
 
@@ -125,6 +356,46 @@ Every migration should be accompanied by corresponding updates to:
 * API contracts
 * Business logic documentation
 * Tests (when applicable)
+
+## Migration Entry Point
+
+Database schema changes are applied through the backend package:
+
+```bash
+cd apps/api
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator apply
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator status
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator seed
+```
+
+Migration modules live in `apps/api/src/refunds_ai_api/database/migrations/`.
+
+Each table should be introduced by one ordered migration module. Migration modules should expose:
+
+* `MIGRATION_ID`
+* `DESCRIPTION`
+* `upgrade(connection)`
+* `create_table(connection)`
+* `create_indexes(connection)`
+* `enable_rls(connection)`
+* `create_policies(connection)`
+
+The migration runner records applied migrations in `schema_migrations`, which is internal metadata and not business data.
+
+Business seed data lives in `apps/api/src/refunds_ai_api/database/seeds.py`. Seed steps should be idempotent and should only be added after the schema they depend on exists.
+
+## Table Creation Requirements
+
+Every business-data table should define:
+
+* primary keys in `create_table`
+* foreign keys in `create_table`
+* uniqueness and check constraints in `create_table`
+* query-performance indexes in `create_indexes`
+* row-level security in `enable_rls`
+* explicit RLS policies in `create_policies`
+
+The frontend must continue to receive data only through backend APIs. The language model must continue to retrieve database-backed information only through backend tools and services.
 
 ---
 

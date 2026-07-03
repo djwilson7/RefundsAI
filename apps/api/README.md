@@ -63,7 +63,29 @@ Check database connectivity:
 curl http://localhost:8000/health/database
 ```
 
-This endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` when database configuration is missing or connectivity fails. It validates the PostgreSQL handshake only; schema, migrations, seed data, and business tables are intentionally not part of this scaffold.
+This endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` when database configuration is missing or connectivity fails. It validates the PostgreSQL handshake only; schema readiness is handled by the migration commands below.
+
+## Database Migrations
+
+Run schema migrations from this directory:
+
+```bash
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator apply
+```
+
+Inspect migration state:
+
+```bash
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator status
+```
+
+Run idempotent seed data steps:
+
+```bash
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator seed
+```
+
+Migration modules live in `src/refunds_ai_api/database/migrations/`. Seed steps live in `src/refunds_ai_api/database/seeds.py`.
 
 ## Lint
 

@@ -82,6 +82,24 @@ Backend services determine what data may be returned for every request.
 
 ---
 
+# Database Security
+
+The backend remains the only application layer permitted to connect to Supabase PostgreSQL.
+
+Business-data tables should enable PostgreSQL row-level security when introduced. RLS policies should be defined in the same migration that creates the protected table so intended access boundaries are documented and applied with the schema.
+
+The internal `schema_migrations` table is migration metadata and does not require business-data RLS policies.
+
+The `users` table enables row-level security when created. Its initial policy grants access only to Supabase `service_role`, preserving the backend-only database access boundary while authentication remains mocked.
+
+The `roles` table enables row-level security when created. Its initial policy grants access only to Supabase `service_role`, preserving backend ownership of role definitions.
+
+The `user_roles` table enables row-level security when created. Its initial policy grants access only to Supabase `service_role`, preserving backend ownership of role assignment state.
+
+Identity-layer roles determine which mocked interface a user enters. They do not represent production authentication, a permissions matrix, feature flags, or authorization logic.
+
+---
+
 # Frontend Trust Boundary
 
 The frontend is responsible for presentation only.
