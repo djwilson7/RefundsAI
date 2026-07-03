@@ -11,6 +11,7 @@ from psycopg import Connection
 
 IDENTITY_SEED_FILE = Path(__file__).resolve().parents[3] / "mockdata" / "identity_seed.json"
 PURCHASE_SEED_FILE = Path(__file__).resolve().parents[3] / "mockdata" / "purchase_seed.json"
+PURCHASE_DETAIL_SEED_NOW = datetime(2026, 7, 3, 23, 59, 59, tzinfo=UTC)
 
 
 class SeedDataError(RuntimeError):
@@ -21,7 +22,8 @@ def seed(connection: Connection) -> list[str]:
     """Run all configured seed steps and return their names."""
     seed_identity(connection)
     seed_purchase_catalog(connection)
-    return ["identity", "purchase_catalog"]
+    seed_purchase_details(connection)
+    return ["identity", "purchase_catalog", "purchase_details"]
 
 
 def load_identity_seed_data(seed_file: Path = IDENTITY_SEED_FILE) -> dict[str, Any]:
@@ -149,6 +151,107 @@ def seed_purchase_catalog(connection: Connection) -> None:
             )
 
 
+def seed_purchase_details(connection: Connection) -> None:
+    """Seed deterministic lifecycle detail rows for every purchase."""
+    purchase_seed_data = load_purchase_seed_data()
+    identity_seed_data = load_identity_seed_data()
+    validate_purchase_seed_data(purchase_seed_data)
+    purchases = build_purchase_seed_rows(purchase_seed_data, identity_seed_data)
+    detail_rows = build_purchase_detail_seed_rows(purchases)
+    validate_purchase_detail_seed_rows(purchases, detail_rows)
+
+    with connection.cursor() as cursor:
+        for detail in detail_rows["digital"]:
+            cursor.execute(
+                """
+                insert into public.digital_purchase_details (
+                    id,
+                    purchase_id,
+                    issued_code,
+                    code_redeemed,
+                    code_redeemed_at,
+                    code_invalidated_at
+                )
+                values (%s, %s, %s, %s, %s, %s)
+                on conflict (purchase_id) do update
+                set issued_code = excluded.issued_code,
+                    code_redeemed = excluded.code_redeemed,
+                    code_redeemed_at = excluded.code_redeemed_at,
+                    code_invalidated_at = excluded.code_invalidated_at,
+                    updated_at = now()
+                """,
+                (
+                    detail["id"],
+                    detail["purchase_id"],
+                    detail["issued_code"],
+                    detail["code_redeemed"],
+                    detail["code_redeemed_at"],
+                    detail["code_invalidated_at"],
+                ),
+            )
+
+        for detail in detail_rows["physical"]:
+            cursor.execute(
+                """
+                insert into public.physical_purchase_details (
+                    id,
+                    purchase_id,
+                    scheduled_delivery_at,
+                    delivered_at,
+                    return_status,
+                    carrier,
+                    tracking_number,
+                    accepted_by_carrier_at
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s)
+                on conflict (purchase_id) do update
+                set scheduled_delivery_at = excluded.scheduled_delivery_at,
+                    delivered_at = excluded.delivered_at,
+                    return_status = excluded.return_status,
+                    carrier = excluded.carrier,
+                    tracking_number = excluded.tracking_number,
+                    accepted_by_carrier_at = excluded.accepted_by_carrier_at,
+                    updated_at = now()
+                """,
+                (
+                    detail["id"],
+                    detail["purchase_id"],
+                    detail["scheduled_delivery_at"],
+                    detail["delivered_at"],
+                    detail["return_status"],
+                    detail["carrier"],
+                    detail["tracking_number"],
+                    detail["accepted_by_carrier_at"],
+                ),
+            )
+
+        for detail in detail_rows["subscription"]:
+            cursor.execute(
+                """
+                insert into public.subscription_purchase_details (
+                    id,
+                    purchase_id,
+                    period_start,
+                    period_end,
+                    cancelled_at
+                )
+                values (%s, %s, %s, %s, %s)
+                on conflict (purchase_id) do update
+                set period_start = excluded.period_start,
+                    period_end = excluded.period_end,
+                    cancelled_at = excluded.cancelled_at,
+                    updated_at = now()
+                """,
+                (
+                    detail["id"],
+                    detail["purchase_id"],
+                    detail["period_start"],
+                    detail["period_end"],
+                    detail["cancelled_at"],
+                ),
+            )
+
+
 def build_purchase_seed_rows(
     purchase_seed_data: dict[str, Any],
     identity_seed_data: dict[str, Any],
@@ -211,6 +314,78 @@ def build_purchase_seed_rows(
     return purchases
 
 
+def build_purchase_detail_seed_rows(
+    purchases: list[dict[str, Any]],
+    seed_now: datetime = PURCHASE_DETAIL_SEED_NOW,
+) -> dict[str, list[dict[str, Any]]]:
+    """Build one deterministic product-lifecycle detail row per purchase."""
+    detail_rows: dict[str, list[dict[str, Any]]] = {
+        "digital": [],
+        "physical": [],
+        "subscription": [],
+    }
+    carriers = ("UPS", "FedEx", "USPS", "DHL")
+
+    for purchase in purchases:
+        purchased_at = parse_seed_datetime(purchase["purchased_at"])
+
+        if purchase["purchase_type"] == "digital":
+            digital_index = len(detail_rows["digital"])
+            code_redeemed = digital_index % 4 == 0
+            code_redeemed_at = (
+                format_seed_datetime(purchased_at + timedelta(hours=1))
+                if code_redeemed
+                else None
+            )
+            detail_rows["digital"].append(
+                {
+                    "id": f"50000000-0000-4000-8000-{digital_index + 1:012d}",
+                    "purchase_id": purchase["id"],
+                    "issued_code": f"DIG-{purchase['order_number']}",
+                    "code_redeemed": code_redeemed,
+                    "code_redeemed_at": code_redeemed_at,
+                    "code_invalidated_at": None,
+                }
+            )
+            continue
+
+        if purchase["purchase_type"] == "physical":
+            physical_index = len(detail_rows["physical"])
+            scheduled_delivery_at = purchased_at + timedelta(days=2 + (physical_index % 6))
+            delivered_at = scheduled_delivery_at if scheduled_delivery_at <= seed_now else None
+            detail_rows["physical"].append(
+                {
+                    "id": f"60000000-0000-4000-8000-{physical_index + 1:012d}",
+                    "purchase_id": purchase["id"],
+                    "scheduled_delivery_at": format_seed_datetime(scheduled_delivery_at),
+                    "delivered_at": (
+                        format_seed_datetime(delivered_at)
+                        if delivered_at is not None
+                        else None
+                    ),
+                    "return_status": "not_requested",
+                    "carrier": carriers[physical_index % len(carriers)],
+                    "tracking_number": f"TRK-{purchase['order_number']}",
+                    "accepted_by_carrier_at": None,
+                }
+            )
+            continue
+
+        if purchase["purchase_type"] == "subscription":
+            subscription_index = len(detail_rows["subscription"])
+            detail_rows["subscription"].append(
+                {
+                    "id": f"70000000-0000-4000-8000-{subscription_index + 1:012d}",
+                    "purchase_id": purchase["id"],
+                    "period_start": format_seed_datetime(purchased_at),
+                    "period_end": format_seed_datetime(purchased_at + timedelta(days=30)),
+                    "cancelled_at": None,
+                }
+            )
+
+    return detail_rows
+
+
 def build_purchase_type_sequence(type_distribution: dict[str, int]) -> list[str]:
     """Build a deterministic purchase type sequence from target distribution counts."""
     purchase_types = (
@@ -226,6 +401,16 @@ def build_purchase_type_sequence(type_distribution: dict[str, int]) -> list[str]
         for customer_index in range(customer_count)
         for purchase_index in range(purchases_per_customer)
     ]
+
+
+def parse_seed_datetime(value: str) -> datetime:
+    """Parse a UTC ISO seed timestamp."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def format_seed_datetime(value: datetime) -> str:
+    """Format a seed timestamp as a stable UTC ISO value."""
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def validate_identity_seed_data(seed_data: dict[str, Any]) -> None:
@@ -297,3 +482,70 @@ def validate_purchase_seed_data(seed_data: dict[str, Any]) -> None:
     )
     if (last_purchase_at - first_purchase_at).days != 44:
         raise SeedDataError("Purchase seed plan must span the last 45 days.")
+
+
+def validate_purchase_detail_seed_rows(
+    purchases: list[dict[str, Any]],
+    detail_rows: dict[str, list[dict[str, Any]]],
+) -> None:
+    """Validate product-lifecycle detail rows match their owning purchase types."""
+    purchase_ids_by_type = {
+        purchase_type: {
+            purchase["id"]
+            for purchase in purchases
+            if purchase["purchase_type"] == purchase_type
+        }
+        for purchase_type in ("digital", "physical", "subscription")
+    }
+    detail_purchase_ids_by_type = {
+        purchase_type: {row["purchase_id"] for row in detail_rows[purchase_type]}
+        for purchase_type in ("digital", "physical", "subscription")
+    }
+
+    for purchase_type in ("digital", "physical", "subscription"):
+        if detail_purchase_ids_by_type[purchase_type] != purchase_ids_by_type[purchase_type]:
+            raise SeedDataError(
+                f"{purchase_type} detail rows must match {purchase_type} purchases."
+            )
+
+    all_detail_purchase_ids = [
+        row["purchase_id"]
+        for purchase_type in ("digital", "physical", "subscription")
+        for row in detail_rows[purchase_type]
+    ]
+    if len(all_detail_purchase_ids) != len(set(all_detail_purchase_ids)):
+        raise SeedDataError("Each purchase must have exactly one matching detail row.")
+
+    issued_codes = [row["issued_code"] for row in detail_rows["digital"]]
+    if len(issued_codes) != len(set(issued_codes)):
+        raise SeedDataError("Digital issued_code values must be unique.")
+    if any(row["code_invalidated_at"] is not None for row in detail_rows["digital"]):
+        raise SeedDataError("Digital code_invalidated_at values must remain null.")
+
+    purchases_by_id = {purchase["id"]: purchase for purchase in purchases}
+    for row in detail_rows["physical"]:
+        purchase = purchases_by_id[row["purchase_id"]]
+        purchased_at = parse_seed_datetime(purchase["purchased_at"])
+        scheduled_delivery_at = parse_seed_datetime(row["scheduled_delivery_at"])
+        if scheduled_delivery_at <= purchased_at:
+            raise SeedDataError("Physical scheduled_delivery_at must be after purchased_at.")
+        if scheduled_delivery_at < purchased_at + timedelta(days=2):
+            raise SeedDataError("Physical scheduled_delivery_at must be at least 2 days out.")
+        if scheduled_delivery_at > purchased_at + timedelta(days=7):
+            raise SeedDataError("Physical scheduled_delivery_at must be at most 7 days out.")
+        if row["delivered_at"] is not None:
+            delivered_at = parse_seed_datetime(row["delivered_at"])
+            if delivered_at > scheduled_delivery_at:
+                raise SeedDataError("Physical delivered_at must be on or before delivery.")
+        if row["return_status"] != "not_requested":
+            raise SeedDataError("Physical return_status must remain not_requested.")
+        if row["accepted_by_carrier_at"] is not None:
+            raise SeedDataError("Physical accepted_by_carrier_at must remain null.")
+
+    for row in detail_rows["subscription"]:
+        period_start = parse_seed_datetime(row["period_start"])
+        period_end = parse_seed_datetime(row["period_end"])
+        if period_end <= period_start:
+            raise SeedDataError("Subscription period_end must be after period_start.")
+        if row["cancelled_at"] is not None:
+            raise SeedDataError("Subscription cancelled_at must remain null.")

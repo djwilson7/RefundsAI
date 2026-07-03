@@ -1,5 +1,5 @@
 import importlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -306,6 +306,80 @@ def test_build_purchase_seed_rows_matches_documented_distribution() -> None:
     assert (max(purchased_at_values).date() - min(purchased_at_values).date()).days == 44
 
 
+def test_build_purchase_detail_seed_rows_matches_lifecycle_contract() -> None:
+    purchase_seed_data = seeds.load_purchase_seed_data()
+    identity_seed_data = seeds.load_identity_seed_data()
+    purchases = seeds.build_purchase_seed_rows(purchase_seed_data, identity_seed_data)
+
+    detail_rows = seeds.build_purchase_detail_seed_rows(purchases)
+
+    assert len(detail_rows["digital"]) == 54
+    assert len(detail_rows["physical"]) == 90
+    assert len(detail_rows["subscription"]) == 36
+
+    purchase_ids_by_type = {
+        purchase_type: {
+            purchase["id"]
+            for purchase in purchases
+            if purchase["purchase_type"] == purchase_type
+        }
+        for purchase_type in ("digital", "physical", "subscription")
+    }
+    detail_purchase_ids_by_type = {
+        purchase_type: {row["purchase_id"] for row in detail_rows[purchase_type]}
+        for purchase_type in ("digital", "physical", "subscription")
+    }
+    assert detail_purchase_ids_by_type == purchase_ids_by_type
+
+    all_detail_purchase_ids = [
+        row["purchase_id"]
+        for purchase_type in ("digital", "physical", "subscription")
+        for row in detail_rows[purchase_type]
+    ]
+    assert len(all_detail_purchase_ids) == len(set(all_detail_purchase_ids))
+
+    digital_rows = detail_rows["digital"]
+    assert len({row["issued_code"] for row in digital_rows}) == len(digital_rows)
+    assert sum(1 for row in digital_rows if row["code_redeemed"]) < len(digital_rows) / 2
+    assert sum(1 for row in digital_rows if row["code_redeemed"]) > 0
+    assert all(row["code_invalidated_at"] is None for row in digital_rows)
+
+    purchases_by_id = {purchase["id"]: purchase for purchase in purchases}
+    for row in detail_rows["physical"]:
+        purchase = purchases_by_id[row["purchase_id"]]
+        purchased_at = datetime.fromisoformat(purchase["purchased_at"].replace("Z", "+00:00"))
+        scheduled_delivery_at = datetime.fromisoformat(
+            row["scheduled_delivery_at"].replace("Z", "+00:00")
+        )
+        assert scheduled_delivery_at > purchased_at
+        assert purchased_at + timedelta(days=2) <= scheduled_delivery_at
+        assert scheduled_delivery_at <= purchased_at + timedelta(days=7)
+        assert row["return_status"] == "not_requested"
+        assert row["carrier"] is not None
+        assert row["tracking_number"] is not None
+        assert row["accepted_by_carrier_at"] is None
+
+        if scheduled_delivery_at <= seeds.PURCHASE_DETAIL_SEED_NOW:
+            assert row["delivered_at"] == row["scheduled_delivery_at"]
+        else:
+            assert row["delivered_at"] is None
+
+        if row["delivered_at"] is not None:
+            delivered_at = datetime.fromisoformat(row["delivered_at"].replace("Z", "+00:00"))
+            assert delivered_at <= scheduled_delivery_at
+
+    for row in detail_rows["subscription"]:
+        purchase = purchases_by_id[row["purchase_id"]]
+        period_start = datetime.fromisoformat(row["period_start"].replace("Z", "+00:00"))
+        period_end = datetime.fromisoformat(row["period_end"].replace("Z", "+00:00"))
+        purchased_at = datetime.fromisoformat(purchase["purchased_at"].replace("Z", "+00:00"))
+        assert period_start == purchased_at
+        assert period_end > period_start
+        assert row["cancelled_at"] is None
+
+    seeds.validate_purchase_detail_seed_rows(purchases, detail_rows)
+
+
 def test_validate_identity_seed_data_rejects_invalid_shape() -> None:
     with pytest.raises(SeedDataError, match="customer and admin roles"):
         seeds.validate_identity_seed_data(
@@ -327,23 +401,38 @@ def test_validate_purchase_seed_data_rejects_invalid_shape() -> None:
         )
 
 
+def test_validate_purchase_detail_seed_rows_rejects_duplicate_detail_assignment() -> None:
+    purchase_seed_data = seeds.load_purchase_seed_data()
+    identity_seed_data = seeds.load_identity_seed_data()
+    purchases = seeds.build_purchase_seed_rows(purchase_seed_data, identity_seed_data)
+    detail_rows = seeds.build_purchase_detail_seed_rows(purchases)
+    detail_rows["physical"][0]["purchase_id"] = detail_rows["digital"][0]["purchase_id"]
+
+    with pytest.raises(SeedDataError, match="physical detail rows"):
+        seeds.validate_purchase_detail_seed_rows(purchases, detail_rows)
+
+
 def test_seed_entry_point_seeds_identity_data() -> None:
     connection = StubConnection()
 
     completed_steps = seeds.seed(connection)
 
     executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
-    assert completed_steps == ["identity", "purchase_catalog"]
+    assert completed_steps == ["identity", "purchase_catalog", "purchase_details"]
     assert executed_sql.count("insert into public.roles") == 2
     assert executed_sql.count("insert into public.users") == 16
     assert executed_sql.count("insert into public.user_roles") == 16
     assert executed_sql.count("insert into public.products") == 30
     assert executed_sql.count("insert into public.purchases") == 180
+    assert executed_sql.count("insert into public.digital_purchase_details") == 54
+    assert executed_sql.count("insert into public.physical_purchase_details") == 90
+    assert executed_sql.count("insert into public.subscription_purchase_details") == 36
     assert "on conflict (key) do update" in executed_sql
     assert "on conflict (id) do update" in executed_sql
     assert "on conflict (user_id, role_id) do nothing" in executed_sql
     assert "on conflict (sku) do update" in executed_sql
     assert "on conflict (order_number) do update" in executed_sql
+    assert "on conflict (purchase_id) do update" in executed_sql
 
 
 def test_schema_foundation_migration_creates_extensions_metadata_and_index() -> None:

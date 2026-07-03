@@ -166,8 +166,8 @@ Build the backend foundation that supports deterministic business logic, databas
 * [x] Define `products` catalog migration.
 * [x] Define `purchases` purchase history migration.
 * [x] Define product-type-specific purchase detail migrations.
-* [ ] Deploy products and purchases migrations to Supabase.
-* [ ] Deploy purchase detail migrations to Supabase.
+* [x] Deploy products and purchases migrations to Supabase.
+* [x] Deploy purchase detail migrations to Supabase.
 * [ ] Define and deploy remaining v0.2.0 business tables.
 
 #### Seed Data Progress
@@ -181,6 +181,8 @@ Build the backend foundation that supports deterministic business logic, databas
 * [x] Add deterministic product and purchase mock data under `apps/api/mockdata`.
 * [x] Define 30 catalog products across physical, digital, and subscription types.
 * [x] Generate 180 customer purchases across the seeded customer users.
+* [x] Define deterministic purchase detail seed generation for digital, physical, and subscription lifecycle state.
+* [x] Seed purchase detail lifecycle rows for digital, physical, and subscription purchases.
 * [ ] Define and seed remaining v0.2.0 mock data.
 
 ### Validation

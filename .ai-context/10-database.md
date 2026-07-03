@@ -368,6 +368,22 @@ Purchase type distribution:
 
 Purchase seed data is deterministic and idempotent. Products are upserted by SKU. Purchases are upserted by `order_number`, and `purchases.purchase_type` is copied from the product type at purchase generation time.
 
+## Purchase Detail Seed Data
+
+The purchase detail seed step derives one detail row from every deterministic purchase:
+
+* 54 `digital_purchase_details` rows
+* 90 `physical_purchase_details` rows
+* 36 `subscription_purchase_details` rows
+
+Digital purchase detail rows issue one unique code per digital purchase. Most codes remain unredeemed, some are marked redeemed, and `code_invalidated_at` remains null.
+
+Physical purchase detail rows set `scheduled_delivery_at`, keep `return_status = 'not_requested'`, populate carrier and tracking values, and keep `accepted_by_carrier_at` null. `delivered_at` is set only when `scheduled_delivery_at` is on or before the detail seed reference time; future scheduled deliveries keep `delivered_at` null.
+
+Subscription purchase detail rows set `period_start` to `purchased_at`, set `period_end` to 30 days after `purchased_at`, and keep `cancelled_at` null.
+
+The seed validator confirms detail row counts match purchase counts by type, each purchase receives exactly one matching type detail row, no purchase receives multiple type detail rows, digital issued codes are unique, physical delivery timestamps obey the delivery-window rules, and subscription periods are ordered correctly.
+
 ## Purchase Detail Extensions
 
 Purchase detail tables are one-to-one extensions of `purchases`. They hold mutable fields that only apply to a specific purchase type.
@@ -606,6 +622,14 @@ Updated physical purchase detail delivery timing contract.
 Reason
 
 Add `scheduled_delivery_at` and database-enforced delivery-window validation so physical purchase seed data and refund workflows can model recent delivery state consistently.
+
+2026-07-03
+
+Added purchase detail seed generation and execution.
+
+Reason
+
+Populate product lifecycle state for digital codes, physical delivery state, and subscription periods without touching refund state.
 
 --- 
 
