@@ -142,7 +142,7 @@ Successfully verify:
 
 Build the database schema, migration flow, seed data, and database-owned lifecycle state needed by future backend services, frontend experiences, and AI orchestration.
 
-This milestone is focused on durable data structures and realistic mock data. Backend business services, API contracts, and LangGraph orchestration are intentionally deferred to v0.3.0.
+This milestone is focused on durable data structures and realistic mock data. Backend business services and API contracts are intentionally deferred to v0.3.0. LangGraph orchestration is deferred to v0.5.0.
 
 ### Planned Deliverables
 
@@ -207,6 +207,8 @@ This milestone is focused on durable data structures and realistic mock data. Ba
 
 # v0.3.0 — Backend Business Logic Foundation
 
+**Status:** Complete
+
 ## Objective
 
 Build the backend service layer on top of the v0.2.0 database schema.
@@ -224,16 +226,11 @@ This milestone also prepares deterministic services for later AI orchestration. 
 * [x] API contracts
 * [x] Shared request and response models
 * [x] Identity and role lookup services over `users`, `roles`, and `user_roles`
-* [ ] Product catalog services over `products`
 * [x] Purchase history services over `purchases`
 * [x] Purchase detail services over `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details`
 * [x] Refund policy evaluation services
 * [x] Refund API endpoints that expose evaluated eligibility and execute approved workflows
-* [ ] Customer and admin data access endpoints
-* [ ] LangGraph node definitions for backend tool orchestration
-* [ ] Tool contracts for refund eligibility lookup and policy-approved refund execution
 * [x] Backend tests for repositories, services, policy, API, and migration boundaries
-* [ ] Backend tests for graph-node boundaries
 
 #### Frontend Read Path Progress
 
@@ -269,7 +266,6 @@ This milestone also prepares deterministic services for later AI orchestration. 
 * [x] Repository and service layers validated.
 * [x] Backend services return frontend-ready response shapes.
 * [x] Refund eligibility and lifecycle transitions covered by tests.
-* [ ] LangGraph nodes can call backend services through stable contracts.
 * [x] Backend lint, build, tests, and coverage passing.
 
 ---
@@ -304,24 +300,29 @@ Build the customer-facing experience on top of the backend API contracts from v0
 
 ## Objective
 
-Implement the AI orchestration layer responsible for customer interactions and deterministic workflow execution, using the backend services and LangGraph nodes established in v0.3.0.
+Implement the AI orchestration layer responsible for customer interactions and deterministic workflow execution, using the backend services established in v0.3.0.
 
 ### Planned Deliverables
 
 * [ ] OpenAI integration
 * [ ] Tool/function calling
+* [ ] Customer and admin data access boundaries needed by AI tools
+* [ ] Tool contracts for refund eligibility lookup and policy-approved refund execution
 * [ ] Conversation management
+* [ ] LangGraph node definitions for backend tool orchestration
 * [ ] LangGraph workflow assembly
 * [ ] Refund workflow orchestration
 * [ ] Policy-aware decision flow
 * [ ] Audit event generation
 * [ ] Reasoning trace support
+* [ ] Backend tests for graph-node boundaries
 
 ### Validation
 
 * [ ] Agent successfully completes eligible refunds.
 * [ ] Agent correctly denies policy violations.
 * [ ] Tool execution validated.
+* [ ] LangGraph nodes can call backend services through stable contracts.
 * [ ] AI reasoning captured through audit logs.
 
 ---
@@ -370,6 +371,33 @@ Extend the existing AI orchestration pipeline to support voice interactions.
 * [ ] Voice requests follow the same orchestration pipeline as text.
 * [ ] Transcripts stored successfully.
 * [ ] Voice interactions appear within audit history.
+
+---
+
+# v0.8.0 — Deferred Implementation Points
+
+## Objective
+
+Track useful but non-core implementation points that are intentionally deferred unless time allows. These items may improve production realism, polish, or platform completeness, but they are not required for the primary technical challenge path.
+
+### Planned Deliverables
+
+* [ ] Standalone products API boundary over `products`.
+* [ ] Product catalog service/tool access beyond purchase-history metadata.
+* [ ] Full mobile optimization pass.
+* [ ] Production authentication for customers and administrators.
+* [ ] Role-based authorization and permissions matrix.
+* [ ] Session management and identity verification hardening.
+* [ ] Rate limiting and abuse protection.
+* [ ] Production payment processor integration.
+* [ ] Hosted deployment and public demo environment.
+* [ ] Production-scale catalog modeling for inventory, entitlements, and subscription metadata.
+* [ ] Stronger database-level enforcement for cross-table purchase-detail exclusivity.
+
+### Validation
+
+* [ ] Deferred items remain documented and explicitly scoped outside the core challenge path.
+* [ ] Any promoted deferred item receives matching `.ai-context` updates, tests, and API documentation.
 
 ---
 
