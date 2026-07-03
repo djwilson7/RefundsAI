@@ -136,28 +136,59 @@ Successfully verify:
 
 # v0.2.0 — Backend Foundation
 
+**Status:** In Progress
+
 ## Objective
 
 Build the backend foundation that supports deterministic business logic, database operations, and future AI orchestration.
 
 ### Planned Deliverables
 
-* [ ] Database schema
-* [ ] Initial migrations
-* [ ] Seed data generation
+* [x] Backend-owned database migration runner
+* [ ] Complete database schema
+* [ ] Complete migration set
+* [ ] Complete seed data set
 * [ ] Repository pattern
 * [ ] Business service layer
 * [ ] API contracts
 * [ ] Shared models
 * [ ] Configuration layer
 
+#### Database Foundation Progress
+
+* [x] Create `schema_migrations` migration metadata table.
+* [x] Create `users` identity anchor table.
+* [x] Create `roles` role definition table.
+* [x] Create `user_roles` role assignment table.
+* [x] Configure row-level security on identity business tables.
+* [x] Configure backend-only `service_role` policies for identity tables.
+* [x] Deploy identity migrations to Supabase.
+* [x] Define `products` catalog migration.
+* [x] Define `purchases` purchase history migration.
+* [ ] Deploy products and purchases migrations to Supabase.
+* [ ] Define and deploy remaining v0.2.0 business tables.
+
+#### Seed Data Progress
+
+* [x] Add deterministic identity mock data under `apps/api/mockdata`.
+* [x] Seed 15 customer users.
+* [x] Seed 1 administrator user.
+* [x] Seed `customer` and `admin` roles.
+* [x] Seed 16 user-role assignments.
+* [x] Verify seeded Supabase row counts and role distribution.
+* [x] Add deterministic product and purchase mock data under `apps/api/mockdata`.
+* [x] Define 30 catalog products across physical, digital, and subscription types.
+* [x] Generate 180 customer purchases across the seeded customer users.
+* [ ] Define and seed remaining v0.2.0 mock data.
+
 ### Validation
 
-* [ ] Database schema successfully deployed.
-* [ ] Seed data generated.
+* [ ] Complete database schema successfully deployed.
+* [ ] Complete seed data generated.
+* [x] Backend lint passing.
+* [x] Backend tests passing.
+* [x] Coverage maintained above project targets.
 * [ ] API contracts implemented.
-* [ ] Backend tests passing.
-* [ ] Coverage maintained above project targets.
 
 ---
 

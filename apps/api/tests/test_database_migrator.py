@@ -28,6 +28,10 @@ create_roles = importlib.import_module("refunds_ai_api.database.migrations.002_c
 create_user_roles = importlib.import_module(
     "refunds_ai_api.database.migrations.003_create_user_roles"
 )
+create_products = importlib.import_module("refunds_ai_api.database.migrations.004_create_products")
+create_purchases = importlib.import_module(
+    "refunds_ai_api.database.migrations.005_create_purchases"
+)
 
 
 class StubCursor:
@@ -131,11 +135,13 @@ def test_discover_migrations_returns_ordered_modules() -> None:
     migration_ids = [migration.migration_id for migration in discover_migrations()]
 
     assert migration_ids == sorted(migration_ids)
-    assert migration_ids[:4] == [
+    assert migration_ids[:6] == [
         "000_schema_foundation",
         "001_create_users",
         "002_create_roles",
         "003_create_user_roles",
+        "004_create_products",
+        "005_create_purchases",
     ]
 
 
@@ -243,6 +249,38 @@ def test_identity_seed_fixture_matches_documented_shape() -> None:
     assert sum(1 for row in seed_data["user_roles"] if row["role_key"] == "admin") == 1
 
 
+def test_purchase_seed_fixture_matches_documented_catalog_shape() -> None:
+    seed_data = seeds.load_purchase_seed_data()
+    product_types = [product["product_type"] for product in seed_data["products"]]
+
+    assert len(seed_data["products"]) == 30
+    assert product_types.count("physical") == 14
+    assert product_types.count("digital") == 10
+    assert product_types.count("subscription") == 6
+    assert seed_data["purchase_plan"]["customer_count"] == 15
+    assert seed_data["purchase_plan"]["purchases_per_customer"] == 12
+    assert seed_data["purchase_plan"]["type_distribution"] == {
+        "physical": 90,
+        "digital": 54,
+        "subscription": 36,
+    }
+
+
+def test_build_purchase_seed_rows_matches_documented_distribution() -> None:
+    purchase_seed_data = seeds.load_purchase_seed_data()
+    identity_seed_data = seeds.load_identity_seed_data()
+
+    purchases = seeds.build_purchase_seed_rows(purchase_seed_data, identity_seed_data)
+    purchase_types = [purchase["purchase_type"] for purchase in purchases]
+
+    assert len(purchases) == 180
+    assert purchase_types.count("physical") == 90
+    assert purchase_types.count("digital") == 54
+    assert purchase_types.count("subscription") == 36
+    assert len({purchase["order_number"] for purchase in purchases}) == 180
+    assert purchases[0]["order_number"] == "RAI-10001"
+
+
 def test_validate_identity_seed_data_rejects_invalid_shape() -> None:
     with pytest.raises(SeedDataError, match="customer and admin roles"):
         seeds.validate_identity_seed_data(
@@ -254,19 +292,33 @@ def test_validate_identity_seed_data_rejects_invalid_shape() -> None:
         )
 
 
+def test_validate_purchase_seed_data_rejects_invalid_shape() -> None:
+    with pytest.raises(SeedDataError, match="exactly 30 products"):
+        seeds.validate_purchase_seed_data(
+            {
+                "products": [],
+                "purchase_plan": {},
+            }
+        )
+
+
 def test_seed_entry_point_seeds_identity_data() -> None:
     connection = StubConnection()
 
     completed_steps = seeds.seed(connection)
 
     executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
-    assert completed_steps == ["identity"]
+    assert completed_steps == ["identity", "purchase_catalog"]
     assert executed_sql.count("insert into public.roles") == 2
     assert executed_sql.count("insert into public.users") == 16
     assert executed_sql.count("insert into public.user_roles") == 16
+    assert executed_sql.count("insert into public.products") == 30
+    assert executed_sql.count("insert into public.purchases") == 180
     assert "on conflict (key) do update" in executed_sql
     assert "on conflict (id) do update" in executed_sql
     assert "on conflict (user_id, role_id) do nothing" in executed_sql
+    assert "on conflict (sku) do update" in executed_sql
+    assert "on conflict (order_number) do update" in executed_sql
 
 
 def test_schema_foundation_migration_creates_extensions_metadata_and_index() -> None:
@@ -341,7 +393,9 @@ def test_main_seed_command_reports_identity_seed_step(monkeypatch, capsys) -> No
     exit_code = migrator.main(["seed"])
 
     assert exit_code == 0
-    assert "Seeded identity" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Seeded identity" in output
+    assert "Seeded purchase_catalog" in output
 
 
 def test_create_roles_migration_creates_requested_columns_and_security() -> None:
@@ -379,3 +433,58 @@ def test_create_user_roles_migration_creates_relationships_indexes_and_security(
     assert "to service_role" in executed_sql
     assert "using (true)" in executed_sql
     assert "with check (true)" in executed_sql
+
+
+def test_create_products_migration_creates_constraints_indexes_and_security() -> None:
+    connection = StubConnection()
+
+    create_products.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert "create table if not exists public.products" in executed_sql
+    assert "id uuid primary key" in executed_sql
+    assert "name text not null" in executed_sql
+    assert "sku text not null" in executed_sql
+    assert "product_type text not null" in executed_sql
+    assert "base_price_cents integer not null" in executed_sql
+    assert "created_at timestamptz not null default now()" in executed_sql
+    assert "updated_at timestamptz not null default now()" in executed_sql
+    assert "check (product_type in ('physical', 'digital', 'subscription'))" in executed_sql
+    assert "check (base_price_cents >= 0)" in executed_sql
+    assert "create unique index if not exists products_sku_idx" in executed_sql
+    assert "on public.products (sku)" in executed_sql
+    assert "create index if not exists products_product_type_idx" in executed_sql
+    assert "on public.products (product_type)" in executed_sql
+    assert "alter table public.products enable row level security" in executed_sql
+    assert "create policy products_service_role_all" in executed_sql
+
+
+def test_create_purchases_migration_creates_relationships_indexes_and_security() -> None:
+    connection = StubConnection()
+
+    create_purchases.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert "create table if not exists public.purchases" in executed_sql
+    assert "id uuid primary key" in executed_sql
+    assert "user_id uuid not null references public.users(id) on delete cascade" in executed_sql
+    assert "product_id uuid not null references public.products(id)" in executed_sql
+    assert "order_number text not null" in executed_sql
+    assert "purchase_type text not null" in executed_sql
+    assert "amount_cents integer not null" in executed_sql
+    assert "purchased_at timestamptz not null" in executed_sql
+    assert "status text not null default 'completed'" in executed_sql
+    assert "check (purchase_type in ('physical', 'digital', 'subscription'))" in executed_sql
+    assert "'refund_pending'" in executed_sql
+    assert "check (amount_cents >= 0)" in executed_sql
+    assert "create unique index if not exists purchases_order_number_idx" in executed_sql
+    assert "create index if not exists purchases_user_id_idx" in executed_sql
+    assert "create index if not exists purchases_product_id_idx" in executed_sql
+    assert "create index if not exists purchases_purchase_type_idx" in executed_sql
+    assert "create index if not exists purchases_status_idx" in executed_sql
+    assert "create index if not exists purchases_purchased_at_idx" in executed_sql
+    assert "on public.purchases (purchased_at desc)" in executed_sql
+    assert "create index if not exists purchases_user_purchased_at_idx" in executed_sql
+    assert "on public.purchases (user_id, purchased_at desc)" in executed_sql
+    assert "alter table public.purchases enable row level security" in executed_sql
+    assert "create policy purchases_service_role_all" in executed_sql

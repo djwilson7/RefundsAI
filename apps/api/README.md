@@ -87,7 +87,7 @@ $env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator seed
 
 Migration modules live in `src/refunds_ai_api/database/migrations/`. Seed steps live in `src/refunds_ai_api/database/seeds.py`.
 
-Mock data fixtures live in `mockdata/`. The initial identity fixture is `mockdata/identity_seed.json`.
+Mock data fixtures live in `mockdata/`. The identity fixture is `mockdata/identity_seed.json`; the product and purchase fixture is `mockdata/purchase_seed.json`.
 
 ## Lint
 

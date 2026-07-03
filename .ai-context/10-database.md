@@ -249,6 +249,125 @@ Authentication, permissions, purchases, support history, and financial state are
 
 ---
 
+# Purchase Catalog Layer
+
+The purchase catalog layer defines what can be purchased and records customer-owned purchase history.
+
+## Tables
+
+* `products`
+* `purchases`
+
+## Purchase Relationship
+
+```text
+users
+  -> purchases
+       -> products
+```
+
+```text
+users.id -> purchases.user_id
+products.id -> purchases.product_id
+```
+
+## products
+
+Purpose
+Catalog reference for what was purchased.
+
+Owner
+Backend
+
+Columns
+`id`, `name`, `sku`, `product_type`, `base_price_cents`, `created_at`, `updated_at`
+
+Constraints
+`product_type` must be one of `physical`, `digital`, or `subscription`.
+`base_price_cents` must be greater than or equal to zero.
+`sku` is unique through `products_sku_idx`.
+
+Relationships
+`products.id` -> `purchases.product_id`
+
+Frontend
+Only fields returned through documented backend APIs.
+
+Backend
+Full record.
+
+## purchases
+
+Purpose
+Customer-owned purchase history and primary lookup table.
+
+Owner
+Backend
+
+Columns
+`id`, `user_id`, `product_id`, `order_number`, `purchase_type`, `amount_cents`, `purchased_at`, `status`, `created_at`, `updated_at`
+
+Constraints
+`purchase_type` must be one of `physical`, `digital`, or `subscription`.
+`status` must be one of `completed`, `refund_pending`, `refunded`, or `cancelled`.
+`amount_cents` must be greater than or equal to zero.
+`order_number` is unique through `purchases_order_number_idx`.
+
+Relationships
+`purchases.user_id` references `users(id)` with `on delete cascade`.
+`purchases.product_id` references `products(id)`.
+
+Important Rule
+`purchases.purchase_type` mirrors `products.product_type` at purchase time. If product catalog metadata changes later, historical purchase records keep their original purchase type.
+
+Frontend
+Only fields returned through documented backend APIs.
+
+Backend
+Full record.
+
+## Purchase Query Patterns
+
+Customer purchase history:
+
+```sql
+select
+  purchases.id,
+  purchases.order_number,
+  purchases.purchase_type,
+  purchases.amount_cents,
+  purchases.purchased_at,
+  purchases.status,
+  products.name,
+  products.sku
+from purchases
+join products on products.id = purchases.product_id
+where purchases.user_id = :user_id
+order by purchases.purchased_at desc;
+```
+
+## Purchase Seed Data
+
+The product and purchase fixture lives at `apps/api/mockdata/purchase_seed.json`.
+
+The product catalog seed includes:
+
+* 14 physical products
+* 10 digital products
+* 6 subscription products
+
+The generated purchase history includes 180 deterministic purchases across 15 customer users, with each customer receiving 12 purchases.
+
+Purchase type distribution:
+
+* 90 physical purchases
+* 54 digital purchases
+* 36 subscription purchases
+
+Purchase seed data is deterministic and idempotent. Products are upserted by SKU. Purchases are upserted by `order_number`, and `purchases.purchase_type` is copied from the product type at purchase generation time.
+
+---
+
 # Relationships
 
 Document relationships between entities as they are introduced.
@@ -355,6 +474,22 @@ Added identity seed fixture and seed execution.
 Reason
 
 Populate the mock identity layer with deterministic users, roles, and assignments for customer and administrator interface configuration.
+
+2026-07-03
+
+Defined products and purchases migrations.
+
+Reason
+
+Add the catalog reference and customer purchase history schema definitions before deploying the next database migration pass.
+
+2026-07-03
+
+Added product and purchase seed fixture and execution.
+
+Reason
+
+Populate the catalog and customer purchase history with deterministic mock data for future UI, admin, reporting, and AI interaction workflows.
 
 --- 
 
