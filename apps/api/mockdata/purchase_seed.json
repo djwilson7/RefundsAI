@@ -220,6 +220,8 @@
       "subscription": 36
     },
     "first_order_number": 10001,
-    "first_purchase_at": "2026-05-01T14:00:00Z"
+    "first_purchase_at": "2026-05-20T14:00:00Z",
+    "last_purchase_at": "2026-07-03T14:00:00Z",
+    "status": "completed"
   }
 }

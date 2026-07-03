@@ -1,4 +1,5 @@
 import importlib
+from datetime import datetime
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -31,6 +32,15 @@ create_user_roles = importlib.import_module(
 create_products = importlib.import_module("refunds_ai_api.database.migrations.004_create_products")
 create_purchases = importlib.import_module(
     "refunds_ai_api.database.migrations.005_create_purchases"
+)
+create_digital_purchase_details = importlib.import_module(
+    "refunds_ai_api.database.migrations.006_create_digital_purchase_details"
+)
+create_physical_purchase_details = importlib.import_module(
+    "refunds_ai_api.database.migrations.007_create_physical_purchase_details"
+)
+create_subscription_purchase_details = importlib.import_module(
+    "refunds_ai_api.database.migrations.008_create_subscription_purchase_details"
 )
 
 
@@ -135,13 +145,16 @@ def test_discover_migrations_returns_ordered_modules() -> None:
     migration_ids = [migration.migration_id for migration in discover_migrations()]
 
     assert migration_ids == sorted(migration_ids)
-    assert migration_ids[:6] == [
+    assert migration_ids[:9] == [
         "000_schema_foundation",
         "001_create_users",
         "002_create_roles",
         "003_create_user_roles",
         "004_create_products",
         "005_create_purchases",
+        "006_create_digital_purchase_details",
+        "007_create_physical_purchase_details",
+        "008_create_subscription_purchase_details",
     ]
 
 
@@ -264,6 +277,9 @@ def test_purchase_seed_fixture_matches_documented_catalog_shape() -> None:
         "digital": 54,
         "subscription": 36,
     }
+    assert seed_data["purchase_plan"]["first_purchase_at"] == "2026-05-20T14:00:00Z"
+    assert seed_data["purchase_plan"]["last_purchase_at"] == "2026-07-03T14:00:00Z"
+    assert seed_data["purchase_plan"]["status"] == "completed"
 
 
 def test_build_purchase_seed_rows_matches_documented_distribution() -> None:
@@ -279,6 +295,15 @@ def test_build_purchase_seed_rows_matches_documented_distribution() -> None:
     assert purchase_types.count("subscription") == 36
     assert len({purchase["order_number"] for purchase in purchases}) == 180
     assert purchases[0]["order_number"] == "RAI-10001"
+    assert {purchase["status"] for purchase in purchases} == {"completed"}
+
+    purchased_at_values = [
+        datetime.fromisoformat(purchase["purchased_at"].replace("Z", "+00:00"))
+        for purchase in purchases
+    ]
+    assert min(purchased_at_values).isoformat() == "2026-05-20T14:00:00+00:00"
+    assert max(purchased_at_values).date().isoformat() == "2026-07-03"
+    assert (max(purchased_at_values).date() - min(purchased_at_values).date()).days == 44
 
 
 def test_validate_identity_seed_data_rejects_invalid_shape() -> None:
@@ -488,3 +513,112 @@ def test_create_purchases_migration_creates_relationships_indexes_and_security()
     assert "on public.purchases (user_id, purchased_at desc)" in executed_sql
     assert "alter table public.purchases enable row level security" in executed_sql
     assert "create policy purchases_service_role_all" in executed_sql
+
+
+def test_create_digital_purchase_details_migration_creates_one_to_one_extension() -> None:
+    connection = StubConnection()
+
+    create_digital_purchase_details.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert "create table if not exists public.digital_purchase_details" in executed_sql
+    assert "id uuid primary key" in executed_sql
+    assert "purchase_id uuid unique not null" in executed_sql
+    assert "references public.purchases(id) on delete cascade" in executed_sql
+    assert "issued_code text unique not null" in executed_sql
+    assert "code_redeemed boolean not null default false" in executed_sql
+    assert "code_redeemed_at timestamptz null" in executed_sql
+    assert "code_invalidated_at timestamptz null" in executed_sql
+    assert (
+        "create unique index if not exists digital_purchase_details_purchase_id_idx"
+        in executed_sql
+    )
+    assert "on public.digital_purchase_details (purchase_id)" in executed_sql
+    assert (
+        "create unique index if not exists digital_purchase_details_issued_code_idx"
+        in executed_sql
+    )
+    assert "on public.digital_purchase_details (issued_code)" in executed_sql
+    assert "alter table public.digital_purchase_details enable row level security" in executed_sql
+    assert "create policy digital_purchase_details_service_role_all" in executed_sql
+
+
+def test_create_physical_purchase_details_migration_creates_one_to_one_extension() -> None:
+    connection = StubConnection()
+
+    create_physical_purchase_details.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert "create table if not exists public.physical_purchase_details" in executed_sql
+    assert "id uuid primary key" in executed_sql
+    assert "purchase_id uuid unique not null" in executed_sql
+    assert "references public.purchases(id) on delete cascade" in executed_sql
+    assert "scheduled_delivery_at timestamptz not null" in executed_sql
+    assert "delivered_at timestamptz null" in executed_sql
+    assert "return_status text not null default 'not_requested'" in executed_sql
+    assert "carrier text null" in executed_sql
+    assert "tracking_number text null" in executed_sql
+    assert "accepted_by_carrier_at timestamptz null" in executed_sql
+    assert "'accepted_by_carrier'" in executed_sql
+    assert (
+        "create unique index if not exists physical_purchase_details_purchase_id_idx"
+        in executed_sql
+    )
+    assert "on public.physical_purchase_details (purchase_id)" in executed_sql
+    assert "create index if not exists physical_purchase_details_return_status_idx" in executed_sql
+    assert "on public.physical_purchase_details (return_status)" in executed_sql
+    assert (
+        "public.validate_physical_purchase_details_delivery_window()"
+        in executed_sql
+    )
+    assert "select purchases.purchased_at" in executed_sql
+    assert "where purchases.id = new.purchase_id" in executed_sql
+    assert "new.scheduled_delivery_at <= purchase_purchased_at" in executed_sql
+    assert "purchase_purchased_at + interval '2 days'" in executed_sql
+    assert "purchase_purchased_at + interval '7 days'" in executed_sql
+    assert "new.delivered_at <= purchase_purchased_at" in executed_sql
+    assert "new.delivered_at > new.scheduled_delivery_at" in executed_sql
+    assert "new.delivered_at > now()" in executed_sql
+    assert (
+        "drop trigger if exists validate_physical_purchase_details_delivery_window"
+        in executed_sql
+    )
+    assert "create trigger validate_physical_purchase_details_delivery_window" in executed_sql
+    assert (
+        "before insert or update of purchase_id, scheduled_delivery_at, delivered_at"
+        in executed_sql
+    )
+    assert (
+        "execute function public.validate_physical_purchase_details_delivery_window()"
+        in executed_sql
+    )
+    assert "alter table public.physical_purchase_details enable row level security" in executed_sql
+    assert "create policy physical_purchase_details_service_role_all" in executed_sql
+
+
+def test_create_subscription_purchase_details_migration_creates_one_to_one_extension() -> None:
+    connection = StubConnection()
+
+    create_subscription_purchase_details.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    assert "create table if not exists public.subscription_purchase_details" in executed_sql
+    assert "id uuid primary key" in executed_sql
+    assert "purchase_id uuid unique not null" in executed_sql
+    assert "references public.purchases(id) on delete cascade" in executed_sql
+    assert "period_start timestamptz not null" in executed_sql
+    assert "period_end timestamptz not null" in executed_sql
+    assert "cancelled_at timestamptz null" in executed_sql
+    assert "check (period_end > period_start)" in executed_sql
+    assert (
+        "create unique index if not exists subscription_purchase_details_purchase_id_idx"
+        in executed_sql
+    )
+    assert "on public.subscription_purchase_details (purchase_id)" in executed_sql
+    assert "create index if not exists subscription_purchase_details_period_idx" in executed_sql
+    assert "on public.subscription_purchase_details (period_start, period_end)" in executed_sql
+    assert (
+        "alter table public.subscription_purchase_details enable row level security"
+        in executed_sql
+    )
+    assert "create policy subscription_purchase_details_service_role_all" in executed_sql

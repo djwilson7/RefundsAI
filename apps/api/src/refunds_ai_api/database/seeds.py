@@ -173,6 +173,10 @@ def build_purchase_seed_rows(
     first_purchase_at = datetime.fromisoformat(
         plan["first_purchase_at"].replace("Z", "+00:00")
     )
+    active_day_window = (
+        datetime.fromisoformat(plan["last_purchase_at"].replace("Z", "+00:00"))
+        - first_purchase_at
+    ).days + 1
     purchases: list[dict[str, Any]] = []
 
     for customer_index, user_id in enumerate(customer_user_ids):
@@ -181,7 +185,10 @@ def build_purchase_seed_rows(
             product_type = type_sequence[sequence_index]
             product_options = products_by_type[product_type]
             product = product_options[(customer_index + purchase_index) % len(product_options)]
-            purchased_at = first_purchase_at + timedelta(days=sequence_index)
+            purchased_at = first_purchase_at + timedelta(
+                days=sequence_index % active_day_window,
+                minutes=sequence_index,
+            )
 
             purchases.append(
                 {
@@ -197,7 +204,7 @@ def build_purchase_seed_rows(
                     "purchased_at": purchased_at.astimezone(UTC)
                     .isoformat()
                     .replace("+00:00", "Z"),
-                    "status": "completed",
+                    "status": plan["status"],
                 }
             )
 
@@ -271,6 +278,8 @@ def validate_purchase_seed_data(seed_data: dict[str, Any]) -> None:
         raise SeedDataError("Purchase seed plan must target exactly 15 customers.")
     if purchase_plan.get("purchases_per_customer") != 12:
         raise SeedDataError("Purchase seed plan must create 12 purchases per customer.")
+    if purchase_plan.get("status") != "completed":
+        raise SeedDataError("Purchase seed plan must keep all purchases active.")
     type_distribution = purchase_plan.get("type_distribution", {})
     expected_purchase_count = (
         purchase_plan.get("customer_count", 0)
@@ -280,3 +289,11 @@ def validate_purchase_seed_data(seed_data: dict[str, Any]) -> None:
         raise SeedDataError("Purchase seed plan distribution must match total purchases.")
     if type_distribution != {"physical": 90, "digital": 54, "subscription": 36}:
         raise SeedDataError("Purchase seed plan must distribute purchases 90/54/36 by type.")
+    first_purchase_at = datetime.fromisoformat(
+        purchase_plan["first_purchase_at"].replace("Z", "+00:00")
+    )
+    last_purchase_at = datetime.fromisoformat(
+        purchase_plan["last_purchase_at"].replace("Z", "+00:00")
+    )
+    if (last_purchase_at - first_purchase_at).days != 44:
+        raise SeedDataError("Purchase seed plan must span the last 45 days.")

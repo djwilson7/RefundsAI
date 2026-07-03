@@ -102,6 +102,8 @@ The `products` table enables row-level security when created. Its initial policy
 
 The `purchases` table enables row-level security when created. Its initial policy grants access only to Supabase `service_role`, preserving backend ownership of customer purchase history and preventing direct frontend access.
 
+The purchase detail tables enable row-level security when created. Their initial policies grant access only to Supabase `service_role`, preserving backend ownership of type-specific purchase state.
+
 ---
 
 # Frontend Trust Boundary

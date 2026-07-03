@@ -165,7 +165,9 @@ Build the backend foundation that supports deterministic business logic, databas
 * [x] Deploy identity migrations to Supabase.
 * [x] Define `products` catalog migration.
 * [x] Define `purchases` purchase history migration.
+* [x] Define product-type-specific purchase detail migrations.
 * [ ] Deploy products and purchases migrations to Supabase.
+* [ ] Deploy purchase detail migrations to Supabase.
 * [ ] Define and deploy remaining v0.2.0 business tables.
 
 #### Seed Data Progress

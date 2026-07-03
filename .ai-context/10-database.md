@@ -358,6 +358,8 @@ The product catalog seed includes:
 
 The generated purchase history includes 180 deterministic purchases across 15 customer users, with each customer receiving 12 purchases.
 
+All seeded purchases are active and use `status = 'completed'`. Seeded purchase dates fall within the recent 45-day window from 2026-05-20 through 2026-07-03 so refund behavior can be tested against relevant transaction history.
+
 Purchase type distribution:
 
 * 90 physical purchases
@@ -365,6 +367,104 @@ Purchase type distribution:
 * 36 subscription purchases
 
 Purchase seed data is deterministic and idempotent. Products are upserted by SKU. Purchases are upserted by `order_number`, and `purchases.purchase_type` is copied from the product type at purchase generation time.
+
+## Purchase Detail Extensions
+
+Purchase detail tables are one-to-one extensions of `purchases`. They hold mutable fields that only apply to a specific purchase type.
+
+```text
+purchases.id
+  -> digital_purchase_details.purchase_id
+  -> physical_purchase_details.purchase_id
+  -> subscription_purchase_details.purchase_id
+```
+
+Each purchase should have exactly one detail row matching `purchases.purchase_type`:
+
+```text
+digital -> digital_purchase_details
+physical -> physical_purchase_details
+subscription -> subscription_purchase_details
+```
+
+For v1.0, cross-table exclusivity is not enforced with database triggers. Seed tests and backend service logic should validate that detail rows match purchase type.
+
+## digital_purchase_details
+
+Purpose
+Mutable state for digital purchases.
+
+Owner
+Backend
+
+Columns
+`id`, `purchase_id`, `issued_code`, `code_redeemed`, `code_redeemed_at`, `code_invalidated_at`, `created_at`, `updated_at`
+
+Relationships
+`digital_purchase_details.purchase_id` references `purchases(id)` with `on delete cascade`.
+
+Frontend
+Only fields returned through documented backend APIs.
+
+Backend
+Full record.
+
+## physical_purchase_details
+
+Purpose
+Mutable state for physical purchase delivery and return flow.
+
+Owner
+Backend
+
+Columns
+`id`, `purchase_id`, `scheduled_delivery_at`, `delivered_at`, `return_status`, `carrier`, `tracking_number`, `accepted_by_carrier_at`, `created_at`, `updated_at`
+
+Constraints
+`return_status` must be one of `not_requested`, `requested`, `accepted_by_carrier`, or `cancelled`.
+
+Delivery timing is validated against the owning `purchases.purchased_at` value:
+
+* `scheduled_delivery_at` must be after `purchased_at`.
+* `scheduled_delivery_at` must be between `purchased_at + 2 days` and `purchased_at + 7 days`.
+* `delivered_at` may be null.
+* When present, `delivered_at` must be after `purchased_at`.
+* When present, `delivered_at` must be on or before `scheduled_delivery_at`.
+* When present, `delivered_at` must be on or before `now()`.
+
+These delivery timing rules are enforced through a trigger because PostgreSQL table check constraints cannot reference `purchases.purchased_at`.
+
+Relationships
+`physical_purchase_details.purchase_id` references `purchases(id)` with `on delete cascade`.
+
+Frontend
+Only fields returned through documented backend APIs.
+
+Backend
+Full record.
+
+## subscription_purchase_details
+
+Purpose
+Mutable state for subscription purchase periods.
+
+Owner
+Backend
+
+Columns
+`id`, `purchase_id`, `period_start`, `period_end`, `cancelled_at`, `created_at`, `updated_at`
+
+Constraints
+`period_end` must be greater than `period_start`.
+
+Relationships
+`subscription_purchase_details.purchase_id` references `purchases(id)` with `on delete cascade`.
+
+Frontend
+Only fields returned through documented backend APIs.
+
+Backend
+Full record.
 
 ---
 
@@ -490,6 +590,22 @@ Added product and purchase seed fixture and execution.
 Reason
 
 Populate the catalog and customer purchase history with deterministic mock data for future UI, admin, reporting, and AI interaction workflows.
+
+2026-07-03
+
+Defined purchase detail extension migrations.
+
+Reason
+
+Move product-type-specific mutable purchase state into one-to-one detail tables instead of adding nullable type-specific fields to `purchases`.
+
+2026-07-03
+
+Updated physical purchase detail delivery timing contract.
+
+Reason
+
+Add `scheduled_delivery_at` and database-enforced delivery-window validation so physical purchase seed data and refund workflows can model recent delivery state consistently.
 
 --- 
 

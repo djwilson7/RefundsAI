@@ -131,3 +131,29 @@ In a production catalog, physical inventory, digital goods, and subscriptions wo
 ### Consequence
 
 Product-specific behavior should use `products.product_type` and `purchases.purchase_type` rather than introducing separate product tables during the current scope. The mock catalog should remain intentionally limited and representative, not a full ecommerce inventory model. If future scope requires production-scale catalog behavior, split product types into more specialized tables or subtype models before adding complex inventory, entitlement, or subscription metadata.
+
+---
+
+# Decision 007: Purchase Detail Extension Tables
+
+### Decision
+
+Type-specific mutable purchase fields are stored in one-to-one detail tables:
+
+* `digital_purchase_details`
+* `physical_purchase_details`
+* `subscription_purchase_details`
+
+Each table references `purchases(id)` through a unique `purchase_id`, making it an extension of the base purchase record.
+
+### Reason
+
+Digital purchases, physical purchases, and subscription purchases need different operational fields. Digital purchases need code issuance and redemption state. Physical purchases need delivery, carrier, tracking, and return flow state. Subscriptions need period and cancellation state.
+
+Keeping all of those fields on `purchases` would turn the primary purchase table into a nullable god table with many columns that only apply to one product type. Splitting detail data by purchase type keeps the base table focused on shared purchase history while preserving tailored fields for each purchase workflow.
+
+### Consequence
+
+The application should treat `purchases` as the shared lookup and history table, then load exactly one matching detail row based on `purchases.purchase_type`. For v1.0, cross-table exclusivity is validated in seed tests and backend service logic rather than enforced through database triggers. If production scope requires stronger guarantees, add database-level enforcement after the service behavior is stable.
+
+Physical delivery timing is a narrower integrity rule and is enforced in the database with a trigger because it compares `physical_purchase_details` values against `purchases.purchased_at`. This preserves the decision to avoid cross-table exclusivity triggers while still keeping delivery-window rules authoritative.
