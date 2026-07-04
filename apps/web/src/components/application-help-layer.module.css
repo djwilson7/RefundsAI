@@ -68,30 +68,13 @@
   margin: 18px 0 0;
 }
 
-.centeredBody {
+.commandStack {
   display: grid;
-  align-content: center;
-  justify-items: center;
-  text-align: center;
-}
-
-.selectionIcon {
-  width: 72px;
-  height: 72px;
-  margin: 0 0 18px;
-  color: var(--foreground);
-}
-
-.prompt {
-  margin: 0;
-  color: #40505f;
-  font-size: 0.9375rem;
-  line-height: 1.6;
+  gap: 12px;
 }
 
 .actionButton {
   width: 100%;
-  margin: 18px 0 0;
   border: 1px solid var(--accent);
   border-radius: 8px;
   background: var(--accent);
@@ -113,6 +96,18 @@
 
 .actionButton:focus-visible {
   outline: 3px solid rgb(11 107 203 / 18%);
+}
+
+.actionButton:disabled {
+  border-color: #cbd5e1;
+  background: #dbe2ea;
+  color: #7b8794;
+  cursor: not-allowed;
+}
+
+.actionButton:disabled:hover {
+  border-color: #cbd5e1;
+  background: #dbe2ea;
 }
 
 @media (max-width: 520px) {

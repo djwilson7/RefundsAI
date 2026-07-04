@@ -32,6 +32,24 @@ describe("SubscriptionBillingCycleCard", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders cancelled billing cycle state from service end date", () => {
+    render(
+      <SubscriptionBillingCycleCard
+        currentDate="2026-07-05T00:00:00Z"
+        periodEnd="2026-07-20T00:00:00Z"
+        periodStart="2026-06-20T00:00:00Z"
+        serviceEndedAt="2026-07-03T00:00:00Z"
+      />,
+    );
+
+    expect(screen.getByText("Cancelled")).toBeInTheDocument();
+    expect(screen.getByText("Jul 03")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Subscription cancelled Jul 03" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Today")).not.toBeInTheDocument();
+  });
+
   it("calculates clamped billing cycle progress", () => {
     expect(
       calculateBillingCycleProgress({

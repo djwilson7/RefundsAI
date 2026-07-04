@@ -393,7 +393,7 @@ DATABASE_NOT_CONFIGURED
 Notes
 Clients call one stable detail endpoint. The backend loads `purchases`, identifies `purchase_type`, and then reads exactly one of `digital_purchase_details`, `physical_purchase_details`, or `subscription_purchase_details`. No `/digital-details`, `/physical-details`, or `/subscription-details` API contract is exposed.
 
-Frontend purchase detail pages consume this response to render type-specific presentation components. Digital details render code issuance and redemption state, physical details render delivery and tracking state, and subscription details render billing-cycle state plus a renewal badge. For subscriptions, clients should display `Auto Renew Enabled` only when `auto_renew = true` and no cancellation/service-end state is present; otherwise they should display `Subscription Canceled`. Clients must treat this as display-only state returned by the backend.
+Frontend purchase detail pages consume this response to render type-specific presentation components. Digital details render code issuance and redemption state, physical details render delivery and tracking state, and subscription details render billing-cycle state. Prepared or issued refund state is rendered in product-specific `Return Details` sections. For subscriptions, clients should show prepared cancellation state as auto-renewal off, days used in the billing cycle, and `Subscription Cancelled`; issued subscription refunds also show cancel date, amount, and the expected refund window. Clients must treat this as display-only state returned by the backend and must not infer cancellation, issuance, or eligibility independently.
 
 ## GET /api/purchases/{purchase_id}/refund/eligibility
 
@@ -680,5 +680,7 @@ The Next.js frontend may expose same-origin route handlers that proxy browser-in
 
 * `GET /api/purchases/{purchase_id}/refund/eligibility`
 * `POST /api/purchases/{purchase_id}/refund/request`
+* `POST /api/purchases/{purchase_id}/refund/issue`
+* `POST /api/purchases/{purchase_id}/physical/confirm-carrier-acceptance`
 
-These routes exist to keep browser requests same-origin during local development. They must not evaluate refund policy, mutate workflow state independently, or transform backend decisions beyond forwarding the backend response body and status. FastAPI remains authoritative for refund eligibility and preparation.
+These routes exist to keep browser requests same-origin during local development. They must not evaluate refund policy, mutate workflow state independently, or transform backend decisions beyond forwarding the backend response body and status. FastAPI remains authoritative for refund eligibility, preparation, carrier acceptance, and fund issuance.

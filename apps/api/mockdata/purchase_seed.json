@@ -222,6 +222,10 @@
     "first_order_number": 10001,
     "first_purchase_at": "2026-05-20T14:00:00Z",
     "last_purchase_at": "2026-07-03T14:00:00Z",
+    "digital_purchase_window": {
+      "first_purchase_at": "2026-06-20T14:00:00Z",
+      "last_purchase_at": "2026-07-04T14:00:00Z"
+    },
     "status": "completed"
   }
 }

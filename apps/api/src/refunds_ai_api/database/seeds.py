@@ -274,6 +274,22 @@ def build_purchase_seed_rows(
         datetime.fromisoformat(plan["last_purchase_at"].replace("Z", "+00:00"))
         - first_purchase_at
     ).days + 1
+    digital_window = plan.get("digital_purchase_window")
+    digital_first_purchase_at = (
+        datetime.fromisoformat(digital_window["first_purchase_at"].replace("Z", "+00:00"))
+        if digital_window
+        else first_purchase_at
+    )
+    digital_day_window = (
+        (
+            datetime.fromisoformat(digital_window["last_purchase_at"].replace("Z", "+00:00"))
+            - digital_first_purchase_at
+        ).days
+        + 1
+        if digital_window
+        else active_day_window
+    )
+    digital_purchase_index = 0
     purchases: list[dict[str, Any]] = []
 
     for customer_index, user_id in enumerate(customer_user_ids):
@@ -286,6 +302,12 @@ def build_purchase_seed_rows(
                 days=sequence_index % active_day_window,
                 minutes=sequence_index,
             )
+            if product_type == "digital":
+                purchased_at = digital_first_purchase_at + timedelta(
+                    days=digital_purchase_index % digital_day_window,
+                    minutes=sequence_index,
+                )
+                digital_purchase_index += 1
 
             purchases.append(
                 {
@@ -474,6 +496,19 @@ def validate_purchase_seed_data(seed_data: dict[str, Any]) -> None:
     )
     if (last_purchase_at - first_purchase_at).days != 44:
         raise SeedDataError("Purchase seed plan must span the last 45 days.")
+    digital_window = purchase_plan.get("digital_purchase_window", {})
+    digital_first_purchase_at = datetime.fromisoformat(
+        digital_window["first_purchase_at"].replace("Z", "+00:00")
+    )
+    digital_last_purchase_at = datetime.fromisoformat(
+        digital_window["last_purchase_at"].replace("Z", "+00:00")
+    )
+    if digital_first_purchase_at.date().isoformat() != "2026-06-20":
+        raise SeedDataError("Digital purchase seed window must start on 2026-06-20.")
+    if digital_last_purchase_at.date().isoformat() != "2026-07-04":
+        raise SeedDataError("Digital purchase seed window must end on 2026-07-04.")
+    if digital_last_purchase_at < digital_first_purchase_at:
+        raise SeedDataError("Digital purchase seed window must be ordered.")
 
 
 def validate_purchase_detail_seed_rows(

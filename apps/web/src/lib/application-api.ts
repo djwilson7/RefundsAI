@@ -85,6 +85,27 @@ type ApiPurchaseDetails =
       details: ApiSubscriptionPurchaseDetails;
     }>;
 
+type ApiRefundWorkflow = Readonly<{
+  purchase_id: string;
+  purchase_type: PurchaseType;
+  can_enter_refund_workflow: boolean;
+  can_prepare_refund: boolean;
+  can_issue_funds: boolean;
+  refund_stage: "blocked" | "eligible" | "prepared" | "issued";
+  required_action:
+    | "none"
+    | "request_refund"
+    | "invalidate_code"
+    | "generate_return_label"
+    | "cancel_subscription"
+    | "await_carrier_acceptance"
+    | "issue_funds";
+  refundable_amount_cents: number;
+  refund_outcome: "none" | "full" | "prorated";
+  reasons: readonly string[];
+  policy_facts: Record<string, unknown>;
+}>;
+
 export type CustomerProfile = Readonly<{
   id: string;
   firstName: string;
@@ -157,6 +178,27 @@ export type PurchaseDetails =
       details: SubscriptionPurchaseDetails;
     }>;
 
+export type RefundWorkflow = Readonly<{
+  purchaseId: string;
+  purchaseType: PurchaseType;
+  canEnterRefundWorkflow: boolean;
+  canPrepareRefund: boolean;
+  canIssueFunds: boolean;
+  refundStage: "blocked" | "eligible" | "prepared" | "issued";
+  requiredAction:
+    | "none"
+    | "request_refund"
+    | "invalidate_code"
+    | "generate_return_label"
+    | "cancel_subscription"
+    | "await_carrier_acceptance"
+    | "issue_funds";
+  refundableAmountCents: number;
+  refundOutcome: "none" | "full" | "prorated";
+  reasons: readonly string[];
+  policyFacts: Record<string, unknown>;
+}>;
+
 function getApiBaseUrl() {
   return process.env.REFUNDS_AI_API_BASE_URL ?? defaultApiBaseUrl;
 }
@@ -227,6 +269,31 @@ export async function getPurchaseDetails(purchaseId: string) {
     }
 
     return mapApiPurchaseDetailsToPurchaseDetails(body.data);
+  } catch {
+    return null;
+  }
+}
+
+export async function getRefundWorkflow(purchaseId: string) {
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/purchases/${purchaseId}/refund/eligibility`,
+      {
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const body = (await response.json()) as ApiResponse<ApiRefundWorkflow>;
+
+    if (!body.success || !body.data) {
+      return null;
+    }
+
+    return mapApiRefundWorkflowToRefundWorkflow(body.data);
   } catch {
     return null;
   }
@@ -311,6 +378,24 @@ export function mapApiPurchaseDetailsToPurchaseDetails(
       returnRejectionReason: purchaseDetails.details.return_rejection_reason,
       refundWindowExpiresAt: purchaseDetails.details.refund_window_expires_at,
     },
+  };
+}
+
+export function mapApiRefundWorkflowToRefundWorkflow(
+  workflow: ApiRefundWorkflow,
+): RefundWorkflow {
+  return {
+    purchaseId: workflow.purchase_id,
+    purchaseType: workflow.purchase_type,
+    canEnterRefundWorkflow: workflow.can_enter_refund_workflow,
+    canPrepareRefund: workflow.can_prepare_refund,
+    canIssueFunds: workflow.can_issue_funds,
+    refundStage: workflow.refund_stage,
+    requiredAction: workflow.required_action,
+    refundableAmountCents: workflow.refundable_amount_cents,
+    refundOutcome: workflow.refund_outcome,
+    reasons: workflow.reasons,
+    policyFacts: workflow.policy_facts,
   };
 }
 

@@ -54,6 +54,10 @@
   overflow: hidden;
 }
 
+.cancelled .track {
+  background: #d94a4a;
+}
+
 .fill {
   display: block;
   height: 3px;
@@ -77,13 +81,26 @@
   background: var(--accent);
 }
 
-.todayLabel {
+.cancelled .marker {
+  background: #d94a4a;
+}
+
+.markerLabel {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
   color: #667789;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0;
-  line-height: 1;
+  line-height: 1.1;
   text-transform: uppercase;
+}
+
+.cancelled .markerLabel span:last-child {
+  color: var(--foreground);
+  font-size: 0.75rem;
+  text-transform: none;
 }
 
 .position0 {

@@ -5,6 +5,14 @@
   border-radius: 8px;
   padding: 18px 18px 16px;
   background: var(--card);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.muted {
+  border-color: #d8e0e8;
+  background: #f4f6f8;
 }
 
 .steps {
@@ -45,6 +53,32 @@
   color: var(--foreground);
   font-size: 0.9375rem;
   font-weight: 800;
+}
+
+.muted .step + .step {
+  border-left-color: #d8e0e8;
+}
+
+.muted .step p:nth-child(2),
+.muted .step p:last-child {
+  color: #7a8794;
+}
+
+.muted .completeMark {
+  border-color: #a4afba;
+  background: rgba(148, 163, 184, 0.2);
+  color: #7a8794;
+}
+
+.muted .activeDot {
+  border-color: rgba(100, 116, 139, 0.42);
+  background: rgba(148, 163, 184, 0.24);
+  animation: none;
+}
+
+.muted .pendingDot {
+  border-color: #a4afba;
+  background: #eef2f5;
 }
 
 .marker {
@@ -112,5 +146,9 @@
   .step + .step {
     border-top: 1px solid var(--border);
     border-left: 0;
+  }
+
+  .muted .step + .step {
+    border-top-color: #d8e0e8;
   }
 }

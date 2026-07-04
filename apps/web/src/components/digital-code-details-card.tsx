@@ -2,15 +2,20 @@ import styles from "./digital-code-details-card.module.css";
 
 type DigitalCodeDetailsCardProps = Readonly<{
   codeRedeemed: boolean;
+  isMuted?: boolean;
   issuedCode: string;
 }>;
 
 export function DigitalCodeDetailsCard({
   codeRedeemed,
+  isMuted = false,
   issuedCode,
 }: DigitalCodeDetailsCardProps) {
   return (
-    <section className={styles.card} aria-label="Digital code details">
+    <section
+      className={`${styles.card} ${isMuted ? styles.muted : ""}`}
+      aria-label="Digital code details"
+    >
       <div>
         <p>Issued Code</p>
         <p>{issuedCode}</p>

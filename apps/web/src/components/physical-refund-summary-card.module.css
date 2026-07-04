@@ -1,20 +1,11 @@
 .card {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   width: min(100%, 1120px);
   margin: 12px auto 0;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--card);
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    opacity 160ms ease;
-}
-
-.muted {
-  border-color: #d8e0e8;
-  background: #f4f6f8;
 }
 
 .card > div {
@@ -40,6 +31,8 @@
 }
 
 .card p:last-child {
+  display: grid;
+  gap: 4px;
   margin-top: 8px;
   overflow-wrap: anywhere;
   color: var(--foreground);
@@ -47,13 +40,10 @@
   font-weight: 800;
 }
 
-.muted > div + div {
-  border-left-color: #d8e0e8;
-}
-
-.muted p:first-child,
-.muted p:last-child {
-  color: #7a8794;
+.card p:last-child span + span {
+  color: #667789;
+  font-size: 0.8125rem;
+  font-weight: 700;
 }
 
 @media (max-width: 640px) {
@@ -64,9 +54,5 @@
   .card > div + div {
     border-top: 1px solid var(--border);
     border-left: 0;
-  }
-
-  .muted > div + div {
-    border-top-color: #d8e0e8;
   }
 }

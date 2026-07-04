@@ -2,6 +2,7 @@ import styles from "./physical-delivery-timeline-card.module.css";
 
 type PhysicalDeliveryTimelineCardProps = Readonly<{
   deliveredAt: string | null;
+  isMuted?: boolean;
   purchasedAt: string;
   scheduledDeliveryAt: string | null;
 }>;
@@ -14,6 +15,7 @@ type TimelineStep = Readonly<{
 
 export function PhysicalDeliveryTimelineCard({
   deliveredAt,
+  isMuted = false,
   purchasedAt,
   scheduledDeliveryAt,
 }: PhysicalDeliveryTimelineCardProps) {
@@ -39,7 +41,10 @@ export function PhysicalDeliveryTimelineCard({
   const activeStepIndex = getActiveStepIndex(steps);
 
   return (
-    <section className={styles.card} aria-label="Physical delivery timeline">
+    <section
+      className={`${styles.card} ${isMuted ? styles.muted : ""}`}
+      aria-label="Physical delivery timeline"
+    >
       <ol className={styles.steps}>
         {steps.map((step, index) => (
           <li className={styles.step} key={step.label}>

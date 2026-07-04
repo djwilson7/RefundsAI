@@ -103,6 +103,8 @@ No tool should create or depend on a standalone `refunds` table.
 
 Tools should not send database-derived refund deadlines. PostgreSQL triggers compute refund window fields from persisted purchase/detail state.
 
+The current frontend help panel includes temporary manual `Prep Refund` and `Issue Refund` commands that call backend refund workflow endpoints through same-origin frontend proxy routes. These controls exist to validate backend workflow state and frontend lifecycle displays before the agent layer is active. Future refund tools should replace that manual path rather than duplicate it. The intended long-term flow is for the agent to call deterministic backend tools to initiate approved refund preparation and issuance, while purchase detail pages continue to render the resulting backend state.
+
 ---
 
 # Role-Based Access

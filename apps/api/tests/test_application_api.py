@@ -693,6 +693,25 @@ def test_repository_updates_physical_refund_request_state() -> None:
     assert "status = 'refund_pending'" in executed_sql
 
 
+def test_repository_updates_subscription_refund_request_from_active_entry_statuses() -> None:
+    connection = StubConnection("subscription")
+    repository = ApplicationRepository(StubConnectionProvider(connection))
+
+    repository.update_subscription_refund_requested(
+        PURCHASE_ID,
+        datetime(2026, 7, 3, tzinfo=UTC),
+        "prorated",
+    )
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed)
+    assert "cancelled_at = %s" in executed_sql
+    assert "service_ended_at = %s" in executed_sql
+    assert "auto_renew = false" in executed_sql
+    assert "refund_proration_mode = %s" in executed_sql
+    assert "purchases.status in ('completed', 'subscribed')" in executed_sql
+    assert "status in ('completed', 'subscribed')" in executed_sql
+
+
 def test_repository_raises_conflict_when_guarded_mutation_does_not_apply() -> None:
     connection = StubConnection("physical")
     connection.force_conflict = True

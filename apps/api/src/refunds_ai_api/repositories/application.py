@@ -239,7 +239,7 @@ class ApplicationRepository:
                         from public.purchases
                         where purchases.id = subscription_purchase_details.purchase_id
                             and purchases.purchase_type = 'subscription'
-                            and purchases.status = 'subscribed'
+                            and purchases.status in ('completed', 'subscribed')
                     )
                 """,
                 (requested_at, requested_at, refund_proration_mode, purchase_id),
@@ -252,7 +252,7 @@ class ApplicationRepository:
                     updated_at = now()
                 where id = %s
                     and purchase_type = 'subscription'
-                    and status = 'subscribed'
+                    and status in ('completed', 'subscribed')
                 """,
                 (requested_at, purchase_id),
             ),

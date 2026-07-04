@@ -55,7 +55,7 @@ Subscriptions that have expired without an active billing period are not eligibl
 
 When a refund is approved, the subscription will be cancelled and access to the associated service will terminate in accordance with the effective refund date.
 
-Approved subscription refunds also disable auto-renewal. Customer-facing subscription detail screens should show active subscriptions as `Auto Renew Enabled` and prepared/cancelled subscription refunds as `Subscription Canceled`.
+Approved subscription refunds also disable auto-renewal. Customer-facing subscription detail screens should show prepared cancellations and issued refunds in the subscription return details rather than asking customers to infer refund state from renewal settings alone.
 
 ---
 

@@ -2,6 +2,7 @@ import styles from "./digital-purchase-timeline-card.module.css";
 
 type DigitalPurchaseTimelineCardProps = Readonly<{
   codeIssuedAt: string | null;
+  isMuted?: boolean;
   purchasedAt: string;
 }>;
 
@@ -13,6 +14,7 @@ type TimelineStep = Readonly<{
 
 export function DigitalPurchaseTimelineCard({
   codeIssuedAt,
+  isMuted = false,
   purchasedAt,
 }: DigitalPurchaseTimelineCardProps) {
   const steps: readonly TimelineStep[] = [
@@ -30,7 +32,10 @@ export function DigitalPurchaseTimelineCard({
   const activeStepIndex = getActiveStepIndex(steps);
 
   return (
-    <section className={styles.card} aria-label="Digital purchase timeline">
+    <section
+      className={`${styles.card} ${isMuted ? styles.muted : ""}`}
+      aria-label="Digital purchase timeline"
+    >
       <ol className={styles.steps}>
         {steps.map((step, index) => (
           <li className={styles.step} key={step.label}>

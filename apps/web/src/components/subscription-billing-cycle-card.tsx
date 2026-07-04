@@ -4,15 +4,18 @@ type SubscriptionBillingCycleCardProps = Readonly<{
   currentDate: string;
   periodEnd: string;
   periodStart: string;
+  serviceEndedAt?: string | null;
 }>;
 
 export function SubscriptionBillingCycleCard({
   currentDate,
   periodEnd,
   periodStart,
+  serviceEndedAt,
 }: SubscriptionBillingCycleCardProps) {
+  const isCancelled = Boolean(serviceEndedAt);
   const progress = calculateBillingCycleProgress({
-    currentDate,
+    currentDate: serviceEndedAt ?? currentDate,
     periodEnd,
     periodStart,
   });
@@ -35,9 +38,13 @@ export function SubscriptionBillingCycleCard({
         </div>
       </div>
       <div
-        className={styles.progress}
+        className={`${styles.progress} ${isCancelled ? styles.cancelled : ""}`}
         role="img"
-        aria-label={`Billing cycle progress ${progress}%`}
+        aria-label={
+          isCancelled
+            ? `Subscription cancelled ${formatBillingCycleDate(serviceEndedAt ?? "")}`
+            : `Billing cycle progress ${progress}%`
+        }
       >
         <div className={styles.track}>
           <div
@@ -48,7 +55,12 @@ export function SubscriptionBillingCycleCard({
           className={`${styles.markerGroup} ${styles[progressPositionClassName]}`}
         >
           <span className={styles.marker} aria-hidden="true" />
-          <span className={styles.todayLabel}>Today</span>
+          <span className={styles.markerLabel}>
+            <span>{isCancelled ? "Cancelled" : "Today"}</span>
+            {isCancelled ? (
+              <span>{formatBillingCycleDate(serviceEndedAt ?? "")}</span>
+            ) : null}
+          </span>
         </div>
       </div>
     </section>

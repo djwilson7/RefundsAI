@@ -294,6 +294,10 @@ def test_purchase_seed_fixture_matches_documented_catalog_shape() -> None:
     }
     assert seed_data["purchase_plan"]["first_purchase_at"] == "2026-05-20T14:00:00Z"
     assert seed_data["purchase_plan"]["last_purchase_at"] == "2026-07-03T14:00:00Z"
+    assert seed_data["purchase_plan"]["digital_purchase_window"] == {
+        "first_purchase_at": "2026-06-20T14:00:00Z",
+        "last_purchase_at": "2026-07-04T14:00:00Z",
+    }
     assert seed_data["purchase_plan"]["status"] == "completed"
 
 
@@ -317,8 +321,16 @@ def test_build_purchase_seed_rows_matches_documented_distribution() -> None:
         for purchase in purchases
     ]
     assert min(purchased_at_values).isoformat() == "2026-05-20T14:00:00+00:00"
-    assert max(purchased_at_values).date().isoformat() == "2026-07-03"
-    assert (max(purchased_at_values).date() - min(purchased_at_values).date()).days == 44
+    assert max(purchased_at_values).date().isoformat() == "2026-07-04"
+    assert (max(purchased_at_values).date() - min(purchased_at_values).date()).days == 45
+
+    digital_purchased_at_values = [
+        datetime.fromisoformat(purchase["purchased_at"].replace("Z", "+00:00"))
+        for purchase in purchases
+        if purchase["purchase_type"] == "digital"
+    ]
+    assert min(digital_purchased_at_values).date().isoformat() == "2026-06-20"
+    assert max(digital_purchased_at_values).date().isoformat() == "2026-07-04"
 
 
 def test_build_purchase_detail_seed_rows_matches_lifecycle_contract() -> None:

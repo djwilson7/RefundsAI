@@ -272,6 +272,8 @@ This milestone also prepares deterministic services for later AI orchestration. 
 
 # v0.4.0 — Customer Experience
 
+**Status:** Complete
+
 ## Objective
 
 Build the customer-facing experience on top of the backend API contracts from v0.3.0.
@@ -281,27 +283,31 @@ Build the customer-facing experience on top of the backend API contracts from v0
 * [x] Customer dashboard baseline
 * [x] Purchase history
 * [x] Purchase detail pages
-* [ ] Refund eligibility views
-* [ ] Refund request experience
-* [ ] Navigation
+* [x] Refund eligibility views
+* [x] Manual refund workflow command experience
+* [x] Navigation
 * [x] Shared UI components
-* [ ] Persistent support panel
+* [x] Persistent support panel shell
 
 #### Customer Experience Progress
 
 * [x] Add mock authentication flow with customer/admin entry points.
 * [x] Add customer home route backed by selected user profile and purchase history data.
 * [x] Add purchase history cards that navigate to purchase details.
+* [x] Add client-facing navigation across mock login, customer home, purchase history, purchase details, and logout.
 * [x] Add API-backed purchase detail route using `GET /api/purchases/{purchase_id}/details`.
 * [x] Add type-specific purchase detail sections for digital, physical, and subscription purchases.
-* [x] Add subscription billing-cycle display and renewal/cancellation badge in the subscription detail header.
+* [x] Add subscription billing-cycle display and cancellation/refund summary rows under subscription detail sections.
 * [x] Keep purchase detail metadata focused on refund workflow facts after moving product-type lifecycle facts into dedicated sections.
+* [x] Add persistent help-panel command surface that can manually trigger backend refund preparation and issuance while AI orchestration is pending.
+* [x] Add rich prepared and issued refund displays for digital code invalidation, physical return preparation/carrier acceptance, and subscription cancellation/refund summary state.
+* [x] Document that the manual `Prep Refund` and `Issue Refund` commands are temporary and should be removed or demoted once the agent owns refund workflow execution.
 
 ### Validation
 
 * [x] Customer interface navigable through mock login, customer home, purchase history, and purchase details.
 * [x] Purchase information displayed from backend read APIs.
-* [ ] Refund state rendered accurately.
+* [x] Refund state rendered accurately for prepared and issued digital, physical, and subscription workflows.
 * [x] Frontend tests, lint, and build passing for current customer detail scope.
 
 ---

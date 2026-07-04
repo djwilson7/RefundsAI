@@ -90,7 +90,7 @@ Refund workflow is intentionally staged:
 
 Physical purchases may be prepared before they are issuable because carrier acceptance is required before refund processing begins. Digital purchases are prepared by invalidating the issued entitlement. Subscription purchases are prepared by cancelling service access, disabling renewal, and recording full or prorated refund mode.
 
-Frontend subscription detail pages should reflect this persisted state after preparation. When backend detail data reports active renewal, the subscription header displays `Auto Renew Enabled`. When `auto_renew = false`, `cancelled_at` is present, or `service_ended_at` is present, the subscription header displays `Subscription Canceled`. This is a presentation of backend state only; the frontend must not decide cancellation, renewal, proration, or refund eligibility independently.
+Frontend subscription detail pages should reflect this persisted state after preparation without making the header authoritative for subscription state. Active subscriptions show billing-cycle progress under `Billing Cycle Details`. Prepared subscription refunds show `Return Details` with auto-renewal off, days used in the billing cycle, and `Subscription Cancelled`. Issued subscription refunds add cancel date, issued amount, and the expected refund window. This is a presentation of backend state only; the frontend must not decide cancellation, renewal, proration, fund issuance, or refund eligibility independently.
 
 Refund execution must not skip preparation. Fund issuance requires prepared state for every purchase type.
 

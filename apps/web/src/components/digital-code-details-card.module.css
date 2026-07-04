@@ -38,6 +38,20 @@
   font-weight: 800;
 }
 
+.muted {
+  border-color: #d8e0e8;
+  background: #f4f6f8;
+}
+
+.muted > div + div {
+  border-left-color: #d8e0e8;
+}
+
+.muted p:first-child,
+.muted p:last-child {
+  color: #7a8794;
+}
+
 @media (max-width: 640px) {
   .card {
     grid-template-columns: 1fr;
@@ -46,5 +60,9 @@
   .card > div + div {
     border-top: 1px solid var(--border);
     border-left: 0;
+  }
+
+  .muted > div + div {
+    border-top-color: #d8e0e8;
   }
 }

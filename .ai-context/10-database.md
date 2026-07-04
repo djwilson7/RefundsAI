@@ -372,7 +372,7 @@ The product catalog seed includes:
 
 The generated purchase history includes 180 deterministic purchases across 15 customer users, with each customer receiving 12 purchases.
 
-All seeded purchases are active and use `status = 'completed'`. Seeded purchase dates fall within the recent 45-day window from 2026-05-20 through 2026-07-03 so refund behavior can be tested against relevant transaction history.
+All seeded purchases are active and use `status = 'completed'`. Seeded purchase dates generally fall within the recent 45-day window from 2026-05-20 through 2026-07-03 so refund behavior can be tested against relevant transaction history. Digital purchases are intentionally constrained to 2026-06-20 through 2026-07-04 so no seeded digital purchase is future-dated while the database-derived 15-day refund window remains testable after the current development date.
 
 Purchase type distribution:
 

@@ -4,10 +4,12 @@ import {
   formatPurchaseDate,
   formatPurchaseStatus,
   getPurchaseDetails,
+  getRefundWorkflow,
   getUserProfile,
   getUserPurchases,
   mapApiPurchaseDetailsToPurchaseDetails,
   mapApiPurchaseToCustomerPurchase,
+  mapApiRefundWorkflowToRefundWorkflow,
   mapApiUserToCustomerProfile,
 } from "./application-api";
 
@@ -50,6 +52,22 @@ const apiPhysicalPurchaseDetails = {
     return_rejected_at: null,
     return_rejection_reason: null,
     refund_window_expires_at: "2026-07-20T14:30:00Z",
+  },
+};
+
+const apiRefundWorkflow = {
+  purchase_id: "40000000-0000-4000-8000-000000000003",
+  purchase_type: "subscription" as const,
+  can_enter_refund_workflow: true,
+  can_prepare_refund: false,
+  can_issue_funds: true,
+  refund_stage: "prepared" as const,
+  required_action: "issue_funds" as const,
+  refundable_amount_cents: 1750,
+  refund_outcome: "prorated" as const,
+  reasons: [],
+  policy_facts: {
+    auto_renew: false,
   },
 };
 
@@ -148,6 +166,24 @@ describe("application API client", () => {
     });
   });
 
+  it("maps API refund workflow payloads", () => {
+    expect(mapApiRefundWorkflowToRefundWorkflow(apiRefundWorkflow)).toEqual({
+      purchaseId: "40000000-0000-4000-8000-000000000003",
+      purchaseType: "subscription",
+      canEnterRefundWorkflow: true,
+      canPrepareRefund: false,
+      canIssueFunds: true,
+      refundStage: "prepared",
+      requiredAction: "issue_funds",
+      refundableAmountCents: 1750,
+      refundOutcome: "prorated",
+      reasons: [],
+      policyFacts: {
+        auto_renew: false,
+      },
+    });
+  });
+
   it("loads a user profile from the backend API", async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -242,6 +278,34 @@ describe("application API client", () => {
     );
   });
 
+  it("loads refund workflow from the backend API", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: apiRefundWorkflow,
+          error: null,
+          meta: {},
+        }),
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      getRefundWorkflow("40000000-0000-4000-8000-000000000003"),
+    ).resolves.toMatchObject({
+      purchaseId: "40000000-0000-4000-8000-000000000003",
+      purchaseType: "subscription",
+      refundableAmountCents: 1750,
+      refundOutcome: "prorated",
+      refundStage: "prepared",
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/purchases/40000000-0000-4000-8000-000000000003/refund/eligibility",
+      { cache: "no-store" },
+    );
+  });
+
   it("returns null when the user API is unavailable or unsuccessful", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     await expect(getUserProfile(apiUser.id)).resolves.toBeNull();
@@ -285,6 +349,23 @@ describe("application API client", () => {
       }),
     );
     await expect(getPurchaseDetails(apiPurchase.id)).resolves.toBeNull();
+  });
+
+  it("returns null when the refund workflow API is unavailable or unsuccessful", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    await expect(getRefundWorkflow(apiPurchase.id)).resolves.toBeNull();
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    await expect(getRefundWorkflow(apiPurchase.id)).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: false, data: null }),
+      }),
+    );
+    await expect(getRefundWorkflow(apiPurchase.id)).resolves.toBeNull();
   });
 
   it("formats purchase values for display", () => {

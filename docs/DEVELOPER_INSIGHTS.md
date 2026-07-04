@@ -94,8 +94,32 @@ Reason:
 
 The customer experience needs to show different lifecycle facts for digital codes, physical delivery, and subscription billing, but the backend remains the authority for which detail table applies and what state is true. A single purchase detail route backed by `GET /api/purchases/{purchase_id}/details` keeps navigation simple while allowing the page to render type-specific sections from the returned `purchase_type` and detail payload.
 
-For subscriptions, the renewal badge is intentionally a display of persisted backend state. Active rows show `Auto Renew Enabled`; rows with disabled renewal, cancellation, or service end state show `Subscription Canceled`. This keeps the refund-preparation rule clear without letting the frontend decide whether a subscription is actually cancelled.
+For subscriptions, the detail page now avoids a header badge and keeps subscription state in the body sections. Billing cycle state lives under `Billing Cycle Details`; prepared and issued refund state lives under `Return Details`. Prepared subscriptions show auto-renewal off, days used in the billing cycle, and `Subscription Cancelled`. Issued subscription refunds add cancel date, amount, and the expected refund window. This keeps the refund-preparation rule visible without letting the frontend decide whether a subscription is actually cancelled or issuable.
 
 Tradeoff:
 
 The page has a little more component branching, but it avoids route proliferation and keeps the future refund workflow UI aligned with the same API contract the agent tools will use.
+
+---
+
+## Insight 007 - Manual Refund Commands Before Agent Orchestration
+
+The customer help panel currently exposes manual `Prep Refund` and `Issue Refund` commands on purchase detail pages. Both commands are disabled by default and become enabled only from backend workflow flags: `can_prepare_refund` and `can_issue_funds`.
+
+Reason:
+
+The frontend needed a deterministic way to exercise the full refund workflow before the AI agent layer is wired in. The manual commands let the team validate same-origin frontend proxy routes, FastAPI refund preparation and issuance endpoints, guarded backend mutations, route refresh behavior, and the rich prepared/issued-state displays for digital, physical, and subscription purchases.
+
+The boundary remains deliberate:
+
+- the help panel initiates preparation and issuance commands
+- backend services decide whether preparation and issuance are allowed
+- purchase detail pages visualize the resulting lifecycle state
+
+This keeps the help panel as a command surface instead of a status surface. Digital refunds show invalidated-code state and issued-funds summaries, physical refunds show return-request, label-created, carrier-acceptance, and issued-funds summaries, and subscription refunds show billing cancellation, auto-renewal off, days used, and issued-funds summaries from backend workflow state.
+
+Physical returns include one additional detail-page command: `Given to Carrier`. That command belongs with the physical return workflow display because it represents a product-specific lifecycle event rather than a general help-panel refund command. After the backend confirms carrier acceptance, the frontend refreshes eligibility so `Issue Refund` can become enabled only from authoritative backend state.
+
+Tradeoff:
+
+The manual buttons are useful for integration testing and frontend iteration, but they are not the final product interaction model. Once the agent can invoke refund tools directly, the explicit `Prep Refund` and `Issue Refund` buttons should be removed or demoted so refund handling flows through the AI support experience while the detail page continues to render authoritative backend state.

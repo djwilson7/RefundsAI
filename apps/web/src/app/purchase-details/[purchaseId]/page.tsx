@@ -1,5 +1,5 @@
 import { PurchaseDetailsPlaceholder } from "@/components/purchase-details-placeholder";
-import { getPurchaseDetails } from "@/lib/application-api";
+import { getPurchaseDetails, getRefundWorkflow } from "@/lib/application-api";
 
 type PurchaseDetailsPageProps = Readonly<{
   params: Promise<{
@@ -11,13 +11,17 @@ export default async function PurchaseDetailsPage({
   params,
 }: PurchaseDetailsPageProps) {
   const { purchaseId } = await params;
-  const purchaseDetails = await getPurchaseDetails(purchaseId);
+  const [purchaseDetails, refundWorkflow] = await Promise.all([
+    getPurchaseDetails(purchaseId),
+    getRefundWorkflow(purchaseId),
+  ]);
 
   return (
     <PurchaseDetailsPlaceholder
       currentDate={new Date().toISOString()}
       purchaseDetails={purchaseDetails}
       purchaseId={purchaseId}
+      refundWorkflow={refundWorkflow}
     />
   );
 }

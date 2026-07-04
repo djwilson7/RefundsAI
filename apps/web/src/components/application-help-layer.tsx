@@ -25,17 +25,26 @@ type ApplicationHelpContextValue = Readonly<{
 }>;
 
 type RefundWorkflow = Readonly<{
+  canIssueFunds: boolean;
   canPrepareRefund: boolean;
 }>;
 
 type RefundWorkflowLoad = Readonly<{
   purchaseId: string | null;
-  state: "idle" | "ready" | "preparing" | "prepared" | "error";
+  state:
+    | "idle"
+    | "ready"
+    | "preparing"
+    | "prepared"
+    | "issuing"
+    | "issued"
+    | "error";
   workflow: RefundWorkflow | null;
 }>;
 
 const ApplicationHelpContext =
   createContext<ApplicationHelpContextValue | null>(null);
+const refundWorkflowUpdatedEvent = "refunds-ai:refund-workflow-updated";
 
 export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -53,7 +62,11 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     workflowLoad.purchaseId === purchaseId ? workflowLoad.workflow : null;
   const workflowState =
     workflowLoad.purchaseId === purchaseId ? workflowLoad.state : "idle";
-  const panelContent = getHelpPanelContent(pathname, workflow, workflowState);
+  const isPurchaseDetailsRoute = Boolean(
+    pathname?.startsWith("/purchase-details/"),
+  );
+  const commandDisabled =
+    workflowState === "preparing" || workflowState === "issuing";
   const contextValue = useMemo<ApplicationHelpContextValue>(
     () => ({
       isAvailable,
@@ -100,8 +113,39 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     };
   }, [purchaseId]);
 
+  useEffect(() => {
+    function handleRefundWorkflowUpdated(event: Event) {
+      const detail = (event as CustomEvent<{
+        purchaseId?: string;
+        workflow?: RefundWorkflow;
+      }>).detail;
+
+      if (!detail?.purchaseId || detail.purchaseId !== purchaseId) {
+        return;
+      }
+
+      setWorkflowLoad({
+        purchaseId: detail.purchaseId,
+        state: "ready",
+        workflow: detail.workflow ?? null,
+      });
+    }
+
+    window.addEventListener(
+      refundWorkflowUpdatedEvent,
+      handleRefundWorkflowUpdated,
+    );
+
+    return () => {
+      window.removeEventListener(
+        refundWorkflowUpdatedEvent,
+        handleRefundWorkflowUpdated,
+      );
+    };
+  }, [purchaseId]);
+
   async function handlePrepareRefund() {
-    if (!purchaseId || workflowState === "preparing") {
+    if (!purchaseId || !workflow?.canPrepareRefund || commandDisabled) {
       return;
     }
 
@@ -120,6 +164,36 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
         workflow: nextWorkflow,
       });
       updatePurchaseDetailsSummaryStatus(purchaseId, "Refund Pending");
+      router.refresh();
+    } catch {
+      setWorkflowLoad({
+        purchaseId,
+        state: "error",
+        workflow,
+      });
+    }
+  }
+
+  async function handleIssueRefund() {
+    if (!purchaseId || !workflow?.canIssueFunds || commandDisabled) {
+      return;
+    }
+
+    setWorkflowLoad({
+      purchaseId,
+      state: "issuing",
+      workflow,
+    });
+
+    try {
+      const nextWorkflow = await issueRefund(purchaseId);
+
+      setWorkflowLoad({
+        purchaseId,
+        state: "issued",
+        workflow: nextWorkflow,
+      });
+      updatePurchaseDetailsSummaryStatus(purchaseId, "Refunded");
       router.refresh();
     } catch {
       setWorkflowLoad({
@@ -156,27 +230,26 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
             <header className={styles.header}>
               <p className={styles.title}>Help</p>
             </header>
-            <div
-              className={[
-                styles.body,
-                panelContent.isCentered ? styles.centeredBody : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              {panelContent.showSelectionIcon ? (
-                <SelectionPromptIcon />
-              ) : null}
-              <p className={styles.prompt}>{panelContent.prompt}</p>
-              {panelContent.actionLabel ? (
-                <button
-                  className={styles.actionButton}
-                  disabled={workflowState === "preparing"}
-                  onClick={handlePrepareRefund}
-                  type="button"
-                >
-                  {panelContent.actionLabel}
-                </button>
+            <div className={styles.body}>
+              {isPurchaseDetailsRoute ? (
+                <div className={styles.commandStack}>
+                  <button
+                    className={styles.actionButton}
+                    disabled={!workflow?.canPrepareRefund || commandDisabled}
+                    onClick={handlePrepareRefund}
+                    type="button"
+                  >
+                    Prep Refund
+                  </button>
+                  <button
+                    className={styles.actionButton}
+                    disabled={!workflow?.canIssueFunds || commandDisabled}
+                    onClick={handleIssueRefund}
+                    type="button"
+                  >
+                    Issue Refund
+                  </button>
+                </div>
               ) : null}
             </div>
           </aside>
@@ -203,48 +276,6 @@ function isHelpAvailable(pathname: string | null) {
     pathname === "/user-home" ||
     Boolean(pathname?.startsWith("/purchase-details/"))
   );
-}
-
-function getHelpPanelContent(
-  pathname: string | null,
-  workflow: RefundWorkflow | null,
-  workflowState: string,
-) {
-  if (pathname?.startsWith("/purchase-details/")) {
-    if (workflowState === "preparing") {
-      return {
-        actionLabel: "Starting refund process...",
-        prompt: "Preparing this purchase for refund.",
-      };
-    }
-
-    if (workflowState === "prepared") {
-      return {
-        actionLabel: null,
-        prompt: "Refund preparation has started. The purchase details are updating.",
-      };
-    }
-
-    if (workflow?.canPrepareRefund) {
-      return {
-        actionLabel: "Start refund process",
-        prompt: "Need help with this purchase?",
-      };
-    }
-
-    return {
-      actionLabel: null,
-      prompt: "Refund preparation is not currently available for this purchase.",
-    };
-  }
-
-  return {
-    actionLabel: null,
-    isCentered: true,
-    prompt:
-      "Select a purchase to view available support options like refunds, returns, delivery status, or subscription changes.",
-    showSelectionIcon: true,
-  };
 }
 
 function getPurchaseIdFromPathname(pathname: string | null) {
@@ -276,6 +307,14 @@ async function prepareRefund(purchaseId: string) {
   return parseRefundWorkflowResponse(response);
 }
 
+async function issueRefund(purchaseId: string) {
+  const response = await fetch(`/api/purchases/${purchaseId}/refund/issue`, {
+    method: "POST",
+  });
+
+  return parseRefundWorkflowResponse(response);
+}
+
 async function parseRefundWorkflowResponse(response: Response) {
   if (!response.ok) {
     throw new Error("Refund workflow request failed.");
@@ -283,7 +322,10 @@ async function parseRefundWorkflowResponse(response: Response) {
 
   const body = (await response.json()) as {
     success?: boolean;
-    data?: { can_prepare_refund?: boolean } | null;
+    data?: {
+      can_issue_funds?: boolean;
+      can_prepare_refund?: boolean;
+    } | null;
   };
 
   if (!body.success || !body.data) {
@@ -291,32 +333,7 @@ async function parseRefundWorkflowResponse(response: Response) {
   }
 
   return {
+    canIssueFunds: body.data.can_issue_funds === true,
     canPrepareRefund: body.data.can_prepare_refund === true,
   };
-}
-
-function SelectionPromptIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className={styles.selectionIcon}
-      fill="none"
-      viewBox="0 0 64 64"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M18 10 50 38 35.5 40.5 43 54 34.5 58.5 27 45 18 56V10Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="3.8"
-      />
-      <path
-        d="M11 16 5 10M15 6V1M6 25H1"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="3.4"
-      />
-    </svg>
-  );
 }
