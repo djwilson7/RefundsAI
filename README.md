@@ -168,11 +168,13 @@ The same commands are also exposed from the repository root as `npm run web:dev`
 
 The local development server runs on `http://localhost:3000`.
 
+The frontend server reads `REFUNDS_AI_API_BASE_URL` when calling the FastAPI backend from server-rendered routes. For local development this defaults to `http://localhost:8000`.
+
 #### Mock frontend authentication
 
 The frontend root route (`/`) is a mock authentication landing page for local UI development.
 
-`Load User` selects a random seeded customer identity, builds mock credentials in the format `first_last@example.com` with password `12345Password`, animates those read-only credentials into the form, stores the selected mock customer in browser session storage, and routes to `/user-home?customerId={customerId}`. The `customerId` query parameter is the source of truth for rendering `/user-home` so refreshes do not change the selected customer during hydration.
+`Load User` selects a random seeded customer identity, builds mock credentials in the format `first_last@example.com` with password `12345Password`, animates those read-only credentials into the form, stores the selected mock customer in browser session storage, and routes to `/user-home?customerId={customerId}`. The `customerId` query parameter is used by `/user-home` to request the selected user through `GET /api/users/{user_id}` so the header name and customer metadata come from the backend API. If the backend is unavailable during frontend-only development, the screen falls back to the selected seeded identity.
 
 `Load Admin` follows the same credential animation flow for the seeded administrator identity and routes to `/admin-home`.
 

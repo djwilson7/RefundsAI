@@ -75,6 +75,7 @@ class ApplicationRepository:
                         users.id,
                         users.first_name,
                         users.last_name,
+                        users.created_at,
                         roles.key as role_key,
                         roles.name as role_name
                     from public.users
@@ -95,6 +96,7 @@ class ApplicationRepository:
                         users.id,
                         users.first_name,
                         users.last_name,
+                        users.created_at,
                         roles.key as role_key,
                         roles.name as role_name
                     from public.users
@@ -512,6 +514,7 @@ def group_user_role_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "id": row["id"],
                 "first_name": row["first_name"],
                 "last_name": row["last_name"],
+                "created_at": row["created_at"],
                 "display_name": f"{row['first_name']} {row['last_name']}",
                 "roles": [],
             },

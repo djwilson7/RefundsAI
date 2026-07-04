@@ -1,42 +1,36 @@
 import { DashboardMetricCard } from "./dashboard-metric-card";
 import { HomeHeaderCard } from "./home-header-card";
-import { getIdentityDisplayName, type MockCustomer } from "./mock-customers";
+import {
+  formatCentsAsDollars,
+  formatPurchaseDate,
+  formatPurchaseStatus,
+  type CustomerProfile,
+  type CustomerPurchase,
+} from "@/lib/application-api";
+import { getIdentityDisplayName } from "./mock-customers";
 import { PurchaseHistoryCard } from "./purchase-history-card";
 import styles from "./customer-main-screen.module.css";
 
 type CustomerMainScreenProps = Readonly<{
-  customer: MockCustomer;
+  customer: CustomerProfile;
+  purchases: readonly CustomerPurchase[];
 }>;
 
-const customerMetrics = [
-  { title: "Customer Since", value: "1992" },
-  { title: "Items Purchased", value: "745" },
-  { title: "Total Spent", value: "14,254.35" },
-] as const;
-
-const placeholderPurchases = [
-  {
-    amount: "$129.99",
-    purchasedAt: "Purchased Jun 12, 2026",
-    status: "Completed",
-    title: "Noise-canceling headphones",
-  },
-  {
-    amount: "$59.00",
-    purchasedAt: "Purchased Jun 03, 2026",
-    status: "Redeemed",
-    title: "Design asset bundle",
-  },
-  {
-    amount: "$24.99",
-    purchasedAt: "Purchased May 28, 2026",
-    status: "Subscribed",
-    title: "Productivity Pro monthly",
-  },
-] as const;
-
-export function CustomerMainScreen({ customer }: CustomerMainScreenProps) {
+export function CustomerMainScreen({
+  customer,
+  purchases,
+}: CustomerMainScreenProps) {
   const customerName = getIdentityDisplayName(customer);
+  const customerSince = formatCustomerSinceYear(customer.createdAt);
+  const totalSpentCents = purchases.reduce(
+    (total, purchase) => total + purchase.amountCents,
+    0,
+  );
+  const customerMetrics = [
+    { title: "Customer Since", value: customerSince },
+    { title: "Items Purchased", value: purchases.length.toString() },
+    { title: "Total Spent", value: formatCentsAsDollars(totalSpentCents) },
+  ];
 
   return (
     <HomeHeaderCard
@@ -62,17 +56,27 @@ export function CustomerMainScreen({ customer }: CustomerMainScreenProps) {
           Purchase History
         </h2>
         <div className={styles.purchaseGrid}>
-          {placeholderPurchases.map((purchase) => (
+          {purchases.map((purchase) => (
             <PurchaseHistoryCard
-              amount={purchase.amount}
-              key={purchase.title}
-              purchasedAt={purchase.purchasedAt}
-              status={purchase.status}
-              title={purchase.title}
+              amount={formatCentsAsDollars(purchase.amountCents)}
+              key={purchase.id}
+              purchasedAt={formatPurchaseDate(purchase.purchasedAt)}
+              status={formatPurchaseStatus(purchase.status)}
+              title={purchase.productName}
             />
           ))}
         </div>
       </section>
     </HomeHeaderCard>
   );
+}
+
+export function formatCustomerSinceYear(createdAt: string) {
+  const parsedDate = new Date(createdAt);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Unknown";
+  }
+
+  return parsedDate.getUTCFullYear().toString();
 }

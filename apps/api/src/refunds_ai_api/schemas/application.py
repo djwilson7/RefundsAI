@@ -26,6 +26,7 @@ class UserRead(BaseModel):
     id: UUID
     first_name: str
     last_name: str
+    created_at: datetime
     display_name: str
     roles: list[RoleRead]
 

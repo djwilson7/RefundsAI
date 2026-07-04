@@ -1,5 +1,6 @@
 import { CustomerMainScreen } from "@/components/customer-main-screen";
 import { findMockCustomerById, mockCustomers } from "@/components/mock-customers";
+import { getUserProfile, getUserPurchases } from "@/lib/application-api";
 
 type UserHomeProps = Readonly<{
   searchParams: Promise<{
@@ -9,7 +10,11 @@ type UserHomeProps = Readonly<{
 
 export default async function UserHome({ searchParams }: UserHomeProps) {
   const { customerId } = await searchParams;
-  const customer = findMockCustomerById(customerId) ?? mockCustomers[0];
+  const fallbackCustomer = findMockCustomerById(customerId) ?? mockCustomers[0];
+  const customer = customerId
+    ? (await getUserProfile(customerId)) ?? fallbackCustomer
+    : fallbackCustomer;
+  const purchases = customerId ? (await getUserPurchases(customerId)) ?? [] : [];
 
-  return <CustomerMainScreen customer={customer} />;
+  return <CustomerMainScreen customer={customer} purchases={purchases} />;
 }

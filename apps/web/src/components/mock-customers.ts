@@ -2,6 +2,7 @@ export type MockIdentity = Readonly<{
   id: string;
   firstName: string;
   lastName: string;
+  createdAt: string;
 }>;
 
 export type MockCustomer = MockIdentity;
@@ -34,6 +35,7 @@ export const mockCustomers: readonly MockCustomer[] = seededCustomerNames.map(
     id,
     firstName,
     lastName,
+    createdAt: "2026-07-03T00:00:00Z",
   }),
 );
 
@@ -41,6 +43,7 @@ export const mockAdmin: MockIdentity = {
   id: "20000000-0000-4000-8000-000000000016",
   firstName: "System",
   lastName: "Administrator",
+  createdAt: "2026-07-03T00:00:00Z",
 };
 
 export function getIdentityDisplayName(identity: MockIdentity) {

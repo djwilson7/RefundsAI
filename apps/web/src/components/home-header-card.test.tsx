@@ -2,18 +2,18 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HomeHeaderCard } from "./home-header-card";
 
-const push = vi.fn();
+const replace = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    push,
+    replace,
   }),
 }));
 
 describe("HomeHeaderCard", () => {
   afterEach(() => {
     window.sessionStorage.clear();
-    push.mockReset();
+    replace.mockReset();
   });
 
   it("renders shared home header content with logout action", () => {
@@ -53,6 +53,6 @@ describe("HomeHeaderCard", () => {
     expect(
       window.sessionStorage.getItem("refunds-ai:selected-mock-customer"),
     ).toBeNull();
-    expect(push).toHaveBeenCalledWith("/");
+    expect(replace).toHaveBeenCalledWith("/");
   });
 });

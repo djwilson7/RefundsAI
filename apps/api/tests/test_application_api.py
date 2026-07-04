@@ -19,6 +19,7 @@ from refunds_ai_api.services.refund_policy import RefundWorkflowError
 
 USER_ID = "10000000-0000-4000-8000-000000000001"
 PURCHASE_ID = "40000000-0000-4000-8000-000000000001"
+USER_CREATED_AT = datetime(2026, 7, 3, 0, 0, tzinfo=UTC)
 
 
 class StubApplicationService:
@@ -237,9 +238,14 @@ def build_user() -> dict[str, Any]:
         "id": USER_ID,
         "first_name": "John",
         "last_name": "Smith",
+        "created_at": USER_CREATED_AT,
         "display_name": "John Smith",
         "roles": [{"key": "customer", "name": "Customer"}],
     }
+
+
+def build_user_json() -> dict[str, Any]:
+    return {**build_user(), "created_at": "2026-07-03T00:00:00Z"}
 
 
 def build_purchase() -> dict[str, Any]:
@@ -270,7 +276,7 @@ def test_list_mock_users_endpoint_returns_selectable_users() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["success"] is True
-    assert body["data"]["users"] == [build_user()]
+    assert body["data"]["users"] == [build_user_json()]
     assert body["error"] is None
     assert "timestamp" in body["meta"]
 
@@ -283,7 +289,7 @@ def test_get_user_endpoint_returns_role_info() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["success"] is True
-    assert body["data"]["user"] == build_user()
+    assert body["data"]["user"] == build_user_json()
 
 
 def test_list_user_purchases_endpoint_returns_frontend_ready_rows() -> None:
@@ -602,6 +608,7 @@ def test_group_user_role_rows_returns_one_payload_per_user() -> None:
             "id": USER_ID,
             "first_name": "John",
             "last_name": "Smith",
+            "created_at": USER_CREATED_AT,
             "role_key": "customer",
             "role_name": "Customer",
         },
@@ -609,6 +616,7 @@ def test_group_user_role_rows_returns_one_payload_per_user() -> None:
             "id": USER_ID,
             "first_name": "John",
             "last_name": "Smith",
+            "created_at": USER_CREATED_AT,
             "role_key": "admin",
             "role_name": "Administrator",
         },
@@ -621,6 +629,7 @@ def test_group_user_role_rows_returns_one_payload_per_user() -> None:
             "id": USER_ID,
             "first_name": "John",
             "last_name": "Smith",
+            "created_at": USER_CREATED_AT,
             "display_name": "John Smith",
             "roles": [
                 {"key": "customer", "name": "Customer"},

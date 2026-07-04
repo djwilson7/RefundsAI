@@ -229,6 +229,7 @@ Response Body
         "id": "10000000-0000-4000-8000-000000000001",
         "first_name": "John",
         "last_name": "Smith",
+        "created_at": "2026-07-03T00:00:00Z",
         "display_name": "John Smith",
         "roles": [
           {
@@ -273,6 +274,7 @@ Response Body
       "id": "10000000-0000-4000-8000-000000000001",
       "first_name": "John",
       "last_name": "Smith",
+      "created_at": "2026-07-03T00:00:00Z",
       "display_name": "John Smith",
       "roles": [
         {
@@ -295,6 +297,7 @@ DATABASE_NOT_CONFIGURED
 
 Notes
 Role information is loaded through `user_roles` and `roles`; role data is not duplicated onto `users`.
+`created_at` comes from `users.created_at` and may be used by the frontend for non-authoritative profile metadata such as "Customer Since".
 
 ## GET /api/users/{user_id}/purchases
 

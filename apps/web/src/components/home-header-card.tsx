@@ -25,7 +25,7 @@ export function HomeHeaderCard({
 
   function handleLogout() {
     clearSelectedMockCustomer();
-    router.push("/");
+    router.replace("/");
   }
 
   return (
