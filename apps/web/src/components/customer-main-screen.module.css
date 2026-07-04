@@ -1,0 +1,30 @@
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.purchaseHistory {
+  margin-top: 24px;
+}
+
+.sectionTitle {
+  margin: 0 0 14px;
+  color: var(--foreground);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.purchaseGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 760px) {
+  .metrics,
+  .purchaseGrid {
+    grid-template-columns: 1fr;
+  }
+}

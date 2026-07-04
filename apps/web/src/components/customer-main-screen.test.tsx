@@ -27,4 +27,44 @@ describe("CustomerMainScreen", () => {
       screen.getByRole("button", { name: "Log out" }),
     ).toBeInTheDocument();
   });
+
+  it("renders placeholder customer summary metrics", () => {
+    render(<CustomerMainScreen customer={customer} />);
+
+    expect(
+      screen.getByRole("region", { name: "Customer summary metrics" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Customer Since")).toBeInTheDocument();
+    expect(screen.getByText("1992")).toBeInTheDocument();
+    expect(screen.getByText("Items Purchased")).toBeInTheDocument();
+    expect(screen.getByText("745")).toBeInTheDocument();
+    expect(screen.getByText("Total Spent")).toBeInTheDocument();
+    expect(screen.getByText("14,254.35")).toBeInTheDocument();
+  });
+
+  it("renders placeholder purchase history cards", () => {
+    render(<CustomerMainScreen customer={customer} />);
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Purchase History" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        level: 3,
+        name: "Noise-canceling headphones",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Design asset bundle" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        level: 3,
+        name: "Productivity Pro monthly",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByText("Redeemed")).toBeInTheDocument();
+    expect(screen.getByText("Subscribed")).toBeInTheDocument();
+  });
 });

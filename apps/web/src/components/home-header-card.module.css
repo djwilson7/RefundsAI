@@ -9,6 +9,11 @@
   text-align: left;
 }
 
+.body {
+  width: min(100%, 1120px);
+  margin: 20px auto 0;
+}
+
 .header {
   display: flex;
   align-items: center;

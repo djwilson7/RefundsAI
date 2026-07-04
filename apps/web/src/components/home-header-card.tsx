@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
 import { AppCard } from "./app-card";
 import { IconButton } from "./icon-button";
 import { LogoutIcon } from "./icons";
@@ -11,9 +12,11 @@ type HomeHeaderCardProps = Readonly<{
   eyebrow: string;
   heading: string;
   summary: string;
+  children?: ReactNode;
 }>;
 
 export function HomeHeaderCard({
+  children,
   eyebrow,
   heading,
   summary,
@@ -40,6 +43,7 @@ export function HomeHeaderCard({
         <h1 className={styles.heading}>{heading}</h1>
         <p className={styles.summary}>{summary}</p>
       </AppCard>
+      {children ? <div className={styles.body}>{children}</div> : null}
     </main>
   );
 }
