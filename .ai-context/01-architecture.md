@@ -47,6 +47,14 @@ Customer / Administrator
 * Persistent Chat Interface
 * Voice Interface
 
+**Current Frontend Routes**
+
+* `/` renders the mock authentication landing page.
+* `/user-home` renders the customer home screen from a `customerId` query parameter.
+* `/admin-home` renders the administrator home placeholder.
+
+The mock landing page derives local-only credentials from seeded identities, animates those credentials into read-only form fields, and then navigates to the appropriate home route. Customer home rendering uses the route query parameter rather than browser-only state so server-rendered and hydrated output match on refresh.
+
 ---
 
 ## Backend

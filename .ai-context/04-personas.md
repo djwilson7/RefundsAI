@@ -30,6 +30,7 @@ Customers interact with the system through the Customer Portal and AI assistant 
 * Access only their own account.
 * View only their own purchases and support history.
 * Initiate support and refund requests.
+* During frontend-only development, be selected through mock login from seeded customer identities.
 
 ### Restrictions
 
@@ -63,6 +64,7 @@ Their role is to review customer activity, investigate support interactions, aud
 * View customer information after successful verification.
 * Review AI conversations and audit history.
 * Access operational reporting.
+* During frontend-only development, be loaded through the seeded mock administrator identity.
 
 ### Restrictions
 

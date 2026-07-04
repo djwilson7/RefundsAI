@@ -53,6 +53,10 @@ export function getRandomMockCustomer() {
   return mockCustomers[randomIndex];
 }
 
+export function findMockCustomerById(customerId: string | undefined) {
+  return mockCustomers.find((customer) => customer.id === customerId) ?? null;
+}
+
 export function buildMockCredentials(identity: MockIdentity): MockCredentials {
   return {
     email: `${identity.firstName}_${identity.lastName}@example.com`.toLowerCase(),

@@ -1,5 +1,15 @@
-import { UserHomePage } from "@/components/user-home-page";
+import { CustomerMainScreen } from "@/components/customer-main-screen";
+import { findMockCustomerById, mockCustomers } from "@/components/mock-customers";
 
-export default function UserHome() {
-  return <UserHomePage />;
+type UserHomeProps = Readonly<{
+  searchParams: Promise<{
+    customerId?: string;
+  }>;
+}>;
+
+export default async function UserHome({ searchParams }: UserHomeProps) {
+  const { customerId } = await searchParams;
+  const customer = findMockCustomerById(customerId) ?? mockCustomers[0];
+
+  return <CustomerMainScreen customer={customer} />;
 }

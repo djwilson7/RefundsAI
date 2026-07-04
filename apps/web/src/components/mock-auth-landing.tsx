@@ -60,7 +60,7 @@ export function MockAuthLanding() {
 
   function loadMockIdentity(
     identity: MockIdentity,
-    destinationPath: "/admin-home" | "/user-home",
+    destinationPath: "/admin-home" | `/user-home?customerId=${string}`,
     onBeforeNavigate?: () => void,
   ) {
     const credentials = buildMockCredentials(identity);
@@ -78,7 +78,7 @@ export function MockAuthLanding() {
     const customer = getRandomMockCustomer();
 
     setLoadingRole("customer");
-    loadMockIdentity(customer, "/user-home", () => {
+    loadMockIdentity(customer, `/user-home?customerId=${customer.id}`, () => {
       storeSelectedMockCustomer(customer);
     });
   }

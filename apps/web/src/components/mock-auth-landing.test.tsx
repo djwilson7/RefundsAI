@@ -56,7 +56,9 @@ describe("MockAuthLanding", () => {
       await vi.runAllTimersAsync();
     });
 
-    expect(push).toHaveBeenCalledWith("/user-home");
+    expect(push).toHaveBeenCalledWith(
+      "/user-home?customerId=20000000-0000-4000-8000-000000000001",
+    );
     expect(window.sessionStorage.getItem("refunds-ai:selected-mock-customer")).toContain(
       "Avery",
     );
@@ -87,7 +89,9 @@ describe("MockAuthLanding", () => {
       await vi.runAllTimersAsync();
     });
 
-    expect(push).toHaveBeenCalledWith("/user-home");
+    expect(push).toHaveBeenCalledWith(
+      "/user-home?customerId=20000000-0000-4000-8000-000000000001",
+    );
   });
 
   it("animates generated admin credentials before routing to admin home", async () => {

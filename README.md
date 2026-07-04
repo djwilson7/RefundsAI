@@ -168,6 +168,16 @@ The same commands are also exposed from the repository root as `npm run web:dev`
 
 The local development server runs on `http://localhost:3000`.
 
+#### Mock frontend authentication
+
+The frontend root route (`/`) is a mock authentication landing page for local UI development.
+
+`Load User` selects a random seeded customer identity, builds mock credentials in the format `first_last@example.com` with password `12345Password`, animates those read-only credentials into the form, stores the selected mock customer in browser session storage, and routes to `/user-home?customerId={customerId}`. The `customerId` query parameter is the source of truth for rendering `/user-home` so refreshes do not change the selected customer during hydration.
+
+`Load Admin` follows the same credential animation flow for the seeded administrator identity and routes to `/admin-home`.
+
+This mock login state is frontend-only. It does not authenticate against the FastAPI backend, does not grant production permissions, and does not make the frontend authoritative for customer, purchase, refund, or policy data.
+
 ### Frontend Container
 
 ```bash

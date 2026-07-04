@@ -139,6 +139,10 @@ The objective of this project is AI orchestration rather than production identit
 
 Authentication boundaries exist to demonstrate user separation, not production authentication.
 
+The frontend mock authentication route (`/`) may select seeded mock identities and store local UI session hints in browser session storage. That state is only a presentation aid for local frontend development. It must not be treated as an authenticated backend session, an authorization source, or an authoritative source for customer data.
+
+Customer home routing should carry the selected mock customer identifier in the URL (`/user-home?customerId={customerId}`) so refreshes render the same mock identity on the server and client. Backend APIs remain responsible for all future authoritative customer, purchase, refund, policy, and support data.
+
 ---
 
 # Escalation
