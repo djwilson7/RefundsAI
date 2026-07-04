@@ -1,0 +1,207 @@
+.card {
+  width: min(100%, 1120px);
+  margin: 12px auto 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  background: var(--card);
+}
+
+.header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: end;
+  gap: 16px;
+}
+
+.header > div:last-child {
+  text-align: right;
+}
+
+.header p {
+  margin: 0;
+}
+
+.header p:first-child {
+  color: #667789;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.header p:last-child {
+  margin-top: 6px;
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  font-weight: 800;
+}
+
+.progress {
+  position: relative;
+  height: 34px;
+  margin-top: 18px;
+}
+
+.track {
+  position: absolute;
+  top: 5px;
+  right: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: #d8e0e8;
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.markerGroup {
+  position: absolute;
+  top: 0;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+}
+
+.marker {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.todayLabel {
+  color: #667789;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.position0 {
+  width: 0%;
+  left: 0%;
+}
+
+.position5 {
+  width: 5%;
+  left: 5%;
+}
+
+.position10 {
+  width: 10%;
+  left: 10%;
+}
+
+.position15 {
+  width: 15%;
+  left: 15%;
+}
+
+.position20 {
+  width: 20%;
+  left: 20%;
+}
+
+.position25 {
+  width: 25%;
+  left: 25%;
+}
+
+.position30 {
+  width: 30%;
+  left: 30%;
+}
+
+.position35 {
+  width: 35%;
+  left: 35%;
+}
+
+.position40 {
+  width: 40%;
+  left: 40%;
+}
+
+.position45 {
+  width: 45%;
+  left: 45%;
+}
+
+.position50 {
+  width: 50%;
+  left: 50%;
+}
+
+.position55 {
+  width: 55%;
+  left: 55%;
+}
+
+.position60 {
+  width: 60%;
+  left: 60%;
+}
+
+.position65 {
+  width: 65%;
+  left: 65%;
+}
+
+.position70 {
+  width: 70%;
+  left: 70%;
+}
+
+.position75 {
+  width: 75%;
+  left: 75%;
+}
+
+.position80 {
+  width: 80%;
+  left: 80%;
+}
+
+.position85 {
+  width: 85%;
+  left: 85%;
+}
+
+.position90 {
+  width: 90%;
+  left: 90%;
+}
+
+.position95 {
+  width: 95%;
+  left: 95%;
+}
+
+.position100 {
+  width: 100%;
+  left: 100%;
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 14px 16px;
+  }
+
+  .header {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .header > div:last-child {
+    text-align: left;
+  }
+}

@@ -52,8 +52,17 @@ Customer / Administrator
 * `/` renders the mock authentication landing page.
 * `/user-home` renders the customer home screen from a `customerId` query parameter.
 * `/admin-home` renders the administrator home placeholder.
+* `/purchase-details/[purchaseId]` renders a server-loaded purchase detail page from `GET /api/purchases/{purchase_id}/details`.
 
 The mock landing page derives local-only credentials from seeded identities, animates those credentials into read-only form fields, and then navigates to the appropriate home route. Customer home rendering uses the route query parameter rather than browser-only state so server-rendered and hydrated output match on refresh.
+
+Purchase detail rendering uses one stable route and one stable backend detail endpoint. The frontend passes purchase summary data from the purchase history card for header continuity, then loads the authoritative purchase detail payload from the API. The detail page renders product-type-specific sections:
+
+* Digital purchases show purchase/code issuance steps and issued-code redemption state.
+* Physical purchases show delivery steps and delivery tracking data.
+* Subscription purchases show billing-cycle progress and a header renewal badge.
+
+Subscription renewal state is displayed in the purchase detail header. Active renewal shows `Auto Renew Enabled`; disabled renewal or cancellation/service-end state shows `Subscription Canceled`. The badge is derived from backend detail state and does not make the frontend authoritative for cancellation or refund policy.
 
 ---
 

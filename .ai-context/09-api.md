@@ -393,6 +393,8 @@ DATABASE_NOT_CONFIGURED
 Notes
 Clients call one stable detail endpoint. The backend loads `purchases`, identifies `purchase_type`, and then reads exactly one of `digital_purchase_details`, `physical_purchase_details`, or `subscription_purchase_details`. No `/digital-details`, `/physical-details`, or `/subscription-details` API contract is exposed.
 
+Frontend purchase detail pages consume this response to render type-specific presentation components. Digital details render code issuance and redemption state, physical details render delivery and tracking state, and subscription details render billing-cycle state plus a renewal badge. For subscriptions, clients should display `Auto Renew Enabled` only when `auto_renew = true` and no cancellation/service-end state is present; otherwise they should display `Subscription Canceled`. Clients must treat this as display-only state returned by the backend.
+
 ## GET /api/purchases/{purchase_id}/refund/eligibility
 
 Purpose

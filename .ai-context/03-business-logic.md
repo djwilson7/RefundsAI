@@ -90,6 +90,8 @@ Refund workflow is intentionally staged:
 
 Physical purchases may be prepared before they are issuable because carrier acceptance is required before refund processing begins. Digital purchases are prepared by invalidating the issued entitlement. Subscription purchases are prepared by cancelling service access, disabling renewal, and recording full or prorated refund mode.
 
+Frontend subscription detail pages should reflect this persisted state after preparation. When backend detail data reports active renewal, the subscription header displays `Auto Renew Enabled`. When `auto_renew = false`, `cancelled_at` is present, or `service_ended_at` is present, the subscription header displays `Subscription Canceled`. This is a presentation of backend state only; the frontend must not decide cancellation, renewal, proration, or refund eligibility independently.
+
 Refund execution must not skip preparation. Fund issuance requires prepared state for every purchase type.
 
 Refund mutations use strict conflict behavior. Duplicate requests, stale reads, or partially prepared state must not silently rewrite timestamps or issue funds. Backend repositories guard each mutation with expected persisted state and raise a repository conflict when the database update does not affect exactly one row. Services map those conflicts to the same workflow-level denial used by the corresponding endpoint.

@@ -9,6 +9,13 @@
   text-align: left;
 }
 
+.headerTopline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .eyebrow {
   margin: 0 0 12px;
   color: var(--accent-strong);
@@ -16,6 +23,31 @@
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.headerBadge {
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.active {
+  border-color: rgba(22, 163, 74, 0.38);
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.inactive {
+  border-color: rgba(220, 38, 38, 0.34);
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c;
 }
 
 .heading {
@@ -120,6 +152,12 @@
 
   .heading {
     font-size: 2rem;
+  }
+
+  .headerTopline {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .meta {

@@ -12,9 +12,15 @@ import {
   parsePurchaseDetailsSummary,
   type PurchaseDetailsSummary,
 } from "@/lib/purchase-details-data";
+import { DigitalCodeDetailsCard } from "./digital-code-details-card";
+import { DigitalPurchaseTimelineCard } from "./digital-purchase-timeline-card";
+import { PhysicalDeliveryTimelineCard } from "./physical-delivery-timeline-card";
+import { PhysicalTrackingCard } from "./physical-tracking-card";
+import { SubscriptionBillingCycleCard } from "./subscription-billing-cycle-card";
 import styles from "./purchase-details-placeholder.module.css";
 
 type PurchaseDetailsPlaceholderProps = Readonly<{
+  currentDate: string;
   purchaseDetails: PurchaseDetails | null;
   purchaseId: string;
 }>;
@@ -24,6 +30,11 @@ type DetailMetaCard = Readonly<{
   value: string;
 }>;
 
+type HeaderBadge = Readonly<{
+  label: string;
+  tone: "active" | "inactive";
+}>;
+
 const purchaseTypeEyebrows = {
   digital: "Digital Purchase Details",
   physical: "Purchase Details",
@@ -31,6 +42,7 @@ const purchaseTypeEyebrows = {
 } as const;
 
 export function PurchaseDetailsPlaceholder({
+  currentDate,
   purchaseDetails,
   purchaseId,
 }: PurchaseDetailsPlaceholderProps) {
@@ -58,12 +70,44 @@ export function PurchaseDetailsPlaceholder({
   );
   const purchaseType = purchaseDetails?.purchaseType ?? summary.purchaseType;
   const eyebrow = purchaseTypeEyebrows[purchaseType];
+  const headerBadge = buildSubscriptionHeaderBadge(purchaseType, purchaseDetails);
   const detailMetaCards = buildDetailMetaCards(purchaseType, purchaseDetails);
+  const digitalTimeline = buildDigitalPurchaseTimeline(
+    purchaseType,
+    purchaseDetails,
+    summary,
+  );
+  const digitalCodeDetails = buildDigitalCodeDetails(
+    purchaseType,
+    purchaseDetails,
+  );
+  const physicalTimeline = buildPhysicalDeliveryTimeline(
+    purchaseType,
+    purchaseDetails,
+    summary,
+  );
+  const physicalTracking = buildPhysicalTracking(
+    purchaseType,
+    purchaseDetails,
+  );
+  const billingCycle = buildSubscriptionBillingCycle(
+    purchaseType,
+    purchaseDetails,
+  );
 
   return (
     <main className={styles.page}>
       <AppCard className={styles.content}>
-        <p className={styles.eyebrow}>{eyebrow}</p>
+        <div className={styles.headerTopline}>
+          <p className={styles.eyebrow}>{eyebrow}</p>
+          {headerBadge ? (
+            <p
+              className={`${styles.headerBadge} ${styles[headerBadge.tone]}`}
+            >
+              {headerBadge.label}
+            </p>
+          ) : null}
+        </div>
         <h1 className={styles.heading}>{summary.productName}</h1>
         <p className={styles.summary}>
           This view is ready for the purchase detail API integration.
@@ -83,6 +127,43 @@ export function PurchaseDetailsPlaceholder({
           </div>
         </div>
       </AppCard>
+
+      {digitalTimeline ? (
+        <DigitalPurchaseTimelineCard
+          codeIssuedAt={digitalTimeline.codeIssuedAt}
+          purchasedAt={digitalTimeline.purchasedAt}
+        />
+      ) : null}
+
+      {digitalCodeDetails ? (
+        <DigitalCodeDetailsCard
+          codeRedeemed={digitalCodeDetails.codeRedeemed}
+          issuedCode={digitalCodeDetails.issuedCode}
+        />
+      ) : null}
+
+      {physicalTimeline ? (
+        <PhysicalDeliveryTimelineCard
+          deliveredAt={physicalTimeline.deliveredAt}
+          purchasedAt={physicalTimeline.purchasedAt}
+          scheduledDeliveryAt={physicalTimeline.scheduledDeliveryAt}
+        />
+      ) : null}
+
+      {physicalTracking ? (
+        <PhysicalTrackingCard
+          courier={physicalTracking.courier}
+          trackingNumber={physicalTracking.trackingNumber}
+        />
+      ) : null}
+
+      {billingCycle ? (
+        <SubscriptionBillingCycleCard
+          currentDate={currentDate}
+          periodEnd={billingCycle.periodEnd}
+          periodStart={billingCycle.periodStart}
+        />
+      ) : null}
 
       <section
         className={styles.detailsSection}
@@ -108,6 +189,27 @@ function subscribeToStoredPurchaseSummary() {
   return () => {};
 }
 
+function buildSubscriptionHeaderBadge(
+  purchaseType: PurchaseType,
+  purchaseDetails: PurchaseDetails | null,
+): HeaderBadge | null {
+  if (purchaseType !== "subscription") {
+    return null;
+  }
+
+  if (purchaseDetails?.purchaseType !== "subscription") {
+    return { label: "Auto Renew Enabled", tone: "active" };
+  }
+
+  const details = purchaseDetails.details;
+  const subscriptionCanceled =
+    !details.autoRenew || details.cancelledAt !== null || details.serviceEndedAt !== null;
+
+  return subscriptionCanceled
+    ? { label: "Subscription Canceled", tone: "inactive" }
+    : { label: "Auto Renew Enabled", tone: "active" };
+}
+
 function buildDetailMetaCards(
   purchaseType: PurchaseType,
   purchaseDetails: PurchaseDetails | null,
@@ -120,16 +222,9 @@ function buildDetailMetaCards(
     const details = purchaseDetails.details;
 
     return [
-      { label: "Issued Code", value: details.issuedCode },
-      { label: "Code Redeemed", value: formatBoolean(details.codeRedeemed) },
-      { label: "Code Redeemed At", value: formatDetailDate(details.codeRedeemedAt) },
       {
         label: "Code Invalidated At",
         value: formatDetailDate(details.codeInvalidatedAt),
-      },
-      {
-        label: "Code Delivered At",
-        value: formatDetailDate(details.codeDeliveredAt),
       },
       {
         label: "Refund Window Expires",
@@ -146,11 +241,8 @@ function buildDetailMetaCards(
     const details = purchaseDetails.details;
 
     return [
-      { label: "Period Start", value: formatDetailDate(details.periodStart) },
-      { label: "Period End", value: formatDetailDate(details.periodEnd) },
       { label: "Cancelled At", value: formatDetailDate(details.cancelledAt) },
       { label: "Service Ended At", value: formatDetailDate(details.serviceEndedAt) },
-      { label: "Auto Renew", value: formatBoolean(details.autoRenew) },
       {
         label: "Refund Proration Mode",
         value: formatDetailStatus(details.refundProrationMode),
@@ -169,17 +261,7 @@ function buildDetailMetaCards(
   const details = purchaseDetails.details;
 
   return [
-    {
-      label: "Scheduled Delivery",
-      value: formatDetailDate(details.scheduledDeliveryAt),
-    },
-    { label: "Delivered At", value: formatDetailDate(details.deliveredAt) },
     { label: "Return Status", value: formatDetailStatus(details.returnStatus) },
-    { label: "Carrier", value: formatNullableText(details.carrier) },
-    {
-      label: "Tracking Number",
-      value: formatNullableText(details.trackingNumber),
-    },
     {
       label: "Return Barcode Generated",
       value: formatBoolean(details.returnBarcodeGenerated),
@@ -213,22 +295,123 @@ function buildDetailMetaCards(
   ];
 }
 
+function buildSubscriptionBillingCycle(
+  purchaseType: PurchaseType,
+  purchaseDetails: PurchaseDetails | null,
+) {
+  if (purchaseDetails?.purchaseType === "subscription") {
+    return {
+      periodEnd: purchaseDetails.details.periodEnd,
+      periodStart: purchaseDetails.details.periodStart,
+    };
+  }
+
+  if (purchaseType === "subscription") {
+    return {
+      periodEnd: "2026-07-20T00:00:00Z",
+      periodStart: "2026-06-20T00:00:00Z",
+    };
+  }
+
+  return null;
+}
+
+function buildDigitalPurchaseTimeline(
+  purchaseType: PurchaseType,
+  purchaseDetails: PurchaseDetails | null,
+  summary: PurchaseDetailsSummary,
+) {
+  if (purchaseDetails?.purchaseType === "digital") {
+    return {
+      codeIssuedAt: purchaseDetails.details.codeDeliveredAt,
+      purchasedAt: summary.purchasedAt,
+    };
+  }
+
+  if (purchaseType === "digital") {
+    return {
+      codeIssuedAt: "2026-06-20T00:00:00Z",
+      purchasedAt: summary.purchasedAt,
+    };
+  }
+
+  return null;
+}
+
+function buildDigitalCodeDetails(
+  purchaseType: PurchaseType,
+  purchaseDetails: PurchaseDetails | null,
+) {
+  if (purchaseDetails?.purchaseType === "digital") {
+    return {
+      codeRedeemed: purchaseDetails.details.codeRedeemed,
+      issuedCode: purchaseDetails.details.issuedCode,
+    };
+  }
+
+  if (purchaseType === "digital") {
+    return {
+      codeRedeemed: false,
+      issuedCode: "DIG-RAI-10001",
+    };
+  }
+
+  return null;
+}
+
+function buildPhysicalDeliveryTimeline(
+  purchaseType: PurchaseType,
+  purchaseDetails: PurchaseDetails | null,
+  summary: PurchaseDetailsSummary,
+) {
+  if (purchaseDetails?.purchaseType === "physical") {
+    return {
+      deliveredAt: purchaseDetails.details.deliveredAt,
+      purchasedAt: summary.purchasedAt,
+      scheduledDeliveryAt: purchaseDetails.details.scheduledDeliveryAt,
+    };
+  }
+
+  if (purchaseType === "physical") {
+    return {
+      deliveredAt: null,
+      purchasedAt: summary.purchasedAt,
+      scheduledDeliveryAt: "2026-06-22T00:00:00Z",
+    };
+  }
+
+  return null;
+}
+
+function buildPhysicalTracking(
+  purchaseType: PurchaseType,
+  purchaseDetails: PurchaseDetails | null,
+) {
+  if (purchaseDetails?.purchaseType === "physical") {
+    return {
+      courier: purchaseDetails.details.carrier,
+      trackingNumber: purchaseDetails.details.trackingNumber,
+    };
+  }
+
+  if (purchaseType === "physical") {
+    return {
+      courier: "UPS",
+      trackingNumber: "TRK-RAI-10001",
+    };
+  }
+
+  return null;
+}
+
 const placeholderDetailMetaCards = {
   digital: [
-    { label: "Issued Code", value: "DIG-RAI-10001" },
-    { label: "Code Redeemed", value: "No" },
-    { label: "Code Redeemed At", value: "Not set" },
     { label: "Code Invalidated At", value: "Not set" },
-    { label: "Code Delivered At", value: "Jun 20, 2026" },
     { label: "Refund Window Expires", value: "Jul 05, 2026" },
     { label: "Refund Lock Reason", value: "Not set" },
   ],
   physical: [
-    { label: "Scheduled Delivery", value: "Jun 22, 2026" },
-    { label: "Delivered At", value: "Not set" },
     { label: "Return Status", value: "Not Requested" },
-    { label: "Carrier", value: "UPS" },
-    { label: "Tracking Number", value: "TRK-RAI-10001" },
     { label: "Return Barcode Generated", value: "No" },
     { label: "Return Label Created", value: "Not set" },
     { label: "Accepted By Carrier", value: "Not set" },
@@ -240,11 +423,8 @@ const placeholderDetailMetaCards = {
     { label: "Refund Window Expires", value: "Jul 20, 2026" },
   ],
   subscription: [
-    { label: "Period Start", value: "Jun 20, 2026" },
-    { label: "Period End", value: "Jul 20, 2026" },
     { label: "Cancelled At", value: "Not set" },
     { label: "Service Ended At", value: "Not set" },
-    { label: "Auto Renew", value: "Yes" },
     { label: "Refund Proration Mode", value: "None" },
     { label: "Full Refund Window Expires", value: "Jun 22, 2026" },
     { label: "Refund Window Expires", value: "Jul 20, 2026" },

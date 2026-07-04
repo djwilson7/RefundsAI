@@ -15,6 +15,7 @@ export default async function PurchaseDetailsPage({
 
   return (
     <PurchaseDetailsPlaceholder
+      currentDate={new Date().toISOString()}
       purchaseDetails={purchaseDetails}
       purchaseId={purchaseId}
     />

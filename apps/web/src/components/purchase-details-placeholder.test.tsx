@@ -23,6 +23,7 @@ describe("PurchaseDetailsPlaceholder", () => {
 
     render(
       <PurchaseDetailsPlaceholder
+        currentDate="2026-07-05T00:00:00Z"
         purchaseDetails={null}
         purchaseId="40000000-0000-4000-8000-000000000001"
       />,
@@ -48,8 +49,17 @@ describe("PurchaseDetailsPlaceholder", () => {
       screen.getByRole("heading", { level: 2, name: "Metadata" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Scheduled Delivery")).toBeInTheDocument();
-    expect(screen.getByText("Tracking Number")).toBeInTheDocument();
-    expect(screen.queryByText("Purchased")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Delivery tracking details" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Carrier")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Subscription billing cycle" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Physical delivery timeline" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Purchased")).toBeInTheDocument();
     expect(
       screen.queryByText("40000000-0000-4000-8000-000000000001"),
     ).not.toBeInTheDocument();
@@ -70,6 +80,7 @@ describe("PurchaseDetailsPlaceholder", () => {
 
     render(
       <PurchaseDetailsPlaceholder
+        currentDate="2026-07-05T00:00:00Z"
         purchaseDetails={null}
         purchaseId="40000000-0000-4000-8000-000000000001"
       />,
@@ -83,6 +94,7 @@ describe("PurchaseDetailsPlaceholder", () => {
   it("falls back to the generic physical detail variant", () => {
     render(
       <PurchaseDetailsPlaceholder
+        currentDate="2026-07-05T00:00:00Z"
         purchaseDetails={null}
         purchaseId="40000000-0000-4000-8000-000000000001"
       />,
@@ -95,6 +107,7 @@ describe("PurchaseDetailsPlaceholder", () => {
   it("renders API-backed physical metadata cards", () => {
     render(
       <PurchaseDetailsPlaceholder
+        currentDate="2026-07-05T00:00:00Z"
         purchaseDetails={{
           purchaseId: "40000000-0000-4000-8000-000000000001",
           purchaseType: "physical",
@@ -124,11 +137,22 @@ describe("PurchaseDetailsPlaceholder", () => {
     expect(screen.getByText("Return Status")).toBeInTheDocument();
     expect(screen.getByText("Not Requested")).toBeInTheDocument();
     expect(screen.getByText("TRK-RAI-10001")).toBeInTheDocument();
+    expect(screen.getByText("Delivery Courier")).toBeInTheDocument();
+    expect(screen.getByText("UPS")).toBeInTheDocument();
+    expect(screen.queryByText("Carrier")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Physical delivery timeline" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Awaiting delivery")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Subscription billing cycle" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders API-backed digital metadata cards", () => {
     render(
       <PurchaseDetailsPlaceholder
+        currentDate="2026-07-05T00:00:00Z"
         purchaseDetails={{
           purchaseId: "40000000-0000-4000-8000-000000000002",
           purchaseType: "digital",
@@ -147,15 +171,27 @@ describe("PurchaseDetailsPlaceholder", () => {
     );
 
     expect(screen.getByText("Digital Purchase Details")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Digital code details" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Issued Code")).toBeInTheDocument();
     expect(screen.getByText("DIG-RAI-10002")).toBeInTheDocument();
-    expect(screen.getByText("Code Redeemed")).toBeInTheDocument();
-    expect(screen.getByText("Yes")).toBeInTheDocument();
+    expect(screen.queryByText("Code Redeemed")).not.toBeInTheDocument();
+    expect(screen.getByText("Redeemed State")).toBeInTheDocument();
+    expect(screen.getByText("Redeemed")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Digital purchase timeline" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Purchased At")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Subscription billing cycle" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders API-backed subscription metadata cards", () => {
     render(
       <PurchaseDetailsPlaceholder
+        currentDate="2026-07-05T00:00:00Z"
         purchaseDetails={{
           purchaseId: "40000000-0000-4000-8000-000000000003",
           purchaseType: "subscription",
@@ -175,9 +211,44 @@ describe("PurchaseDetailsPlaceholder", () => {
     );
 
     expect(screen.getByText("Subscription Details")).toBeInTheDocument();
-    expect(screen.getByText("Period Start")).toBeInTheDocument();
-    expect(screen.getByText("Auto Renew")).toBeInTheDocument();
+    expect(screen.getByText("Auto Renew Enabled")).toBeInTheDocument();
+    expect(screen.queryByText("Period Start")).not.toBeInTheDocument();
+    expect(screen.queryByText("Period End")).not.toBeInTheDocument();
+    expect(screen.queryByText("Auto Renew")).not.toBeInTheDocument();
     expect(screen.getByText("Refund Proration Mode")).toBeInTheDocument();
     expect(screen.getByText("None")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Subscription billing cycle" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Billing Start")).toBeInTheDocument();
+    expect(screen.getByText("Billing End")).toBeInTheDocument();
+    expect(screen.getByText("Today")).toBeInTheDocument();
+  });
+
+  it("renders a canceled subscription badge when auto renew is disabled", () => {
+    render(
+      <PurchaseDetailsPlaceholder
+        currentDate="2026-07-05T00:00:00Z"
+        purchaseDetails={{
+          purchaseId: "40000000-0000-4000-8000-000000000003",
+          purchaseType: "subscription",
+          details: {
+            periodStart: "2026-06-20T14:30:00Z",
+            periodEnd: "2026-07-20T14:30:00Z",
+            cancelledAt: "2026-07-03T14:30:00Z",
+            serviceEndedAt: "2026-07-03T14:30:00Z",
+            autoRenew: false,
+            refundProrationMode: "prorated",
+            fullRefundWindowExpiresAt: "2026-06-22T14:30:00Z",
+            refundWindowExpiresAt: "2026-07-20T14:30:00Z",
+          },
+        }}
+        purchaseId="40000000-0000-4000-8000-000000000003"
+      />,
+    );
+
+    expect(screen.getByText("Subscription Canceled")).toBeInTheDocument();
+    expect(screen.queryByText("Auto Renew Enabled")).not.toBeInTheDocument();
+    expect(screen.queryByText("Auto Renew")).not.toBeInTheDocument();
   });
 });

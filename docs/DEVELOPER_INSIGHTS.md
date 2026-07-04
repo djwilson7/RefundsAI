@@ -83,3 +83,19 @@ Refund workflows need to serve both standard API calls and future agentic tool c
 Tradeoff:
 
 This adds a small service layer before the frontend needs it, but it keeps refund decisions testable outside HTTP, makes stale or duplicate mutations easier to reason about, and prepares the same deterministic logic for agent orchestration later.
+
+---
+
+## Insight 006 - Frontend Detail Pages Present Backend State
+
+Purchase detail pages should use stable frontend routes and backend response objects instead of encoding product-specific behavior into route structure.
+
+Reason:
+
+The customer experience needs to show different lifecycle facts for digital codes, physical delivery, and subscription billing, but the backend remains the authority for which detail table applies and what state is true. A single purchase detail route backed by `GET /api/purchases/{purchase_id}/details` keeps navigation simple while allowing the page to render type-specific sections from the returned `purchase_type` and detail payload.
+
+For subscriptions, the renewal badge is intentionally a display of persisted backend state. Active rows show `Auto Renew Enabled`; rows with disabled renewal, cancellation, or service end state show `Subscription Canceled`. This keeps the refund-preparation rule clear without letting the frontend decide whether a subscription is actually cancelled.
+
+Tradeoff:
+
+The page has a little more component branching, but it avoids route proliferation and keeps the future refund workflow UI aligned with the same API contract the agent tools will use.

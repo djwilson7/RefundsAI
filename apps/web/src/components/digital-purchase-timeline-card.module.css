@@ -1,0 +1,116 @@
+.card {
+  width: min(100%, 1120px);
+  margin: 12px auto 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 18px 16px;
+  background: var(--card);
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0 20px;
+  text-align: center;
+}
+
+.step + .step {
+  border-left: 1px solid var(--border);
+}
+
+.step p {
+  margin: 0;
+}
+
+.step p:nth-child(2) {
+  color: #667789;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.step p:last-child {
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  font-weight: 800;
+}
+
+.marker {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+}
+
+.completeMark {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 2px solid rgba(22, 163, 74, 0.42);
+  border-radius: 999px;
+  background: rgba(22, 163, 74, 0.32);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.activeDot,
+.pendingDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.pendingDot {
+  border: 2px solid #aab6c2;
+  background: var(--card);
+}
+
+.activeDot {
+  border: 2px solid rgba(37, 99, 235, 0.42);
+  background: rgba(37, 99, 235, 0.32);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35);
+  }
+
+  70% {
+    box-shadow: 0 0 0 8px rgba(37, 99, 235, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+@media (max-width: 640px) {
+  .steps {
+    grid-template-columns: 1fr;
+  }
+
+  .step {
+    padding: 14px 0;
+  }
+
+  .step + .step {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+}
