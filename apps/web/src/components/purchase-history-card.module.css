@@ -1,11 +1,29 @@
 .card {
   display: grid;
   gap: 16px;
-  border: 1px solid var(--border);
+  border-color: var(--border);
+  border-style: solid;
+  border-width: 1px;
   border-radius: 8px;
   background: var(--surface);
+  color: inherit;
   padding: 20px;
   box-shadow: 0 12px 30px rgb(23 32 42 / 6%);
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.card:hover,
+.card:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 16px 34px rgb(23 32 42 / 10%);
+}
+
+.card:focus-visible {
+  outline: 3px solid rgb(11 107 203 / 16%);
+  outline-offset: 2px;
 }
 
 .header {
@@ -43,12 +61,52 @@
 }
 
 .status {
+  display: inline-flex;
   border-radius: 999px;
   background: var(--surface-muted);
   color: #40505f;
   font-size: 0.8125rem;
   font-weight: 700;
   padding: 5px 9px;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.actionSlot {
+  position: relative;
+  display: inline-grid;
+  align-items: center;
+  min-width: 96px;
+  justify-items: end;
+}
+
+.arrow {
+  position: absolute;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  opacity: 0;
+  transform: translateX(12px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.card:hover .status,
+.card:focus-visible .status {
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+.card:hover .arrow,
+.card:focus-visible .arrow {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 @media (max-width: 520px) {
@@ -59,5 +117,14 @@
 
   .amount {
     white-space: normal;
+  }
+
+  .actionSlot {
+    justify-items: start;
+  }
+
+  .arrow {
+    left: 0;
+    right: auto;
   }
 }

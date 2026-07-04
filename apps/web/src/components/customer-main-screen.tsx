@@ -7,6 +7,10 @@ import {
   type CustomerProfile,
   type CustomerPurchase,
 } from "@/lib/application-api";
+import {
+  buildPurchaseDetailsHref,
+  buildPurchaseDetailsSummary,
+} from "@/lib/purchase-details-data";
 import { getIdentityDisplayName } from "./mock-customers";
 import { PurchaseHistoryCard } from "./purchase-history-card";
 import styles from "./customer-main-screen.module.css";
@@ -59,7 +63,9 @@ export function CustomerMainScreen({
           {purchases.map((purchase) => (
             <PurchaseHistoryCard
               amount={formatCentsAsDollars(purchase.amountCents)}
+              href={buildPurchaseDetailsHref(purchase.id)}
               key={purchase.id}
+              purchaseSummary={buildPurchaseDetailsSummary(purchase)}
               purchasedAt={formatPurchaseDate(purchase.purchasedAt)}
               status={formatPurchaseStatus(purchase.status)}
               title={purchase.productName}

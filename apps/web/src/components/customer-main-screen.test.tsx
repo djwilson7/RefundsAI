@@ -18,6 +18,8 @@ const customer = {
 const purchases = [
   {
     id: "40000000-0000-4000-8000-000000000001",
+    orderNumber: "RAI-10001",
+    purchaseType: "physical" as const,
     productName: "Noise-canceling headphones",
     amountCents: 12999,
     purchasedAt: "2026-06-12T14:30:00Z",
@@ -25,6 +27,8 @@ const purchases = [
   },
   {
     id: "40000000-0000-4000-8000-000000000002",
+    orderNumber: "RAI-10002",
+    purchaseType: "digital" as const,
     productName: "Design asset bundle",
     amountCents: 5900,
     purchasedAt: "2026-06-03T14:30:00Z",
@@ -32,6 +36,8 @@ const purchases = [
   },
   {
     id: "40000000-0000-4000-8000-000000000003",
+    orderNumber: "RAI-10003",
+    purchaseType: "subscription" as const,
     productName: "Productivity Pro monthly",
     amountCents: 2499,
     purchasedAt: "2026-05-28T14:30:00Z",
@@ -93,6 +99,12 @@ describe("CustomerMainScreen", () => {
     expect(screen.getByText("Subscribed")).toBeInTheDocument();
     expect(screen.getByText("$129.99")).toBeInTheDocument();
     expect(screen.getByText("Purchased Jun 12, 2026")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Noise-canceling headphones/ }),
+    ).toHaveAttribute(
+      "href",
+      "/purchase-details/40000000-0000-4000-8000-000000000001",
+    );
   });
 
   it("shows unknown when customer creation metadata is invalid", () => {
