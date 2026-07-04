@@ -673,3 +673,12 @@ Clients should also never send database-derived refund deadline values. Deadline
 Clients should treat refund mutations as strict commands. Retrying a command after it already succeeded may return a workflow conflict rather than the current state.
 
 No API contract should require or expose a standalone `refunds` table. Refund lifecycle state remains embedded in `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details`, with `purchases.status` serving only as a workflow summary.
+
+## Frontend Refund Proxy Routes
+
+The Next.js frontend may expose same-origin route handlers that proxy browser-initiated refund workflow calls to the FastAPI backend:
+
+* `GET /api/purchases/{purchase_id}/refund/eligibility`
+* `POST /api/purchases/{purchase_id}/refund/request`
+
+These routes exist to keep browser requests same-origin during local development. They must not evaluate refund policy, mutate workflow state independently, or transform backend decisions beyond forwarding the backend response body and status. FastAPI remains authoritative for refund eligibility and preparation.

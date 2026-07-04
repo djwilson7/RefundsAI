@@ -64,6 +64,10 @@ Purchase detail rendering uses one stable route and one stable backend detail en
 
 Subscription renewal state is displayed in the purchase detail header. Active renewal shows `Auto Renew Enabled`; disabled renewal or cancellation/service-end state shows `Subscription Canceled`. The badge is derived from backend detail state and does not make the frontend authoritative for cancellation or refund policy.
 
+The customer purchase summary page and purchase detail pages expose a fixed bottom-right help trigger. The root application shell owns the persistent help layer so the panel state can survive navigation between those purchase surfaces. Opening the trigger shifts the main application content left, slides in a full-height right-side help panel, and moves the trigger with the content edge. The trigger shows a chat icon when closed and a collapse-panel icon when open. Help content remains placeholder text until the persistent support panel and AI support workflow are implemented.
+
+The help panel is a command surface, not the refund state display. On the purchase summary route it instructs the user to select a purchase from purchase history. On purchase detail routes it reads backend refund workflow eligibility and presents `Start refund process` only when `can_prepare_refund = true`. Clicking the command calls the same-origin frontend proxy route for `POST /api/purchases/{purchase_id}/refund/request`, which forwards to the FastAPI backend. After successful preparation, the help layer removes the command, refreshes the current route, and lets the purchase detail page visualize updated lifecycle state. Backend services remain responsible for deciding whether refund actions are allowed.
+
 ---
 
 ## Backend

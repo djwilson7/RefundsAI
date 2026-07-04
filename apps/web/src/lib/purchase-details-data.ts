@@ -84,6 +84,25 @@ export function savePurchaseDetailsSummary(summary: PurchaseDetailsSummary) {
   );
 }
 
+export function updatePurchaseDetailsSummaryStatus(
+  purchaseId: string,
+  status: string,
+) {
+  const summary = loadPurchaseDetailsSummary(purchaseId);
+
+  if (!summary) {
+    return;
+  }
+
+  savePurchaseDetailsSummary({
+    ...summary,
+    headerMeta: {
+      ...summary.headerMeta,
+      status,
+    },
+  });
+}
+
 export function loadPurchaseDetailsSummary(purchaseId: string) {
   const storedSummary = loadPurchaseDetailsSummarySnapshot(purchaseId);
 

@@ -1,0 +1,36 @@
+.button {
+  --icon-button-background: var(--accent-strong);
+  --icon-button-color: #ffffff;
+  --icon-button-idle-color: #ffffff;
+
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  width: 54px;
+  height: 54px;
+  border-color: var(--accent);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 14px 30px rgb(15 23 42 / 18%);
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    right 220ms ease;
+}
+
+.open {
+  right: calc(min(380px, 86vw) + 24px);
+}
+
+@media (max-width: 520px) {
+  .button {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .open {
+    right: calc(min(380px, 86vw) + 16px);
+  }
+}

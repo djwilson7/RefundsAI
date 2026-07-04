@@ -1,0 +1,128 @@
+.shell {
+  --help-panel-width: min(380px, 86vw);
+
+  min-height: 100vh;
+}
+
+.content {
+  min-width: 0;
+  position: relative;
+  transition:
+    padding-right 220ms ease;
+}
+
+.contentOpen {
+  padding-right: var(--help-panel-width);
+}
+
+.contentOpen::after {
+  position: fixed;
+  top: 0;
+  right: var(--help-panel-width);
+  bottom: 0;
+  z-index: 16;
+  width: 1px;
+  box-shadow: 18px 0 36px rgb(15 23 42 / 16%);
+  content: "";
+  pointer-events: none;
+}
+
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  width: var(--help-panel-width);
+  height: 100vh;
+  border-left: 1px solid var(--border);
+  background: #edf1f5;
+  padding: 24px;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 220ms ease;
+}
+
+.panelOpen {
+  transform: translateX(0);
+}
+
+.header {
+  border-bottom: 1px solid var(--border);
+  margin: 0 -24px;
+  padding: 6px 24px 14px;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  color: #667789;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.body {
+  flex: 1;
+  margin: 18px 0 0;
+}
+
+.centeredBody {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.selectionIcon {
+  width: 72px;
+  height: 72px;
+  margin: 0 0 18px;
+  color: var(--foreground);
+}
+
+.prompt {
+  margin: 0;
+  color: #40505f;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.actionButton {
+  width: 100%;
+  margin: 18px 0 0;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 0.9375rem;
+  font-weight: 800;
+  padding: 12px 14px;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.actionButton:hover,
+.actionButton:focus-visible {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+}
+
+.actionButton:focus-visible {
+  outline: 3px solid rgb(11 107 203 / 18%);
+}
+
+@media (max-width: 520px) {
+  .panel {
+    padding: 16px;
+  }
+
+  .header {
+    margin: 0 -16px;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+}

@@ -7,6 +7,7 @@ import {
   loadPurchaseDetailsSummary,
   parsePurchaseDetailsSummary,
   savePurchaseDetailsSummary,
+  updatePurchaseDetailsSummaryStatus,
 } from "./purchase-details-data";
 
 const purchase = {
@@ -42,6 +43,23 @@ describe("purchase details data", () => {
     savePurchaseDetailsSummary(summary);
 
     expect(loadPurchaseDetailsSummary(purchase.id)).toEqual(summary);
+  });
+
+  it("updates a stored purchase details summary status", () => {
+    savePurchaseDetailsSummary({
+      ...buildPurchaseDetailsSummary(purchase),
+      headerMeta: {
+        amount: "$129.99",
+        orderNumber: "RAI-10001",
+        status: "Completed",
+      },
+    });
+
+    updatePurchaseDetailsSummaryStatus(purchase.id, "Refund Pending");
+
+    expect(loadPurchaseDetailsSummary(purchase.id)?.headerMeta.status).toBe(
+      "Refund Pending",
+    );
   });
 
   it("falls back when stored summary data is missing or invalid", () => {

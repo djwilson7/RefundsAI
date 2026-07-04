@@ -14,6 +14,7 @@ import {
 } from "@/lib/purchase-details-data";
 import { DigitalCodeDetailsCard } from "./digital-code-details-card";
 import { DigitalPurchaseTimelineCard } from "./digital-purchase-timeline-card";
+import { HelpTriggerButton } from "./help-trigger-button";
 import { PhysicalDeliveryTimelineCard } from "./physical-delivery-timeline-card";
 import { PhysicalTrackingCard } from "./physical-tracking-card";
 import { SubscriptionBillingCycleCard } from "./subscription-billing-cycle-card";
@@ -181,6 +182,7 @@ export function PurchaseDetailsPlaceholder({
           ))}
         </div>
       </section>
+      <HelpTriggerButton />
     </main>
   );
 }

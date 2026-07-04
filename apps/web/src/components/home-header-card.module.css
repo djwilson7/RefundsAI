@@ -1,6 +1,6 @@
 .page {
   min-height: 100vh;
-  padding: 32px 20px;
+  padding: 32px 20px 128px;
 }
 
 .content {
@@ -47,7 +47,7 @@
 
 @media (max-width: 520px) {
   .page {
-    padding: 20px 16px;
+    padding: 20px 16px 112px;
   }
 
   .heading {

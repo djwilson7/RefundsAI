@@ -1,4 +1,5 @@
 import { DashboardMetricCard } from "./dashboard-metric-card";
+import { HelpTriggerButton } from "./help-trigger-button";
 import { HomeHeaderCard } from "./home-header-card";
 import {
   formatCentsAsDollars,
@@ -73,6 +74,7 @@ export function CustomerMainScreen({
           ))}
         </div>
       </section>
+      <HelpTriggerButton />
     </HomeHeaderCard>
   );
 }

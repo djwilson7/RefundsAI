@@ -1,8 +1,11 @@
+import type { ComponentProps } from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { ApplicationHelpLayer } from "./application-help-layer";
 import { CustomerMainScreen } from "./customer-main-screen";
 
 vi.mock("next/navigation", () => ({
+  usePathname: () => "/user-home",
   useRouter: () => ({
     push: vi.fn(),
   }),
@@ -47,7 +50,7 @@ const purchases = [
 
 describe("CustomerMainScreen", () => {
   it("renders the shared customer home header", () => {
-    render(<CustomerMainScreen customer={customer} purchases={purchases} />);
+    renderCustomerMainScreen();
 
     expect(screen.getByText("Welcome")).toBeInTheDocument();
     expect(
@@ -57,10 +60,13 @@ describe("CustomerMainScreen", () => {
     expect(
       screen.getByRole("button", { name: "Log out" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open help chat" }),
+    ).toBeInTheDocument();
   });
 
   it("renders customer summary metrics from purchases", () => {
-    render(<CustomerMainScreen customer={customer} purchases={purchases} />);
+    renderCustomerMainScreen();
 
     expect(
       screen.getByRole("region", { name: "Customer summary metrics" }),
@@ -74,7 +80,7 @@ describe("CustomerMainScreen", () => {
   });
 
   it("renders purchase history cards from purchases", () => {
-    render(<CustomerMainScreen customer={customer} purchases={purchases} />);
+    renderCustomerMainScreen();
 
     expect(
       screen.getByRole("heading", { level: 2, name: "Purchase History" }),
@@ -108,17 +114,28 @@ describe("CustomerMainScreen", () => {
   });
 
   it("shows unknown when customer creation metadata is invalid", () => {
-    render(
-      <CustomerMainScreen
-        customer={{
-          ...customer,
-          createdAt: "not-a-date",
-        }}
-        purchases={[]}
-      />,
-    );
+    renderCustomerMainScreen({
+      customer: {
+        ...customer,
+        createdAt: "not-a-date",
+      },
+      purchases: [],
+    });
 
     expect(screen.getByText("Unknown")).toBeInTheDocument();
     expect(screen.getByText("$0.00")).toBeInTheDocument();
   });
 });
+
+function renderCustomerMainScreen(
+  props: Partial<ComponentProps<typeof CustomerMainScreen>> = {},
+) {
+  return render(
+    <ApplicationHelpLayer>
+      <CustomerMainScreen
+        customer={props.customer ?? customer}
+        purchases={props.purchases ?? purchases}
+      />
+    </ApplicationHelpLayer>,
+  );
+}
