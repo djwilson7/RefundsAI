@@ -1,5 +1,5 @@
-import { ScaffoldStatus } from "@/components/scaffold-status";
+import { MockAuthLanding } from "@/components/mock-auth-landing";
 
 export default function Home() {
-  return <ScaffoldStatus />;
+  return <MockAuthLanding />;
 }
