@@ -298,7 +298,24 @@ curl http://localhost:8000/health/database
 
 The database health check endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` when database configuration is missing or connectivity checks fail. It validates connectivity only; schema, migrations, seed data, and business tables remain part of the next milestone.
 
-AI service setup instructions will be added as those milestones are scaffolded.
+### AI Chat Configuration
+
+The Phase 1 AI chat flow uses OpenAI and LangGraph for read-only purchase intelligence.
+
+Set the backend AI environment variables in `apps/api/.env` for local API development, or in the repository root `.env` for Docker Compose:
+
+```bash
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+Check model connectivity:
+
+```bash
+curl http://localhost:8000/health/model
+```
+
+The shared frontend help panel sends text messages through the same-origin frontend proxy to `POST /api/chat`. The backend runs read-only account tools for purchase-history, amount-threshold, and date-range questions, logs the observable orchestration steps to the backend console, and returns plain-text assistant responses. Refund assessment, agent-triggered refund mutations, voice capture, and persisted AI trace history remain future phases.
 
 ---
 

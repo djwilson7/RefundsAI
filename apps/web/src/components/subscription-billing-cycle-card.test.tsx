@@ -74,6 +74,37 @@ describe("SubscriptionBillingCycleCard", () => {
     ).toBe(100);
   });
 
+  it("returns zero progress for invalid billing cycle inputs", () => {
+    expect(
+      calculateBillingCycleProgress({
+        currentDate: "not-a-date",
+        periodEnd: "2026-07-20T00:00:00Z",
+        periodStart: "2026-06-20T00:00:00Z",
+      }),
+    ).toBe(0);
+    expect(
+      calculateBillingCycleProgress({
+        currentDate: "2026-07-05T00:00:00Z",
+        periodEnd: "not-a-date",
+        periodStart: "2026-06-20T00:00:00Z",
+      }),
+    ).toBe(0);
+    expect(
+      calculateBillingCycleProgress({
+        currentDate: "2026-07-05T00:00:00Z",
+        periodEnd: "2026-07-20T00:00:00Z",
+        periodStart: "not-a-date",
+      }),
+    ).toBe(0);
+    expect(
+      calculateBillingCycleProgress({
+        currentDate: "2026-07-05T00:00:00Z",
+        periodEnd: "2026-06-20T00:00:00Z",
+        periodStart: "2026-06-20T00:00:00Z",
+      }),
+    ).toBe(0);
+  });
+
   it("rounds progress to supported CSS positions", () => {
     expect(calculateProgressPosition(48)).toBe(50);
     expect(calculateProgressPosition(-4)).toBe(0);

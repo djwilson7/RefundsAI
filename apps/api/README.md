@@ -1,6 +1,6 @@
 # RefundsAI API
 
-FastAPI backend scaffold for the RefundsAI development foundation milestone.
+FastAPI backend for RefundsAI's customer, purchase, refund workflow, and Phase 1 read-only AI chat surfaces.
 
 ## Local Setup
 
@@ -64,6 +64,23 @@ curl http://localhost:8000/health/database
 ```
 
 This endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` when database configuration is missing or connectivity fails. It validates the PostgreSQL handshake only; schema readiness is handled by the migration commands below.
+
+## AI Chat
+
+Configure the OpenAI model used by the read-only LangGraph chat flow:
+
+```bash
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+Check model connectivity:
+
+```bash
+curl http://localhost:8000/health/model
+```
+
+The `POST /api/chat` endpoint runs read-only account tools for purchase-history, amount-threshold, and date-range questions. The backend emits sequential console-visible trace events for model requests, tool selection, tool execution, tool results, blocked responses, and final assistant responses. The chat graph does not evaluate refund policy, capture voice input, persist conversation logs, or mutate refund state in Phase 1.
 
 ## Database Migrations
 

@@ -207,10 +207,83 @@ DATABASE_CONNECTION_FAILED
 Notes
 This endpoint validates database connectivity only. It returns an HTTP status code `503 Service Unavailable` when database configuration is missing or connectivity checks fail. It does not validate schema, migrations, seed data, or business readiness.
 
+## GET /health/model
+
+Purpose
+Verify that the backend can complete a minimal OpenAI model handshake using the configured API key and model.
+
+Authentication Requirements
+None.
+
+Request Body
+None.
+
+Success Response Body
+
+```json
+{
+  "success": true,
+  "data": {
+    "provider": "openai",
+    "configured": true,
+    "connected": true,
+    "model": "gpt-5.4-mini"
+  },
+  "error": null,
+  "meta": {
+    "timestamp": "..."
+  }
+}
+```
+
+Configuration Error Response Body
+
+```json
+{
+  "success": false,
+  "data": {
+    "provider": "openai",
+    "configured": false,
+    "connected": false,
+    "model": "gpt-5.4-mini"
+  },
+  "error": {
+    "code": "MODEL_NOT_CONFIGURED",
+    "message": "OPENAI_API_KEY is not configured."
+  },
+  "meta": {
+    "timestamp": "..."
+  }
+}
+```
+
+Connection Error Response Body
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "MODEL_CONNECTION_FAILED",
+    "message": "OpenAI model handshake failed."
+  },
+  "meta": {
+    "timestamp": "..."
+  }
+}
+```
+
+Possible Error Codes
+MODEL_NOT_CONFIGURED
+MODEL_CONNECTION_FAILED
+
+Notes
+This endpoint validates OpenAI model connectivity only. It performs a minimal non-tool model call and does not execute LangGraph, call backend AI tools, inspect purchase data, evaluate policy, or mutate business state. It returns HTTP `503 Service Unavailable` when the API key is missing or the model handshake fails.
+
 ## POST /api/chat
 
 Purpose
-Accept a text chat message from the frontend help panel and return the phase-one static AI infrastructure response.
+Accept a text chat message from the frontend help panel and return a read-only LangGraph-backed AI response for purchase-history questions.
 
 Authentication Requirements
 None. Authentication remains mocked for this project scope.
@@ -225,7 +298,7 @@ Request Body
 }
 ```
 
-`message` is required to contain non-empty text after trimming whitespace. `customer_id` and `purchase_id` are optional context hints for future orchestration and are not authoritative authentication or authorization inputs.
+`message` is required to contain non-empty text after trimming whitespace. `customer_id` identifies the active mock customer for read-only purchase-history tool execution. `purchase_id` is optional page context from purchase detail routes and is not used for refund assessment in this phase. These fields are context hints for the local mock-auth scope, not production authentication or authorization inputs.
 
 Success Response Body
 
@@ -235,10 +308,10 @@ Success Response Body
   "data": {
     "message": {
       "role": "assistant",
-      "content": "I can help answer questions about your purchases. The AI workflow infrastructure is connected, and LangGraph orchestration will be enabled in a later phase."
+      "content": "You made 2 digital purchases totaling $75.00."
     },
     "model": "gpt-5.4-mini",
-    "graph_ready": false
+    "graph_ready": true
   },
   "error": null,
   "meta": {
@@ -267,7 +340,7 @@ Possible Error Codes
 INVALID_CHAT_MESSAGE
 
 Notes
-This endpoint is an AI Agent Integration phase-one seam only. It validates message text, returns a static assistant response, and emits structured application log events for message receipt and response generation. It does not call OpenAI, execute LangGraph, call backend tools, inspect purchase data, evaluate refund policy, capture voice input, or mutate business state.
+This endpoint runs the first AI Agent Integration read-only graph. The graph asks the configured OpenAI model to request supported account tools, executes valid tool calls through backend application services, and asks the model to answer from available tool context. Supported read-only tools currently include `get_customer_purchase_history`, `get_purchase_count_by_amount_threshold`, and `get_purchase_history_by_date_range`. If the model returns malformed pseudo-tool text instead of a real tool call, the backend logs `model.invalid_tool_output` and ignores that text as invalid model output. If the model does not request a supported tool, deterministic backend fallback routing executes `get_purchase_count_by_amount_threshold` for supported amount-threshold purchase questions, executes `get_purchase_history_by_date_range` for supported date-range purchase questions, executes `get_customer_purchase_history` for other account-fact intent, and skips tools for off-domain messages. Account-fact responses are blocked unless an authoritative tool result exists; the backend returns a safe assistant response instead of allowing a factual hallucination. Money remains stored and compared in cents; dollar-denominated user input is converted to cents at the chat boundary, and tool payloads may include derived dollar display strings for model explanation. Date filters resolve in the customer timezone before querying, use Sunday-through-Saturday business weeks for relative week phrases, convert inclusive local dates to half-open UTC timestamp ranges for purchase filtering, and include derived date display strings plus the resolved local date_range in tool output. If no customer context is available, the assistant asks the user to load a mock customer. If OpenAI is unavailable or `OPENAI_API_KEY` is missing, the endpoint returns a successful chat envelope with an assistant-level unavailable message. The model is instructed to return plain standard text without Markdown formatting. The model should keep the conversation grounded in the customer's account, account history, purchases, orders, account activity, and refund flows. Unrelated topics should receive a brief graceful redirect back to supported account topics. The backend emits sequential console-visible trace log events for route receipt, graph start, model request packages, tool-call selections, invalid model output, optional tool execution or tool skipping, blocked response decisions, tool results, final model response generation, and route response return. Each trace event includes a step number, source file, source line, message, and structured data payload. These logs expose the observable orchestration path and tool usage; they do not expose private model hidden reasoning. The endpoint must not inspect purchase data outside backend services, evaluate refund policy, capture voice input, persist conversation logs, or mutate business state.
 
 ## GET /api/users/mock
 
@@ -753,4 +826,4 @@ The Next.js frontend exposes a same-origin route handler for browser-initiated c
 
 * `POST /api/chat`
 
-This route forwards the request body to the FastAPI `POST /api/chat` endpoint and returns the backend response body and status. It must not call OpenAI, execute LangGraph, interpret assistant behavior, inspect purchase data, evaluate policy, or mutate workflow state. If FastAPI is unavailable, it returns `503 BACKEND_UNAVAILABLE`.
+This route forwards the request body to the FastAPI `POST /api/chat` endpoint and returns the backend response body and status. It must not call OpenAI, execute LangGraph, interpret assistant behavior, inspect purchase data, evaluate policy, or mutate workflow state. If FastAPI is unavailable, it returns `503 BACKEND_UNAVAILABLE`. Browser chat requests should include `customer_id` from `/user-home?customerId=...` or the selected mock customer session storage when available.

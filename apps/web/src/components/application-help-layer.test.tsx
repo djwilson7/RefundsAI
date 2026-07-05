@@ -19,6 +19,8 @@ vi.mock("next/navigation", () => ({
 describe("ApplicationHelpLayer", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    window.sessionStorage.clear();
+    window.history.pushState({}, "", "/");
     refresh.mockClear();
   });
 
@@ -91,6 +93,11 @@ describe("ApplicationHelpLayer", () => {
 
   it("submits text chat messages and renders the assistant response", async () => {
     mockedPathname = "/user-home";
+    window.history.pushState(
+      {},
+      "",
+      "/user-home?customerId=20000000-0000-4000-8000-000000000001",
+    );
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () =>
@@ -126,6 +133,7 @@ describe("ApplicationHelpLayer", () => {
       },
       body: JSON.stringify({
         message: "How many digital purchases have I made?",
+        customer_id: "20000000-0000-4000-8000-000000000001",
         purchase_id: null,
       }),
     });
@@ -135,6 +143,74 @@ describe("ApplicationHelpLayer", () => {
     expect(
       await screen.findByText("The AI workflow infrastructure is connected."),
     ).toBeInTheDocument();
+  });
+
+  it("uses selected mock customer context for purchase detail chat messages", async () => {
+    mockedPathname = "/purchase-details/40000000-0000-4000-8000-000000000001";
+    window.sessionStorage.setItem(
+      "refunds-ai:selected-mock-customer",
+      JSON.stringify({
+        id: "20000000-0000-4000-8000-000000000002",
+        firstName: "Maya",
+        lastName: "Collins",
+      }),
+    );
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              can_issue_funds: false,
+              can_prepare_refund: false,
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              message: {
+                content: "You made 4 purchases.",
+              },
+            },
+          }),
+      });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      <ApplicationHelpLayer>
+        <main>Purchase details</main>
+        <HelpTriggerButton />
+      </ApplicationHelpLayer>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open help chat" }));
+    fireEvent.change(screen.getByLabelText("Message the AI assistant"), {
+      target: { value: "How many purchases have I made?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await screen.findByText("You made 4 purchases.");
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/chat",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: "How many purchases have I made?",
+          customer_id: "20000000-0000-4000-8000-000000000002",
+          purchase_id: "40000000-0000-4000-8000-000000000001",
+        }),
+      },
+    );
   });
 
   it("renders a chat error when the chat service request fails", async () => {

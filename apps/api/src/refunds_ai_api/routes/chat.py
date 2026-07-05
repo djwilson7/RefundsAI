@@ -1,25 +1,24 @@
-"""AI chat infrastructure endpoints."""
+"""AI chat endpoints."""
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Response, status
 
 from refunds_ai_api.config import Settings, get_settings
+from refunds_ai_api.repositories.application import ApplicationRepository, PsycopgConnectionProvider
 from refunds_ai_api.schemas.chat import ChatMessageCreate, ChatResponseRead
 from refunds_ai_api.schemas.responses import ApiResponse
+from refunds_ai_api.services.ai_chat import (
+    AIChatService,
+    OpenAIChatCompletionsModelClient,
+    log_trace_step,
+)
+from refunds_ai_api.services.application import ApplicationService
 
 router = APIRouter(prefix="/api", tags=["chat"])
-logger = logging.getLogger("refunds_ai_api.chat")
-
-PLACEHOLDER_RESPONSE = (
-    "I can help answer questions about your purchases. The AI workflow "
-    "infrastructure is connected, and LangGraph orchestration will be enabled "
-    "in a later phase."
-)
 
 
 def response_meta() -> dict[str, str]:
@@ -27,13 +26,37 @@ def response_meta() -> dict[str, str]:
     return {"timestamp": datetime.now(UTC).isoformat()}
 
 
+def get_ai_chat_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AIChatService:
+    """Build the AI chat service with backend-owned read-only tools."""
+    connection_provider = PsycopgConnectionProvider(settings)
+    repository = ApplicationRepository(connection_provider)
+    application_service = ApplicationService(repository)
+    model_client = (
+        OpenAIChatCompletionsModelClient(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+        )
+        if settings.openai_api_key
+        else None
+    )
+
+    return AIChatService(
+        application_service=application_service,
+        model=settings.openai_model,
+        model_client=model_client,
+    )
+
+
 @router.post("/chat", response_model=ApiResponse)
 def create_chat_message(
     payload: Annotated[ChatMessageCreate, Body()],
     response: Response,
     settings: Annotated[Settings, Depends(get_settings)],
+    chat_service: Annotated[AIChatService, Depends(get_ai_chat_service)],
 ) -> ApiResponse:
-    """Return a static phase-one assistant response without invoking a model."""
+    """Run read-only purchase-history chat through the AI graph."""
     message = payload.message.strip() if payload.message else ""
 
     if not message:
@@ -48,32 +71,38 @@ def create_chat_message(
             meta=response_meta(),
         )
 
-    logger.info(
-        "ai.chat.message_received",
-        extra={
-            "event": {
-                "type": "message.received",
-                "message_length": len(message),
-                "customer_id": payload.customer_id,
-                "purchase_id": payload.purchase_id,
-            }
+    trace_state = log_trace_step(
+        {"trace_step": 1},
+        message="FastAPI chat route received validated customer message.",
+        event_type="message.received",
+        data={
+            "message": message,
+            "message_length": len(message),
+            "customer_id": payload.customer_id,
+            "purchase_id": payload.purchase_id,
         },
     )
 
+    ai_response = chat_service.create_response(
+        message=message,
+        customer_id=payload.customer_id,
+        purchase_id=payload.purchase_id,
+        trace_step_start=trace_state["trace_step"],
+    )
     chat_response = ChatResponseRead(
-        message={"role": "assistant", "content": PLACEHOLDER_RESPONSE},
+        message={"role": "assistant", "content": ai_response.content},
         model=settings.openai_model,
-        graph_ready=False,
+        graph_ready=ai_response.graph_ready,
     )
 
-    logger.info(
-        "ai.chat.response_generated",
-        extra={
-            "event": {
-                "type": "response.generated",
-                "model": settings.openai_model,
-                "graph_ready": False,
-            }
+    log_trace_step(
+        {"trace_step": ai_response.next_trace_step},
+        message="FastAPI chat route returning assistant response payload.",
+        event_type="route.response_returned",
+        data={
+            "model": settings.openai_model,
+            "graph_ready": ai_response.graph_ready,
+            "response": chat_response.model_dump(mode="json"),
         },
     )
 

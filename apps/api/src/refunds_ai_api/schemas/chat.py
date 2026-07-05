@@ -1,4 +1,4 @@
-"""Request and response models for the AI chat infrastructure seam."""
+"""Request and response models for AI chat."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ChatMessageCreate(BaseModel):
-    """Frontend chat message submitted to the phase-one AI seam."""
+    """Frontend chat message submitted to the AI chat endpoint."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -25,7 +25,7 @@ class ChatMessageRead(BaseModel):
 
 
 class ChatResponseRead(BaseModel):
-    """Static phase-one chat response payload."""
+    """AI chat response payload."""
 
     model_config = ConfigDict(extra="forbid")
 

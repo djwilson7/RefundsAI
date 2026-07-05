@@ -13,6 +13,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { updatePurchaseDetailsSummaryStatus } from "@/lib/purchase-details-data";
 import { ArrowUpIcon, MicrophoneIcon } from "./icons";
+import { loadSelectedMockCustomerId } from "./mock-auth-session";
 import styles from "./application-help-layer.module.css";
 
 type ApplicationHelpLayerProps = Readonly<{
@@ -245,7 +246,11 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     setChatMessages((messages) => [...messages, userMessage]);
 
     try {
-      const assistantMessage = await sendChatMessage(message, purchaseId);
+      const assistantMessage = await sendChatMessage(
+        message,
+        purchaseId,
+        getCustomerIdFromCurrentUrl() ?? loadSelectedMockCustomerId(),
+      );
 
       setChatMessages((messages) => [
         ...messages,
@@ -425,6 +430,14 @@ async function prepareRefund(purchaseId: string) {
   return parseRefundWorkflowResponse(response);
 }
 
+function getCustomerIdFromCurrentUrl() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return new URLSearchParams(window.location.search).get("customerId");
+}
+
 async function issueRefund(purchaseId: string) {
   const response = await fetch(`/api/purchases/${purchaseId}/refund/issue`, {
     method: "POST",
@@ -433,7 +446,11 @@ async function issueRefund(purchaseId: string) {
   return parseRefundWorkflowResponse(response);
 }
 
-async function sendChatMessage(message: string, purchaseId: string | null) {
+async function sendChatMessage(
+  message: string,
+  purchaseId: string | null,
+  customerId: string | null,
+) {
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: {
@@ -441,6 +458,7 @@ async function sendChatMessage(message: string, purchaseId: string | null) {
     },
     body: JSON.stringify({
       message,
+      customer_id: customerId,
       purchase_id: purchaseId,
     }),
   });

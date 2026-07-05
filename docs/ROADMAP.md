@@ -316,7 +316,7 @@ Build the customer-facing experience on top of the backend API contracts from v0
 
 ## Objective
 
-Implement the AI agent layer incrementally, starting with basic question understanding and read-only purchase-history interpretation before moving into policy-driven refund assessment and controlled workflow execution.
+Implement the AI agent layer incrementally, starting with basic question understanding and read-only purchase-history interpretation before moving into policy lookup, account-specific eligibility evaluation, and controlled refund workflow execution.
 
 The agent will use `gpt-5.4-mini` as the planned model of choice when OpenAI integration begins. The model should first prove reliable on data retrieval, aggregation, and explanation tasks before it is allowed to participate in more complex refund-policy behavior.
 
@@ -324,21 +324,35 @@ The agent will use `gpt-5.4-mini` as the planned model of choice when OpenAI int
 
 #### Phase 1: Read-Only Purchase Intelligence
 
-* [ ] OpenAI and LangGraph foundation for conversational question understanding.
-* [ ] Read-only customer purchase-history tools backed by existing backend services.
-* [ ] Agent responses for purchase-history summaries, counts, totals, and type-based aggregation.
-* [ ] Structured execution logs for intent classification, tool calls, computed aggregates, and final responses.
-* [ ] Backend tests for read-only graph-node boundaries and purchase-summary behavior.
+* [x] OpenAI and LangGraph foundation for conversational question understanding.
+* [x] Read-only customer purchase-history tools backed by existing backend services.
+* [x] Agent responses for purchase-history summaries, counts, totals, and type-based aggregation.
+* [x] Structured execution logs for intent classification, tool calls, computed aggregates, and final responses.
+* [x] Backend tests for read-only graph-node boundaries and purchase-summary behavior.
 
-#### Phase 2: Read-Only Refund Assessment
+#### Phase 2: Policy Lookup
+
+Example customer question: "What is the refund policy for my digital products?"
+
+* [ ] Read-only refund policy lookup tools backed by deterministic backend policy sources.
+* [ ] Product-type-aware policy explanation flow for digital, physical, and subscription purchases.
+* [ ] Agent responses for policy windows, policy requirements, exclusions, and next-step guidance without evaluating a specific purchase as refundable.
+* [ ] Structured logs for policy lookup, product-type scope, policy source selection, and final policy response.
+* [ ] Backend tests confirming the agent does not invent or override refund policy.
+
+#### Phase 3: Eligibility Evaluation
+
+Example customer question: "Which of my digital products can be refunded?"
 
 * [ ] Read-only refund workflow tools backed by deterministic backend eligibility services.
-* [ ] Policy explanation flow that communicates backend-evaluated eligibility without mutating refund state.
-* [ ] Agent responses for refund denials, eligibility reasons, required next actions, and policy context.
-* [ ] Structured logs for policy lookup, eligibility interpretation, and non-mutating refund guidance.
-* [ ] Backend tests confirming the agent does not infer or override refund policy.
+* [ ] Eligibility explanation flow that communicates backend-evaluated purchase outcomes without mutating refund state.
+* [ ] Agent responses for refundable purchases, refund denials, eligibility reasons, required next actions, and policy context.
+* [ ] Structured logs for eligibility tool selection, deterministic eligibility results, policy context, and non-mutating refund guidance.
+* [ ] Backend tests confirming the agent does not infer, override, or calculate refund eligibility outside deterministic backend services.
 
-#### Phase 3: Confirmed Refund Execution
+#### Phase 4: Refund Workflow
+
+Example customer question: "Start a refund for the eligible one."
 
 * [ ] Mutating refund tools for policy-approved preparation and issuance.
 * [ ] Explicit user-confirmation gate before any agent-triggered refund mutation.
@@ -348,11 +362,12 @@ The agent will use `gpt-5.4-mini` as the planned model of choice when OpenAI int
 
 ### Validation
 
-* [ ] Agent accurately answers read-only purchase-history questions from backend data.
-* [ ] Agent correctly explains refund policy and backend eligibility without mutating state.
+* [x] Agent accurately answers read-only purchase-history questions from backend data.
+* [ ] Agent correctly explains refund policy without evaluating account-specific eligibility.
+* [ ] Agent correctly explains backend-evaluated refund eligibility without mutating state.
 * [ ] Agent never performs mutating refund actions without explicit user confirmation.
-* [ ] LangGraph nodes call backend services through stable contracts.
-* [ ] Structured logs capture intent, tool execution, aggregate calculations, policy interpretation, confirmation gates, and final responses.
+* [x] LangGraph nodes call backend services through stable contracts.
+* [ ] Structured logs capture intent, tool execution, aggregate calculations, policy lookup, eligibility interpretation, confirmation gates, and final responses.
 
 ---
 
