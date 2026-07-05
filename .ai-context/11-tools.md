@@ -105,6 +105,8 @@ Tools should not send database-derived refund deadlines. PostgreSQL triggers com
 
 The current frontend help panel includes temporary manual `Prep Refund` and `Issue Refund` commands that call backend refund workflow endpoints through same-origin frontend proxy routes. These controls exist to validate backend workflow state and frontend lifecycle displays before the agent layer is active. Future refund tools should replace that manual path rather than duplicate it. The intended long-term flow is for the agent to call deterministic backend tools to initiate approved refund preparation and issuance, while purchase detail pages continue to render the resulting backend state.
 
+The current `POST /api/chat` endpoint is not an AI tool surface yet. It is a phase-one infrastructure seam for the shared help-panel chat UI. It validates non-empty text, returns a static assistant response, and emits structured application log events. It must not call OpenAI, execute LangGraph, call backend tools, inspect purchase data, evaluate refund policy, capture voice input, or mutate business state.
+
 ---
 
 # Role-Based Access

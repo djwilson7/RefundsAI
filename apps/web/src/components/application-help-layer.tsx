@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  type FormEvent,
   type ReactNode,
   useContext,
   useEffect,
@@ -11,6 +12,7 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { updatePurchaseDetailsSummaryStatus } from "@/lib/purchase-details-data";
+import { ArrowUpIcon, MicrophoneIcon } from "./icons";
 import styles from "./application-help-layer.module.css";
 
 type ApplicationHelpLayerProps = Readonly<{
@@ -42,12 +44,31 @@ type RefundWorkflowLoad = Readonly<{
   workflow: RefundWorkflow | null;
 }>;
 
+type ChatMessage = Readonly<{
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+}>;
+
 const ApplicationHelpContext =
   createContext<ApplicationHelpContextValue | null>(null);
 const refundWorkflowUpdatedEvent = "refunds-ai:refund-workflow-updated";
+const initialChatMessages: ChatMessage[] = [
+  {
+    id: "welcome",
+    role: "assistant",
+    content: "Ask me about your purchases, orders, or account activity.",
+  },
+];
 
 export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] =
+    useState<ChatMessage[]>(initialChatMessages);
+  const [chatState, setChatState] = useState<"idle" | "sending" | "error">(
+    "idle",
+  );
   const [workflowLoad, setWorkflowLoad] = useState<RefundWorkflowLoad>({
     purchaseId: null,
     state: "idle",
@@ -204,6 +225,50 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     }
   }
 
+  async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const message = chatInput.trim();
+
+    if (!message || chatState === "sending") {
+      return;
+    }
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: message,
+    };
+
+    setChatInput("");
+    setChatState("sending");
+    setChatMessages((messages) => [...messages, userMessage]);
+
+    try {
+      const assistantMessage = await sendChatMessage(message, purchaseId);
+
+      setChatMessages((messages) => [
+        ...messages,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: assistantMessage,
+        },
+      ]);
+      setChatState("idle");
+    } catch {
+      setChatMessages((messages) => [
+        ...messages,
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: "assistant",
+          content: "I could not reach the AI chat service. Please try again.",
+        },
+      ]);
+      setChatState("error");
+    }
+  }
+
   return (
     <ApplicationHelpContext.Provider value={contextValue}>
       <div className={styles.shell}>
@@ -251,6 +316,59 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
                   </button>
                 </div>
               ) : null}
+              <div className={styles.chatSurface}>
+                <div className={styles.transcript} aria-live="polite">
+                  {chatMessages.map((message) => (
+                    <div
+                      className={[
+                        styles.message,
+                        message.role === "user"
+                          ? styles.userMessage
+                          : styles.assistantMessage,
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      key={message.id}
+                    >
+                      {message.content}
+                    </div>
+                  ))}
+                </div>
+
+                <form className={styles.composer} onSubmit={handleChatSubmit}>
+                  <label className={styles.inputLabel} htmlFor={`${panelId}-chat`}>
+                    Message the AI assistant
+                  </label>
+                  <textarea
+                    className={styles.chatInput}
+                    disabled={chatState === "sending"}
+                    id={`${panelId}-chat`}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    placeholder="Ask about your purchases..."
+                    rows={3}
+                    value={chatInput}
+                  />
+                  <div className={styles.inputActions}>
+                    <button
+                      aria-label="Voice input coming soon"
+                      className={styles.iconAction}
+                      disabled
+                      title="Voice input coming soon"
+                      type="button"
+                    >
+                      <MicrophoneIcon size={18} />
+                    </button>
+                    <button
+                      aria-label="Send message"
+                      className={styles.iconAction}
+                      disabled={!chatInput.trim() || chatState === "sending"}
+                      type="submit"
+                    >
+                      <ArrowUpIcon size={18} />
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           </aside>
         ) : null}
@@ -313,6 +431,38 @@ async function issueRefund(purchaseId: string) {
   });
 
   return parseRefundWorkflowResponse(response);
+}
+
+async function sendChatMessage(message: string, purchaseId: string | null) {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message,
+      purchase_id: purchaseId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("AI chat request failed.");
+  }
+
+  const body = (await response.json()) as {
+    success?: boolean;
+    data?: {
+      message?: {
+        content?: string;
+      };
+    } | null;
+  };
+
+  if (!body.success || !body.data?.message?.content) {
+    throw new Error("AI chat response was unsuccessful.");
+  }
+
+  return body.data.message.content;
 }
 
 async function parseRefundWorkflowResponse(response: Response) {

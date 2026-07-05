@@ -51,4 +51,22 @@ describe("PurchaseHistoryCard", () => {
       loadPurchaseDetailsSummary("40000000-0000-4000-8000-000000000001"),
     ).toEqual(purchaseSummary);
   });
+
+  it("does not cache purchase details when no summary is provided", () => {
+    render(
+      <PurchaseHistoryCard
+        amount="$29.99"
+        href="/purchase-details/40000000-0000-4000-8000-000000000099"
+        purchasedAt="Purchased Jul 01, 2026"
+        status="Completed"
+        title="Digital art pack"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: /Digital art pack/ }));
+
+    expect(
+      loadPurchaseDetailsSummary("40000000-0000-4000-8000-000000000099"),
+    ).toBeNull();
+  });
 });

@@ -207,6 +207,68 @@ DATABASE_CONNECTION_FAILED
 Notes
 This endpoint validates database connectivity only. It returns an HTTP status code `503 Service Unavailable` when database configuration is missing or connectivity checks fail. It does not validate schema, migrations, seed data, or business readiness.
 
+## POST /api/chat
+
+Purpose
+Accept a text chat message from the frontend help panel and return the phase-one static AI infrastructure response.
+
+Authentication Requirements
+None. Authentication remains mocked for this project scope.
+
+Request Body
+
+```json
+{
+  "message": "How many digital purchases have I made?",
+  "customer_id": "10000000-0000-4000-8000-000000000001",
+  "purchase_id": "40000000-0000-4000-8000-000000000001"
+}
+```
+
+`message` is required to contain non-empty text after trimming whitespace. `customer_id` and `purchase_id` are optional context hints for future orchestration and are not authoritative authentication or authorization inputs.
+
+Success Response Body
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": {
+      "role": "assistant",
+      "content": "I can help answer questions about your purchases. The AI workflow infrastructure is connected, and LangGraph orchestration will be enabled in a later phase."
+    },
+    "model": "gpt-5.4-mini",
+    "graph_ready": false
+  },
+  "error": null,
+  "meta": {
+    "timestamp": "..."
+  }
+}
+```
+
+Invalid Message Response Body
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "INVALID_CHAT_MESSAGE",
+    "message": "Chat message must not be empty."
+  },
+  "meta": {
+    "timestamp": "..."
+  }
+}
+```
+
+Possible Error Codes
+INVALID_CHAT_MESSAGE
+
+Notes
+This endpoint is an AI Agent Integration phase-one seam only. It validates message text, returns a static assistant response, and emits structured application log events for message receipt and response generation. It does not call OpenAI, execute LangGraph, call backend tools, inspect purchase data, evaluate refund policy, capture voice input, or mutate business state.
+
 ## GET /api/users/mock
 
 Purpose
@@ -684,3 +746,11 @@ The Next.js frontend may expose same-origin route handlers that proxy browser-in
 * `POST /api/purchases/{purchase_id}/physical/confirm-carrier-acceptance`
 
 These routes exist to keep browser requests same-origin during local development. They must not evaluate refund policy, mutate workflow state independently, or transform backend decisions beyond forwarding the backend response body and status. FastAPI remains authoritative for refund eligibility, preparation, carrier acceptance, and fund issuance.
+
+## Frontend Chat Proxy Route
+
+The Next.js frontend exposes a same-origin route handler for browser-initiated chat requests:
+
+* `POST /api/chat`
+
+This route forwards the request body to the FastAPI `POST /api/chat` endpoint and returns the backend response body and status. It must not call OpenAI, execute LangGraph, interpret assistant behavior, inspect purchase data, evaluate policy, or mutate workflow state. If FastAPI is unavailable, it returns `503 BACKEND_UNAVAILABLE`.

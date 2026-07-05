@@ -18,6 +18,8 @@ class Settings(BaseSettings):
         default=5,
         alias="DATABASE_CONNECT_TIMEOUT_SECONDS",
     )
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-5.4-mini", alias="OPENAI_MODEL")
 
 
 @lru_cache

@@ -312,34 +312,47 @@ Build the customer-facing experience on top of the backend API contracts from v0
 
 ---
 
-# v0.5.0 — AI Orchestration
+# v0.5.0 — AI Agent Integration
 
 ## Objective
 
-Implement the AI orchestration layer responsible for customer interactions and deterministic workflow execution, using the backend services established in v0.3.0.
+Implement the AI agent layer incrementally, starting with basic question understanding and read-only purchase-history interpretation before moving into policy-driven refund assessment and controlled workflow execution.
+
+The agent will use `gpt-5.4-mini` as the planned model of choice when OpenAI integration begins. The model should first prove reliable on data retrieval, aggregation, and explanation tasks before it is allowed to participate in more complex refund-policy behavior.
 
 ### Planned Deliverables
 
-* [ ] OpenAI integration
-* [ ] Tool/function calling
-* [ ] Customer and admin data access boundaries needed by AI tools
-* [ ] Tool contracts for refund eligibility lookup and policy-approved refund execution
-* [ ] Conversation management
-* [ ] LangGraph node definitions for backend tool orchestration
-* [ ] LangGraph workflow assembly
-* [ ] Refund workflow orchestration
-* [ ] Policy-aware decision flow
-* [ ] Audit event generation
-* [ ] Reasoning trace support
-* [ ] Backend tests for graph-node boundaries
+#### Phase 1: Read-Only Purchase Intelligence
+
+* [ ] OpenAI and LangGraph foundation for conversational question understanding.
+* [ ] Read-only customer purchase-history tools backed by existing backend services.
+* [ ] Agent responses for purchase-history summaries, counts, totals, and type-based aggregation.
+* [ ] Structured execution logs for intent classification, tool calls, computed aggregates, and final responses.
+* [ ] Backend tests for read-only graph-node boundaries and purchase-summary behavior.
+
+#### Phase 2: Read-Only Refund Assessment
+
+* [ ] Read-only refund workflow tools backed by deterministic backend eligibility services.
+* [ ] Policy explanation flow that communicates backend-evaluated eligibility without mutating refund state.
+* [ ] Agent responses for refund denials, eligibility reasons, required next actions, and policy context.
+* [ ] Structured logs for policy lookup, eligibility interpretation, and non-mutating refund guidance.
+* [ ] Backend tests confirming the agent does not infer or override refund policy.
+
+#### Phase 3: Confirmed Refund Execution
+
+* [ ] Mutating refund tools for policy-approved preparation and issuance.
+* [ ] Explicit user-confirmation gate before any agent-triggered refund mutation.
+* [ ] LangGraph workflow for preparing refunds, continuing approved in-progress refund steps, and reporting final state.
+* [ ] Structured logs for confirmation requests, confirmation receipt, mutation attempts, workflow conflicts, and outcomes.
+* [ ] Backend tests confirming mutating tools require explicit confirmation and still rely on deterministic backend services.
 
 ### Validation
 
-* [ ] Agent successfully completes eligible refunds.
-* [ ] Agent correctly denies policy violations.
-* [ ] Tool execution validated.
-* [ ] LangGraph nodes can call backend services through stable contracts.
-* [ ] AI reasoning captured through audit logs.
+* [ ] Agent accurately answers read-only purchase-history questions from backend data.
+* [ ] Agent correctly explains refund policy and backend eligibility without mutating state.
+* [ ] Agent never performs mutating refund actions without explicit user confirmation.
+* [ ] LangGraph nodes call backend services through stable contracts.
+* [ ] Structured logs capture intent, tool execution, aggregate calculations, policy interpretation, confirmation gates, and final responses.
 
 ---
 

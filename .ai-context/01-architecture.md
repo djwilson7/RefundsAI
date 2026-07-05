@@ -66,11 +66,15 @@ Prepared subscription refund state is visualized in the subscription billing-cyc
 
 The customer purchase summary page and purchase detail pages expose a fixed bottom-right help trigger. The root application shell owns the persistent help layer so the panel state can survive navigation between those purchase surfaces. Opening the trigger shifts the main application content left, slides in a full-height right-side help panel, and moves the trigger with the content edge. The trigger shows a chat icon when closed and a collapse-panel icon when open.
 
+The help panel now includes one consistent chat surface across the customer purchase summary page and purchase detail pages. The shared surface renders a transcript area, a bottom text composer, a disabled microphone affordance for future voice support, and a send control. During the first AI Agent Integration pass, submitted chat messages are forwarded through the same-origin frontend chat proxy to the FastAPI `POST /api/chat` infrastructure endpoint. That backend endpoint validates non-empty text, emits structured log events, and returns a static assistant response. It does not call OpenAI, execute LangGraph, call backend tools, assess refund eligibility, or mutate business state.
+
 The help panel is a command surface, not the refund state display. On purchase detail routes it reads backend refund workflow eligibility and renders `Prep Refund` and `Issue Refund` commands. Those commands are disabled by default and become enabled only when FastAPI reports `can_prepare_refund` or `can_issue_funds`. `Prep Refund` calls the same-origin frontend proxy route for `POST /api/purchases/{purchase_id}/refund/request`; `Issue Refund` calls `POST /api/purchases/{purchase_id}/refund/issue`. After successful mutations, the help layer refreshes the current route and lets the purchase detail page visualize updated lifecycle state. Backend services remain responsible for deciding whether refund actions are allowed.
 
 Physical returns also include a detail-page `Given to Carrier` control in the active return workflow row. It calls the carrier-acceptance endpoint, refreshes refund eligibility, and enables fund issuance only after the backend confirms the state change.
 
 The manual help-panel refund commands are temporary frontend controls used to validate layout, backend workflow wiring, and pending/issued-state presentation before AI orchestration is active. Once the agent workflow can invoke refund tools directly, these explicit manual buttons should be removed or demoted so the agent owns refund initiation and issuance while the detail page continues to own state visualization.
+
+Phase 1 AI Agent Integration establishes dependencies, configuration, the shared chat UI, same-origin chat proxying, a static FastAPI chat seam, and structured log emission only. LangGraph workflow assembly, OpenAI model calls, tool calling, purchase-history intelligence, refund assessment, voice capture, and refund mutation through the agent remain future phases.
 
 ---
 
