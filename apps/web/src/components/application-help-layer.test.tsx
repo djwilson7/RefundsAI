@@ -150,6 +150,58 @@ describe("ApplicationHelpLayer", () => {
     ).toBeInTheDocument();
   });
 
+  it("scrolls the chat transcript as turns are added", async () => {
+    mockedPathname = "/user-home";
+    const scrollMocks = installTranscriptScrollMocks(720);
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            message: {
+              content: "Here is the scoped answer.",
+            },
+          },
+        }),
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    try {
+      render(
+        <ApplicationHelpLayer>
+          <main>Purchase summary</main>
+          <HelpTriggerButton />
+        </ApplicationHelpLayer>,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Open help chat" }));
+
+      await waitFor(() => expect(scrollMocks.scrollTo).toHaveBeenCalled());
+      expect(
+        screen.getByRole("log", { name: "Chat transcript" }),
+      ).toBeInTheDocument();
+      scrollMocks.scrollTo.mockClear();
+
+      fireEvent.change(screen.getByLabelText("Message the AI assistant"), {
+        target: { value: "Can you list them please?" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+      expect(
+        await screen.findByText("Here is the scoped answer."),
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(scrollMocks.scrollTo).toHaveBeenLastCalledWith({
+          top: 720,
+          behavior: "smooth",
+        }),
+      );
+    } finally {
+      scrollMocks.restore();
+    }
+  });
+
   it("submits chat messages with Enter from the textarea", async () => {
     mockedPathname = "/user-home";
     const fetch = vi.fn().mockResolvedValue({
@@ -835,3 +887,49 @@ describe("ApplicationHelpLayer", () => {
     );
   });
 });
+
+function installTranscriptScrollMocks(scrollHeight: number) {
+  const originalScrollTo = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollTo",
+  );
+  const originalScrollHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollHeight",
+  );
+  const scrollTo = vi.fn();
+
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+    configurable: true,
+    value: scrollTo,
+  });
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get: () => scrollHeight,
+  });
+
+  return {
+    scrollTo,
+    restore: () => {
+      if (originalScrollTo) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollTo",
+          originalScrollTo,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollTo");
+      }
+
+      if (originalScrollHeight) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollHeight",
+          originalScrollHeight,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+      }
+    },
+  };
+}

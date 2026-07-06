@@ -9,6 +9,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -87,6 +88,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] =
     useState<ChatMessage[]>(initialChatMessages);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
   const [conversationState, setConversationState] =
     useState<ConversationState>({});
   const [chatState, setChatState] = useState<"idle" | "sending" | "error">(
@@ -156,6 +158,28 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
       ignoreResult = true;
     };
   }, [purchaseId]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const transcript = transcriptRef.current;
+
+    if (!transcript) {
+      return;
+    }
+
+    if (typeof transcript.scrollTo === "function") {
+      transcript.scrollTo({
+        top: transcript.scrollHeight,
+        behavior: "smooth",
+      });
+      return;
+    }
+
+    transcript.scrollTop = transcript.scrollHeight;
+  }, [chatMessages.length, isOpen]);
 
   useEffect(() => {
     function handleRefundWorkflowUpdated(event: Event) {
@@ -359,7 +383,13 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
                 </div>
               ) : null}
               <div className={styles.chatSurface}>
-                <div className={styles.transcript} aria-live="polite">
+                <div
+                  aria-label="Chat transcript"
+                  aria-live="polite"
+                  className={styles.transcript}
+                  ref={transcriptRef}
+                  role="log"
+                >
                   {chatMessages.map((message) => (
                     <div
                       className={[
