@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -13,6 +15,8 @@ class ChatMessageCreate(BaseModel):
     message: str | None = None
     customer_id: str | None = None
     purchase_id: str | None = None
+    page_context: dict[str, Any] | None = None
+    conversation_state: dict[str, Any] | None = None
 
 
 class ChatMessageRead(BaseModel):
@@ -32,3 +36,4 @@ class ChatResponseRead(BaseModel):
     message: ChatMessageRead
     model: str
     graph_ready: bool
+    conversation_state: dict[str, Any]

@@ -294,11 +294,24 @@ Request Body
 {
   "message": "How many digital purchases have I made?",
   "customer_id": "10000000-0000-4000-8000-000000000001",
-  "purchase_id": "40000000-0000-4000-8000-000000000001"
+  "purchase_id": "40000000-0000-4000-8000-000000000001",
+  "page_context": {
+    "surface": "purchase_detail",
+    "purchase_id": "40000000-0000-4000-8000-000000000001"
+  },
+  "conversation_state": {
+    "selected_purchase_type": "digital",
+    "selected_product": null,
+    "selected_purchase_id": null,
+    "selected_purchase_ids": [],
+    "selected_policy_scope": null,
+    "selected_date_range": null,
+    "current_page": null
+  }
 }
 ```
 
-`message` is required to contain non-empty text after trimming whitespace. `customer_id` identifies the active mock customer for read-only purchase-history tool execution. `purchase_id` is optional page context from purchase detail routes and is not used for refund assessment in this phase. These fields are context hints for the local mock-auth scope, not production authentication or authorization inputs.
+`message` is required to contain non-empty text after trimming whitespace. `customer_id` identifies the active mock customer for read-only purchase-history tool execution. General refund policy lookup may run without `customer_id` because it is not account-specific. `purchase_id` remains an optional legacy page hint from purchase detail routes and is not used for refund eligibility evaluation in this phase. `page_context` is the current screen reference and should include only the active surface, either `purchase_history` or `purchase_detail`, plus the active detail `purchase_id` when present. It must not include full rendered page content. `conversation_state` is an optional compact client-carried state object from the previous chat response. It may include selected purchase type, selected product, selected purchase id, selected purchase ids, selected policy scope, selected date range, and the backend-resolved current page reference. These fields are context hints for the local mock-auth scope, not production authentication or authorization inputs.
 
 Success Response Body
 
@@ -311,7 +324,28 @@ Success Response Body
       "content": "You made 2 digital purchases totaling $75.00."
     },
     "model": "gpt-5.4-mini",
-    "graph_ready": true
+    "graph_ready": true,
+    "conversation_state": {
+      "selected_purchase_type": "digital",
+      "selected_product": null,
+      "selected_purchase_id": null,
+      "selected_purchase_ids": [
+        "40000000-0000-4000-8000-000000000001",
+        "40000000-0000-4000-8000-000000000002"
+      ],
+      "selected_policy_scope": null,
+      "selected_date_range": null,
+      "current_page": {
+        "surface": "purchase_detail",
+        "purchase": {
+          "id": "40000000-0000-4000-8000-000000000001",
+          "product_name": "Design Template Pack",
+          "sku": "DIG-TEMPLATE-001",
+          "order_number": "RAI-10001",
+          "purchase_type": "digital"
+        }
+      }
+    }
   },
   "error": null,
   "meta": {
@@ -340,7 +374,7 @@ Possible Error Codes
 INVALID_CHAT_MESSAGE
 
 Notes
-This endpoint runs the first AI Agent Integration read-only graph. The graph asks the configured OpenAI model to request supported account tools, executes valid tool calls through backend application services, and asks the model to answer from available tool context. Supported read-only tools currently include `get_customer_purchase_history`, `get_purchase_count_by_amount_threshold`, and `get_purchase_history_by_date_range`. If the model returns malformed pseudo-tool text instead of a real tool call, the backend logs `model.invalid_tool_output` and ignores that text as invalid model output. If the model does not request a supported tool, deterministic backend fallback routing executes `get_purchase_count_by_amount_threshold` for supported amount-threshold purchase questions, executes `get_purchase_history_by_date_range` for supported date-range purchase questions, executes `get_customer_purchase_history` for other account-fact intent, and skips tools for off-domain messages. Account-fact responses are blocked unless an authoritative tool result exists; the backend returns a safe assistant response instead of allowing a factual hallucination. Money remains stored and compared in cents; dollar-denominated user input is converted to cents at the chat boundary, and tool payloads may include derived dollar display strings for model explanation. Date filters resolve in the customer timezone before querying, use Sunday-through-Saturday business weeks for relative week phrases, convert inclusive local dates to half-open UTC timestamp ranges for purchase filtering, and include derived date display strings plus the resolved local date_range in tool output. If no customer context is available, the assistant asks the user to load a mock customer. If OpenAI is unavailable or `OPENAI_API_KEY` is missing, the endpoint returns a successful chat envelope with an assistant-level unavailable message. The model is instructed to return plain standard text without Markdown formatting. The model should keep the conversation grounded in the customer's account, account history, purchases, orders, account activity, and refund flows. Unrelated topics should receive a brief graceful redirect back to supported account topics. The backend emits sequential console-visible trace log events for route receipt, graph start, model request packages, tool-call selections, invalid model output, optional tool execution or tool skipping, blocked response decisions, tool results, final model response generation, and route response return. Each trace event includes a step number, source file, source line, message, and structured data payload. These logs expose the observable orchestration path and tool usage; they do not expose private model hidden reasoning. The endpoint must not inspect purchase data outside backend services, evaluate refund policy, capture voice input, persist conversation logs, or mutate business state.
+This endpoint runs the AI Agent Integration read-only graph. The graph asks the configured OpenAI model to request supported read-only tools, executes valid tool calls through backend services, and asks the model to answer from available tool context. Supported read-only tools currently include `get_customer_purchase_history`, `get_purchase_count_by_amount_threshold`, `get_purchase_history_by_date_range`, and `get_refund_policy`. If the model returns malformed pseudo-tool text instead of a real tool call, the backend logs `model.invalid_tool_output` and ignores that text as invalid model output. If the model does not request a supported tool, deterministic backend fallback routing executes the narrowest supported account or policy tool and skips tools for off-domain messages. The graph returns compact `conversation_state` so follow-up policy questions such as "those purchases" can resolve from `selected_purchase_type`, and explicit product follow-ups such as "what about the Developer Toolkit?" can escape the narrowed selected set and resolve through exact, normalized, partial, fuzzy, SKU, or order-number matching against the active customer's full purchase rows. Named product references must resolve to an actual purchase before the graph may answer product-specific policy questions. If no purchase match is found, the graph must not infer purchase type from the product name, must not call `get_refund_policy`, and must return a concise clarification asking for product name, order number, SKU, or purchase date. Scoped follow-ups that use "one", "that one", "those", "most recent one", or "latest one" resolve inside `selected_purchase_ids` first when that selected set exists. The graph falls back to the global most recent purchase only when no selected set exists. The graph also resolves `page_context` for purchase detail pages into a compact current-page reference containing only purchase id, product name, sku, order number, and purchase type. That current-page reference can ground "this item" policy questions without sending full page content to the model. Account-fact responses are blocked unless an authoritative tool result exists; the backend returns a safe assistant response instead of allowing a factual hallucination. Refund policy explanations are allowed only from the backend policy catalog returned by `get_refund_policy`; account-specific refund eligibility evaluation and refund workflow mutation remain blocked for later phases. Money remains stored and compared in cents; dollar-denominated user input is converted to cents at the chat boundary, and tool payloads may include derived dollar display strings for model explanation. Date filters resolve in the customer timezone before querying, use Sunday-through-Saturday business weeks for relative week phrases, convert inclusive local dates to half-open UTC timestamp ranges for purchase filtering, and include derived date display strings plus the resolved local date_range in tool output. If no customer context is available for account-specific purchase facts, the assistant asks the user to load a mock customer. If OpenAI is unavailable or `OPENAI_API_KEY` is missing, the endpoint returns a successful chat envelope with an assistant-level unavailable message. The model is instructed to return plain standard text without Markdown formatting. The model should keep the conversation grounded in the customer's account, account history, purchases, orders, account activity, refund policy, and refund flows. Unrelated topics should receive a brief graceful redirect back to supported account topics. The backend emits sequential console-visible trace log events for route receipt, graph start, model request packages, tool-call selections, invalid model output, optional tool execution or tool skipping, blocked response decisions, tool results, final model response generation, and route response return. Each trace event includes a step number, source file, source line, message, and structured data payload. These logs expose the observable orchestration path and tool usage; they do not expose private model hidden reasoning. The endpoint must not inspect purchase data outside backend services, evaluate account-specific refund eligibility, capture voice input, persist conversation logs, or mutate business state.
 
 ## GET /api/users/mock
 

@@ -105,7 +105,33 @@ Tools should not send database-derived refund deadlines. PostgreSQL triggers com
 
 The current frontend help panel includes temporary manual `Prep Refund` and `Issue Refund` commands that call backend refund workflow endpoints through same-origin frontend proxy routes. These controls exist to validate backend workflow state and frontend lifecycle displays before the agent layer is active. Future refund tools should replace that manual path rather than duplicate it. The intended long-term flow is for the agent to call deterministic backend tools to initiate approved refund preparation and issuance, while purchase detail pages continue to render the resulting backend state.
 
-The current `POST /api/chat` endpoint now runs the first read-only AI tool surface for purchase-history intelligence. The LangGraph workflow may call `get_customer_purchase_history`, `get_purchase_count_by_amount_threshold`, and `get_purchase_history_by_date_range` through backend application services and return model-generated plain-text answers about account, purchase, order, account-activity, and refund-flow topics. If the model requests no supported tool, the backend should execute `get_purchase_count_by_amount_threshold` for deterministic amount-threshold purchase questions, execute `get_purchase_history_by_date_range` for deterministic date-range purchase questions, execute `get_customer_purchase_history` for other deterministic account-domain fallback intents, and skip account tools for unrelated customer messages. If the model requests the broad `get_customer_purchase_history` tool for a resolvable date-bounded purchase question, the backend should override that selection and execute `get_purchase_history_by_date_range` instead. Broad purchase history is the fallback, not the default, when a narrower deterministic tool applies. Account-fact responses must be blocked unless an authoritative tool result exists. Malformed pseudo-tool text from the model is invalid output and must not be treated as reasoning or a valid tool call. The endpoint must not return Markdown-formatted assistant content, evaluate refund policy, capture voice input, persist conversation logs, or mutate business state. Backend chat logs should include sequential trace events for the observable model/tool orchestration path, including the model request package, requested tool calls, invalid model output, backend-enforced tool execution inputs, skipped tool decisions, blocked response decisions, tool results, and final generated response.
+The current `POST /api/chat` endpoint runs the read-only AI tool surface for purchase intelligence and refund policy lookup. The LangGraph workflow may call `get_customer_purchase_history`, `get_purchase_count_by_amount_threshold`, `get_purchase_history_by_date_range`, and `get_refund_policy` through backend services and return model-generated plain-text answers about account, purchase, order, account-activity, refund-policy, and refund-flow topics. If the model requests no supported tool, the backend should execute the narrowest deterministic tool for supported account or policy questions and skip account tools for unrelated customer messages. If the model requests broad purchase history for a resolvable date-bounded or policy question, the backend should override that selection and execute the narrower deterministic tool instead. Broad purchase history is the fallback, not the default, when a narrower deterministic tool applies. The endpoint accepts compact page context for the current surface and returns compact conversation state for follow-up routing, currently selected purchase type, product, purchase id, selected purchase ids, policy scope, date range, and current page reference. Page context may identify the all-purchases surface or one purchase-detail surface by purchase id only. The backend may resolve that id to purchase id, product name, sku, order number, and purchase type for model grounding, but full rendered page content must not be sent to the model. That state may narrow scoped policy follow-ups such as "those purchases" and "most recent one" inside the selected purchase id set. Explicit product-name follow-ups such as "Developer Toolkit" must escape that narrowed selected set, resolve with exact, normalized, partial, fuzzy, SKU, or order-number matching over the active customer's full backend purchase rows, and use the matched purchase type before policy lookup. Named product references must resolve to an actual purchase before product-specific policy lookup. If no match is found, the backend must not infer purchase type from the product name, must not call `get_refund_policy`, and must return a concise clarification asking for product name, order number, SKU, or purchase date. Follow-ups using "one", "that one", "those", "most recent one", or "latest one" must resolve inside the selected purchase id set first when it exists. The backend should use the global most recent purchase only when no selected set exists. Account-fact responses must be blocked unless an authoritative tool result exists. Refund policy explanations must use the deterministic policy catalog; account-specific refund eligibility evaluation remains blocked until Phase 3, and refund workflow mutation remains blocked until Phase 4. Malformed pseudo-tool text from the model is invalid output and must not be treated as reasoning or a valid tool call. The endpoint must not return Markdown-formatted assistant content, capture voice input, persist conversation logs, or mutate business state. Backend chat logs should include sequential trace events for the observable model/tool orchestration path, including the model request package, requested tool calls, invalid model output, backend-enforced tool execution inputs, skipped tool decisions, blocked response decisions, tool results, and final generated response.
+
+Tool
+get_refund_policy
+
+Purpose
+Retrieve deterministic RefundsAI refund policy sections scoped to the customer's policy question.
+
+Roles
+Customer
+AI Assistant
+
+Inputs
+scope, one of `general`, `product_type`, `funds_release`, or `administrative_review`
+purchase_type, optional one of `digital`, `physical`, or `subscription`
+
+Outputs
+scope, purchase_type, effective_date, sections, and source.
+
+Behavior
+Read Only. General policy questions return all product-type rules plus shared processing, administrative-review, and update sections. Product-specific questions return only the relevant product-type policy. Funds-release questions return refund processing policy and any relevant product-specific prerequisite when a product type is named. Administrative-review questions return review policy and any relevant product-specific policy when a product type is named. This tool does not inspect customer purchases, calculate eligibility, or mutate refund workflow state.
+
+Side Effects
+None
+
+Errors
+None
 
 Tool
 get_customer_purchase_history

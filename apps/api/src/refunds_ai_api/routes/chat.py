@@ -80,6 +80,8 @@ def create_chat_message(
             "message_length": len(message),
             "customer_id": payload.customer_id,
             "purchase_id": payload.purchase_id,
+            "page_context": payload.page_context,
+            "conversation_state": payload.conversation_state,
         },
     )
 
@@ -87,12 +89,15 @@ def create_chat_message(
         message=message,
         customer_id=payload.customer_id,
         purchase_id=payload.purchase_id,
+        page_context=payload.page_context,
+        conversation_state=payload.conversation_state,
         trace_step_start=trace_state["trace_step"],
     )
     chat_response = ChatResponseRead(
         message={"role": "assistant", "content": ai_response.content},
         model=settings.openai_model,
         graph_ready=ai_response.graph_ready,
+        conversation_state=ai_response.conversation_state,
     )
 
     log_trace_step(

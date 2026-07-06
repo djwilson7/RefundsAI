@@ -316,9 +316,9 @@ Build the customer-facing experience on top of the backend API contracts from v0
 
 ## Objective
 
-Implement the AI agent layer incrementally, starting with basic question understanding and read-only purchase-history interpretation before moving into policy lookup, account-specific eligibility evaluation, and controlled refund workflow execution.
+Implement the AI agent layer incrementally and complete the technical exercise scope through read-only purchase intelligence plus deterministic refund policy lookup. Account-specific eligibility evaluation and controlled refund workflow execution remain documented future phases, but they are not required for the v0.5.0 milestone.
 
-The agent will use `gpt-5.4-mini` as the planned model of choice when OpenAI integration begins. The model should first prove reliable on data retrieval, aggregation, and explanation tasks before it is allowed to participate in more complex refund-policy behavior.
+The agent uses `gpt-5.4-mini` for the current OpenAI integration. The completed milestone proves the model can retrieve account facts, call deterministic tools, preserve compact conversation context, and explain backend-owned refund policy without evaluating account-specific eligibility or mutating refund workflows.
 
 ### Planned Deliverables
 
@@ -334,11 +334,17 @@ The agent will use `gpt-5.4-mini` as the planned model of choice when OpenAI int
 
 Example customer question: "What is the refund policy for my digital products?"
 
-* [ ] Read-only refund policy lookup tools backed by deterministic backend policy sources.
-* [ ] Product-type-aware policy explanation flow for digital, physical, and subscription purchases.
-* [ ] Agent responses for policy windows, policy requirements, exclusions, and next-step guidance without evaluating a specific purchase as refundable.
-* [ ] Structured logs for policy lookup, product-type scope, policy source selection, and final policy response.
-* [ ] Backend tests confirming the agent does not invent or override refund policy.
+* [x] Read-only refund policy lookup tools backed by deterministic backend policy sources.
+* [x] Product-type-aware policy explanation flow for digital, physical, and subscription purchases.
+* [x] Agent responses for policy windows, policy requirements, exclusions, and next-step guidance without evaluating a specific purchase as refundable.
+* [x] Structured logs for policy lookup, product-type scope, policy source selection, and final policy response.
+* [x] Backend tests confirming the agent does not invent or override refund policy.
+* [x] Compact conversation state for selected purchase type, selected product, selected purchase id, selected policy scope, and selected date range.
+* [x] Selected purchase set precedence for pronoun and latest-item follow-ups before global most-recent fallback.
+* [x] Compact current-page context for all-purchases and purchase-detail chat grounding without sending full page content.
+* [x] Fail-closed product entity resolution before product-specific policy lookup.
+* [x] Product-name resolver for policy follow-ups using exact, partial, and fuzzy matching against backend purchase rows.
+* [x] Explicit product-name follow-ups can escape narrowed selected sets and re-resolve against full purchase history.
 
 #### Phase 3: Eligibility Evaluation
 
@@ -363,11 +369,11 @@ Example customer question: "Start a refund for the eligible one."
 ### Validation
 
 * [x] Agent accurately answers read-only purchase-history questions from backend data.
-* [ ] Agent correctly explains refund policy without evaluating account-specific eligibility.
-* [ ] Agent correctly explains backend-evaluated refund eligibility without mutating state.
-* [ ] Agent never performs mutating refund actions without explicit user confirmation.
+* [x] Agent correctly explains refund policy without evaluating account-specific eligibility.
+* [x] Agent resolves phase-two policy follow-ups from compact conversation state without replaying the full transcript.
+* [x] Agent resolves purchase-detail page policy follow-ups from current page purchase id without evaluating eligibility.
 * [x] LangGraph nodes call backend services through stable contracts.
-* [ ] Structured logs capture intent, tool execution, aggregate calculations, policy lookup, eligibility interpretation, confirmation gates, and final responses.
+* [x] Structured logs capture intent, tool execution, aggregate calculations, policy lookup, blocked future-phase requests, and final responses.
 
 ---
 

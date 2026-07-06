@@ -51,6 +51,21 @@ type ChatMessage = Readonly<{
   content: string;
 }>;
 
+type ConversationState = Readonly<{
+  selected_purchase_type?: string | null;
+  selected_product?: string | null;
+  selected_purchase_id?: string | null;
+  selected_purchase_ids?: string[];
+  selected_policy_scope?: string | null;
+  selected_date_range?: Record<string, string> | null;
+  current_page?: Record<string, unknown> | null;
+}>;
+
+type PageContext = Readonly<{
+  surface: "purchase_history" | "purchase_detail";
+  purchase_id: string | null;
+}>;
+
 const ApplicationHelpContext =
   createContext<ApplicationHelpContextValue | null>(null);
 const refundWorkflowUpdatedEvent = "refunds-ai:refund-workflow-updated";
@@ -67,6 +82,8 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] =
     useState<ChatMessage[]>(initialChatMessages);
+  const [conversationState, setConversationState] =
+    useState<ConversationState>({});
   const [chatState, setChatState] = useState<"idle" | "sending" | "error">(
     "idle",
   );
@@ -246,10 +263,12 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     setChatMessages((messages) => [...messages, userMessage]);
 
     try {
-      const assistantMessage = await sendChatMessage(
+      const chatResponse = await sendChatMessage(
         message,
         purchaseId,
+        buildPageContext(pathname, purchaseId),
         getCustomerIdFromCurrentUrl() ?? loadSelectedMockCustomerId(),
+        conversationState,
       );
 
       setChatMessages((messages) => [
@@ -257,9 +276,10 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
-          content: assistantMessage,
+          content: chatResponse.message,
         },
       ]);
+      setConversationState(chatResponse.conversationState);
       setChatState("idle");
     } catch {
       setChatMessages((messages) => [
@@ -449,7 +469,9 @@ async function issueRefund(purchaseId: string) {
 async function sendChatMessage(
   message: string,
   purchaseId: string | null,
+  pageContext: PageContext,
   customerId: string | null,
+  conversationState: ConversationState,
 ) {
   const response = await fetch("/api/chat", {
     method: "POST",
@@ -460,6 +482,8 @@ async function sendChatMessage(
       message,
       customer_id: customerId,
       purchase_id: purchaseId,
+      page_context: pageContext,
+      conversation_state: conversationState,
     }),
   });
 
@@ -473,6 +497,7 @@ async function sendChatMessage(
       message?: {
         content?: string;
       };
+      conversation_state?: ConversationState;
     } | null;
   };
 
@@ -480,7 +505,24 @@ async function sendChatMessage(
     throw new Error("AI chat response was unsuccessful.");
   }
 
-  return body.data.message.content;
+  return {
+    message: body.data.message.content,
+    conversationState: body.data.conversation_state ?? {},
+  };
+}
+
+function buildPageContext(pathname: string | null, purchaseId: string | null): PageContext {
+  if (pathname?.startsWith("/purchase-details/") && purchaseId) {
+    return {
+      surface: "purchase_detail",
+      purchase_id: purchaseId,
+    };
+  }
+
+  return {
+    surface: "purchase_history",
+    purchase_id: null,
+  };
 }
 
 async function parseRefundWorkflowResponse(response: Response) {

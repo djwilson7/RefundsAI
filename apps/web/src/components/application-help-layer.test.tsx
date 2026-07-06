@@ -135,6 +135,11 @@ describe("ApplicationHelpLayer", () => {
         message: "How many digital purchases have I made?",
         customer_id: "20000000-0000-4000-8000-000000000001",
         purchase_id: null,
+        page_context: {
+          surface: "purchase_history",
+          purchase_id: null,
+        },
+        conversation_state: {},
       }),
     });
     expect(
@@ -143,6 +148,103 @@ describe("ApplicationHelpLayer", () => {
     expect(
       await screen.findByText("The AI workflow infrastructure is connected."),
     ).toBeInTheDocument();
+  });
+
+  it("sends returned conversation state on follow-up chat messages", async () => {
+    mockedPathname = "/user-home";
+    window.history.pushState(
+      {},
+      "",
+      "/user-home?customerId=20000000-0000-4000-8000-000000000001",
+    );
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              message: {
+                content: "You made 2 digital purchases.",
+              },
+              conversation_state: {
+                selected_purchase_type: "digital",
+                selected_product: null,
+                selected_purchase_id: null,
+                selected_policy_scope: null,
+                selected_date_range: null,
+              },
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              message: {
+                content: "Digital products can be refunded within 15 days.",
+              },
+              conversation_state: {
+                selected_purchase_type: "digital",
+                selected_product: null,
+                selected_purchase_id: null,
+                selected_policy_scope: "product_type",
+                selected_date_range: null,
+              },
+            },
+          }),
+      });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      <ApplicationHelpLayer>
+        <main>Purchase summary</main>
+        <HelpTriggerButton />
+      </ApplicationHelpLayer>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open help chat" }));
+    fireEvent.change(screen.getByLabelText("Message the AI assistant"), {
+      target: { value: "Which of my purchases are digital?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("You made 2 digital purchases.");
+
+    fireEvent.change(screen.getByLabelText("Message the AI assistant"), {
+      target: { value: "What is the refund policy for those purchases?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("Digital products can be refunded within 15 days.");
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/chat",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: "What is the refund policy for those purchases?",
+          customer_id: "20000000-0000-4000-8000-000000000001",
+          purchase_id: null,
+          page_context: {
+            surface: "purchase_history",
+            purchase_id: null,
+          },
+          conversation_state: {
+            selected_purchase_type: "digital",
+            selected_product: null,
+            selected_purchase_id: null,
+            selected_policy_scope: null,
+            selected_date_range: null,
+          },
+        }),
+      },
+    );
   });
 
   it("uses selected mock customer context for purchase detail chat messages", async () => {
@@ -208,6 +310,11 @@ describe("ApplicationHelpLayer", () => {
           message: "How many purchases have I made?",
           customer_id: "20000000-0000-4000-8000-000000000002",
           purchase_id: "40000000-0000-4000-8000-000000000001",
+          page_context: {
+            surface: "purchase_detail",
+            purchase_id: "40000000-0000-4000-8000-000000000001",
+          },
+          conversation_state: {},
         }),
       },
     );

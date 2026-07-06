@@ -12,6 +12,7 @@ from refunds_ai_api.services.ai_chat import (
     ACCOUNT_DATA_REQUIRED_RESPONSE,
     CHAT_UNAVAILABLE_RESPONSE,
     CUSTOMER_CONTEXT_REQUIRED_RESPONSE,
+    EMPTY_CONVERSATION_STATE,
     AIChatResult,
     AIChatService,
     ModelToolCall,
@@ -21,6 +22,7 @@ from refunds_ai_api.services.ai_chat import (
     get_purchase_history_by_date_range,
     parse_amount_threshold_query,
     parse_date_range_query,
+    parse_refund_policy_query,
     parse_tool_arguments,
     should_force_purchase_history_tool,
 )
@@ -31,6 +33,7 @@ from refunds_ai_api.services.dates import (
     is_datetime_in_inclusive_date_range,
 )
 from refunds_ai_api.services.money import cents_to_dollars, dollars_to_cents
+from refunds_ai_api.services.refund_policy_catalog import get_refund_policy
 
 CUSTOMER_ID = "20000000-0000-4000-8000-000000000001"
 PURCHASE_ID = "40000000-0000-4000-8000-000000000001"
@@ -134,6 +137,25 @@ class FakeApplicationService:
         raise AssertionError("Refund mutations must not be called by chat graph.")
 
 
+class DeveloperToolkitApplicationService(FakeApplicationService):
+    def list_user_purchases(self, user_id: str) -> list[dict[str, Any]]:
+        purchases = super().list_user_purchases(user_id)
+        return [
+            {
+                "id": "40000000-0000-4000-8000-000000000005",
+                "order_number": "RAI-10005",
+                "purchase_type": "subscription",
+                "product_name": "Developer Toolkit",
+                "sku": "SUB-DEVELOPER-TOOLKIT",
+                "amount_cents": 3999,
+                "purchased_at": datetime(2026, 6, 24, 14, 30, tzinfo=UTC),
+                "status": "subscribed",
+                "details_url": "/api/purchases/40000000-0000-4000-8000-000000000005/details",
+            },
+            *purchases,
+        ]
+
+
 class UnknownToolModelClient:
     def __init__(self) -> None:
         self.calls = 0
@@ -205,6 +227,25 @@ class BroadHistoryForDateRangeModelClient:
         return ModelTurn(content=self.response, tool_calls=[])
 
 
+class ToolCallingModelClient:
+    def __init__(self, tool_call: ModelToolCall, response: str) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.tool_call = tool_call
+        self.response = response
+
+    def generate(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> ModelTurn:
+        self.calls.append({"messages": messages, "tools": tools})
+
+        if len(self.calls) == 1:
+            return ModelTurn(content=None, tool_calls=[self.tool_call])
+
+        return ModelTurn(content=self.response, tool_calls=[])
+
+
 class MalformedPseudoToolModelClient:
     def __init__(self, response: str) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -269,11 +310,14 @@ class StaticChatService:
         message: str,
         customer_id: str | None,
         purchase_id: str | None,
+        page_context: dict[str, Any] | None = None,
+        conversation_state: dict[str, Any] | None = None,
         trace_step_start: int = 1,
     ) -> AIChatResult:
         return AIChatResult(
             content=f"Received {message}",
             graph_ready=True,
+            conversation_state=conversation_state or dict(EMPTY_CONVERSATION_STATE),
             next_trace_step=trace_step_start,
         )
 
@@ -306,6 +350,7 @@ def test_chat_endpoint_returns_graph_response() -> None:
         },
         "model": "gpt-5.4-mini",
         "graph_ready": True,
+        "conversation_state": EMPTY_CONVERSATION_STATE,
     }
     assert body["error"] is None
     assert "timestamp" in body["meta"]
@@ -354,10 +399,12 @@ def test_chat_graph_calls_purchase_history_tool_and_returns_model_response() -> 
         purchase_id=None,
     )
 
-    assert result == AIChatResult(
-        content="You made 2 digital purchases totaling $75.00.",
-        graph_ready=True,
-    )
+    assert result.content == "You made 2 digital purchases totaling $75.00."
+    assert result.graph_ready is True
+    assert result.conversation_state["selected_purchase_ids"] == [
+        PURCHASE_ID,
+        "40000000-0000-4000-8000-000000000002",
+    ]
     assert application_service.purchase_requests == [CUSTOMER_ID]
     assert application_service.refund_workflow_called is False
     assert len(model_client.calls) == 2
@@ -373,6 +420,7 @@ def test_chat_graph_calls_purchase_history_tool_and_returns_model_response() -> 
         "get_customer_purchase_history",
         "get_purchase_count_by_amount_threshold",
         "get_purchase_history_by_date_range",
+        "get_refund_policy",
     ]
     assert tool_schemas[0]["parameters"] == {
         "type": "object",
@@ -385,6 +433,7 @@ def test_chat_graph_calls_purchase_history_tool_and_returns_model_response() -> 
         "end_date",
         "timezone",
     ]
+    assert tool_schemas[3]["parameters"]["required"] == ["scope"]
 
 
 def test_chat_graph_asks_for_customer_context_without_customer_id() -> None:
@@ -466,7 +515,12 @@ def test_chat_graph_forces_purchase_history_tool_when_model_requests_unknown_too
         purchase_id=None,
     )
 
-    assert result == AIChatResult(content="You made 4 purchases.", graph_ready=True)
+    assert result.content == "You made 4 purchases."
+    assert result.graph_ready is True
+    assert result.conversation_state["current_page"] == {
+        "surface": "purchase_history",
+        "purchase": None,
+    }
     assert application_service.purchase_requests == [CUSTOMER_ID]
 
 
@@ -498,7 +552,11 @@ def test_chat_graph_skips_purchase_history_tool_for_off_domain_message(caplog) -
         "system",
         "user",
         "user",
+        "user",
     ]
+    assert model_client.calls[1]["messages"][2]["content"] == (
+        'Current page reference: {"surface": "purchase_history", "purchase": null}'
+    )
     assert not any(
         message["content"].startswith("Read-only account tool result:")
         for message in model_client.calls[1]["messages"]
@@ -731,6 +789,686 @@ def test_chat_graph_forces_date_range_tool_for_date_range_intent(caplog) -> None
     )
 
 
+def test_policy_catalog_general_lookup_returns_all_sections() -> None:
+    result = get_refund_policy(scope="general")
+
+    section_keys = [section["key"] for section in result["sections"]]
+    assert result["effective_date"] == "July 3, 2026"
+    assert result["source"] == "docs/REFUND_POLICY.md"
+    assert section_keys == [
+        "physical",
+        "digital",
+        "subscription",
+        "refund_processing",
+        "administrative_review",
+        "policy_updates",
+    ]
+
+
+def test_policy_catalog_digital_lookup_is_narrow() -> None:
+    result = get_refund_policy(scope="product_type", purchase_type="digital")
+
+    assert [section["key"] for section in result["sections"]] == ["digital"]
+    facts = " ".join(result["sections"][0]["facts"])
+    assert "15 calendar days" in facts
+    assert "must not have been redeemed" in facts
+    assert "30 calendar days" not in facts
+    assert "prorated" not in facts
+
+
+def test_policy_catalog_physical_lookup_is_narrow() -> None:
+    result = get_refund_policy(scope="product_type", purchase_type="physical")
+
+    assert [section["key"] for section in result["sections"]] == ["physical"]
+    facts = " ".join(result["sections"][0]["facts"])
+    assert "30 calendar days" in facts
+    assert "accepted by the carrier" in facts
+    assert "15 calendar days" not in facts
+    assert "prorated" not in facts
+
+
+def test_policy_catalog_subscription_lookup_is_narrow() -> None:
+    result = get_refund_policy(scope="product_type", purchase_type="subscription")
+
+    assert [section["key"] for section in result["sections"]] == ["subscription"]
+    facts = " ".join(result["sections"][0]["facts"])
+    assert "48 hours" in facts
+    assert "prorated" in facts
+    assert "current active billing period" in facts
+    assert "auto-renewal" in facts
+
+
+def test_policy_catalog_funds_release_lookup_returns_processing_context() -> None:
+    result = get_refund_policy(scope="funds_release")
+
+    assert [section["key"] for section in result["sections"]] == ["refund_processing"]
+    facts = " ".join(result["sections"][0]["facts"])
+    assert "3-10 business days" in facts
+
+
+def test_refund_policy_parser_detects_policy_scope_and_product_type() -> None:
+    assert parse_refund_policy_query("What is the refund policy for my digital products?") == {
+        "scope": "product_type",
+        "purchase_type": "digital",
+    }
+    assert parse_refund_policy_query("How long until funds are released?") == {
+        "scope": "funds_release",
+        "purchase_type": None,
+    }
+    assert parse_refund_policy_query("When do funds get released for a physical return?") == {
+        "scope": "funds_release",
+        "purchase_type": "physical",
+    }
+    assert parse_refund_policy_query(
+        "What is the refund policy for those purchases?",
+        conversation_state={"selected_purchase_type": "digital"},
+    ) == {
+        "scope": "product_type",
+        "purchase_type": "digital",
+    }
+
+
+def test_chat_graph_forces_policy_lookup_without_customer_context(caplog) -> None:
+    application_service = FakeApplicationService()
+    model_client = NoToolModelClient("Digital products can be refunded within 15 days.")
+    chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for my digital products?",
+            customer_id=None,
+            purchase_id=None,
+        )
+
+    assert result.content == "Digital products can be refunded within 15 days."
+    assert application_service.purchase_requests == []
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "product_type",
+        "purchase_type": "digital",
+    }
+    final_tool_message = next(
+        message
+        for message in model_client.calls[1]["messages"]
+        if message["content"].startswith("Read-only account tool result:")
+    )
+    assert "get_refund_policy" in final_tool_message["content"]
+    assert "15 calendar days" in final_tool_message["content"]
+    assert "30 calendar days" not in final_tool_message["content"]
+
+
+def test_chat_graph_executes_model_requested_refund_policy_tool(caplog) -> None:
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-policy",
+            name="get_refund_policy",
+            arguments={"scope": "product_type", "purchase_type": "digital"},
+        ),
+        "Digital products can be refunded within 15 days.",
+    )
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for digital products?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "Digital products can be refunded within 15 days."
+    completed_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "tool_call.completed"
+    )
+    assert completed_event["data"]["tool_name"] == "get_refund_policy"
+
+
+def test_chat_graph_overrides_model_refund_policy_arguments(caplog) -> None:
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-policy",
+            name="get_refund_policy",
+            arguments={"scope": "general"},
+        ),
+        "Digital products can be refunded within 15 days.",
+    )
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for digital products?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "Digital products can be refunded within 15 days."
+    overridden_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.overridden"
+    )
+    assert overridden_event["data"]["reason"] == "resolved_policy_context"
+    assert overridden_event["data"]["purchase_type"] == "digital"
+
+
+def test_chat_graph_ignores_invalid_model_refund_policy_arguments(caplog) -> None:
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-policy",
+            name="get_refund_policy",
+            arguments={"scope": "not-a-scope", "purchase_type": "digital"},
+        ),
+        "Refund policy depends on product type.",
+    )
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is your refund policy?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "Refund policy depends on product type."
+    ignored_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.ignored"
+    )
+    assert ignored_event["data"]["tool_name"] == "get_refund_policy"
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"]["scope"] == "general"
+
+
+def test_chat_graph_overrides_broad_history_tool_for_policy_intent(caplog) -> None:
+    model_client = BroadHistoryForDateRangeModelClient(
+        "Digital products can be refunded within 15 days."
+    )
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for digital products?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "Digital products can be refunded within 15 days."
+    overridden_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.overridden"
+    )
+    assert overridden_event["data"] == {
+        "requested_tool_name": "get_customer_purchase_history",
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "product_type",
+        "purchase_type": "digital",
+    }
+
+
+def test_chat_graph_uses_selected_purchase_type_for_policy_follow_up(caplog) -> None:
+    model_client = NoToolModelClient("Digital products can be refunded within 15 days.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for those purchases?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state={"selected_purchase_type": "digital"},
+        )
+
+    assert result.content == "Digital products can be refunded within 15 days."
+    assert result.conversation_state["selected_purchase_type"] == "digital"
+    assert result.conversation_state["selected_policy_scope"] == "product_type"
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "product_type",
+        "purchase_type": "digital",
+    }
+
+
+def test_chat_graph_resolves_product_follow_up_to_policy_type(caplog) -> None:
+    model_client = NoToolModelClient("Physical products can be returned within 30 days.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What about the keyboard?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state={
+                "selected_purchase_type": "digital",
+                "selected_policy_scope": "product_type",
+            },
+        )
+
+    assert result.content == "Physical products can be returned within 30 days."
+    assert result.conversation_state["selected_product"] == "Keyboard"
+    assert result.conversation_state["selected_purchase_id"] == (
+        "40000000-0000-4000-8000-000000000003"
+    )
+    assert result.conversation_state["selected_purchase_type"] == "physical"
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "product_type",
+        "purchase_type": "physical",
+    }
+
+
+def test_chat_graph_resolves_product_name_exact_match(caplog) -> None:
+    model_client = NoToolModelClient("Developer Toolkit follows the subscription refund policy.")
+    chat_service = AIChatService(
+        application_service=DeveloperToolkitApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What about the Developer Toolkit?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state={"selected_policy_scope": "product_type"},
+        )
+
+    assert result.content == "Developer Toolkit follows the subscription refund policy."
+    assert result.conversation_state["selected_product"] == "Developer Toolkit"
+    assert result.conversation_state["selected_purchase_id"] == (
+        "40000000-0000-4000-8000-000000000005"
+    )
+    assert result.conversation_state["selected_purchase_type"] == "subscription"
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"]["purchase_type"] == "subscription"
+
+
+def test_chat_graph_resolves_product_name_partial_match(caplog) -> None:
+    model_client = NoToolModelClient("Developer Toolkit follows the subscription refund policy.")
+    chat_service = AIChatService(
+        application_service=DeveloperToolkitApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for Toolkit?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "Developer Toolkit follows the subscription refund policy."
+    assert result.conversation_state["selected_product"] == "Developer Toolkit"
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"]["purchase_type"] == "subscription"
+
+
+def test_chat_graph_resolves_product_name_fuzzy_match(caplog) -> None:
+    model_client = NoToolModelClient("Developer Toolkit follows the subscription refund policy.")
+    chat_service = AIChatService(
+        application_service=DeveloperToolkitApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for Devloper Toolkt?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "Developer Toolkit follows the subscription refund policy."
+    assert result.conversation_state["selected_product"] == "Developer Toolkit"
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"]["purchase_type"] == "subscription"
+
+
+def test_chat_graph_named_product_follow_up_escapes_selected_purchase_set(caplog) -> None:
+    model_client = NoToolModelClient("Developer Toolkit follows the subscription refund policy.")
+    chat_service = AIChatService(
+        application_service=DeveloperToolkitApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What about the Developer Toolkit?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state={
+                "selected_purchase_type": "digital",
+                "selected_purchase_ids": [
+                    PURCHASE_ID,
+                    "40000000-0000-4000-8000-000000000002",
+                ],
+                "selected_policy_scope": "product_type",
+            },
+        )
+
+    assert result.content == "Developer Toolkit follows the subscription refund policy."
+    assert result.conversation_state["selected_product"] == "Developer Toolkit"
+    assert result.conversation_state["selected_purchase_id"] == (
+        "40000000-0000-4000-8000-000000000005"
+    )
+    assert result.conversation_state["selected_purchase_type"] == "subscription"
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "product_type",
+        "purchase_type": "subscription",
+    }
+
+
+def test_chat_graph_unresolved_product_reference_asks_for_clarification(caplog) -> None:
+    model_client = NoToolModelClient("This response should not be used.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("WARNING", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for Developer Toolkit?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == (
+        "I couldn't find a purchase matching 'Developer Toolkit' in your account history. "
+        "Could you confirm the product name, order number, SKU, or purchase date? "
+        "I can also help with account, purchases, orders, refund policies, "
+        "refund-related questions, and account activity."
+    )
+    assert len(model_client.calls) == 1
+    assert not any(
+        record.event["type"] in {"tool_call.forced", "tool_call.completed"}
+        for record in caplog.records
+        if hasattr(record, "event")
+    )
+
+
+def test_chat_graph_does_not_infer_policy_type_from_unresolved_product_name(caplog) -> None:
+    model_client = NoToolModelClient("This response should not be used.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("WARNING", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for Enterprise Subscription Platform?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+    )
+
+    assert "Enterprise Subscription Platform" in result.content
+    assert result.conversation_state["selected_purchase_type"] is None
+    assert len(model_client.calls) == 1
+    assert not any(
+        record.event["type"] in {"tool_call.forced", "tool_call.completed"}
+        for record in caplog.records
+        if hasattr(record, "event")
+    )
+
+
+def test_chat_graph_resolves_latest_follow_up_inside_selected_set(caplog) -> None:
+    model_client = NoToolModelClient("Digital products can be refunded within 15 days.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for the latest one?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state={
+                "selected_purchase_type": "digital",
+                "selected_purchase_ids": [
+                    PURCHASE_ID,
+                    "40000000-0000-4000-8000-000000000002",
+                ],
+                "selected_policy_scope": "product_type",
+            },
+        )
+
+    assert result.content == "Digital products can be refunded within 15 days."
+    assert result.conversation_state["selected_product"] == "Icon Set"
+    assert result.conversation_state["selected_purchase_id"] == (
+        "40000000-0000-4000-8000-000000000002"
+    )
+    assert result.conversation_state["selected_purchase_type"] == "digital"
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "product_type",
+        "purchase_type": "digital",
+    }
+
+
+def test_chat_graph_uses_global_latest_only_without_selected_set(caplog) -> None:
+    model_client = NoToolModelClient("Subscription policy applies to the latest purchase.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for the latest one?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state={"selected_policy_scope": "product_type"},
+        )
+
+    assert result.content == "Subscription policy applies to the latest purchase."
+    assert result.conversation_state["selected_product"] == "Pro Subscription"
+    assert result.conversation_state["selected_purchase_id"] == (
+        "40000000-0000-4000-8000-000000000004"
+    )
+    assert result.conversation_state["selected_purchase_type"] == "subscription"
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "product_type",
+        "purchase_type": "subscription",
+    }
+
+
+def test_chat_graph_uses_current_detail_page_for_policy_context(caplog) -> None:
+    model_client = NoToolModelClient("Digital products can be refunded within 15 days.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is the refund policy for this item?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=PURCHASE_ID,
+            page_context={
+                "surface": "purchase_detail",
+                "purchase_id": PURCHASE_ID,
+            },
+        )
+
+    assert result.content == "Digital products can be refunded within 15 days."
+    assert result.conversation_state["selected_product"] == "Design Template Pack"
+    assert result.conversation_state["selected_purchase_id"] == PURCHASE_ID
+    assert result.conversation_state["selected_purchase_type"] == "digital"
+    assert result.conversation_state["current_page"] == {
+        "surface": "purchase_detail",
+        "purchase": {
+            "id": PURCHASE_ID,
+            "product_name": "Design Template Pack",
+            "sku": "DIG-TEMPLATE-001",
+            "order_number": "RAI-10001",
+            "purchase_type": "digital",
+        },
+    }
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "product_type",
+        "purchase_type": "digital",
+    }
+    final_page_message = next(
+        message
+        for message in model_client.calls[1]["messages"]
+        if message["content"].startswith("Current page reference:")
+    )
+    assert "Design Template Pack" in final_page_message["content"]
+    assert "DIG-TEMPLATE-001" in final_page_message["content"]
+
+
+def test_chat_graph_routes_general_policy_lookup(caplog) -> None:
+    model_client = NoToolModelClient("Refund policy depends on product type.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="What is your refund policy?",
+            customer_id=None,
+            purchase_id=None,
+        )
+
+    assert result.content == "Refund policy depends on product type."
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "general",
+        "purchase_type": None,
+    }
+
+
+def test_chat_graph_routes_funds_release_policy_lookup(caplog) -> None:
+    model_client = NoToolModelClient("Most refunds are completed within 3-10 business days.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="When do funds get released for a physical return?",
+            customer_id=None,
+            purchase_id=None,
+        )
+
+    assert result.content == "Most refunds are completed within 3-10 business days."
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "funds_release",
+        "purchase_type": "physical",
+    }
+
+
+def test_chat_graph_blocks_eligibility_intent_until_phase_three(caplog) -> None:
+    model_client = NoToolModelClient("This response should not be used.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("WARNING", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="Which of my digital products can be refunded?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == (
+        "I can explain the refund policy, but I cannot evaluate specific purchase "
+        "eligibility yet."
+    )
+    assert len(model_client.calls) == 1
+    warning_events = [
+        record.event["type"]
+        for record in caplog.records
+        if record.levelname == "WARNING" and hasattr(record, "event")
+    ]
+    assert warning_events == ["response.blocked"]
+
+
 def test_chat_graph_overrides_broad_history_tool_for_date_range_intent(caplog) -> None:
     application_service = FakeApplicationService()
     model_client = BroadHistoryForDateRangeModelClient("You made 4 purchases last week.")
@@ -770,6 +1508,141 @@ def test_chat_graph_overrides_broad_history_tool_for_date_range_intent(caplog) -
     )
     assert "get_purchase_history_by_date_range" in final_tool_message["content"]
     assert "get_customer_purchase_history" not in final_tool_message["content"]
+
+
+def test_chat_graph_executes_model_requested_threshold_tool(caplog) -> None:
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-threshold",
+            name="get_purchase_count_by_amount_threshold",
+            arguments={"threshold_cents": 10_000, "comparison": "gte"},
+        ),
+        "You made 1 purchase at or above $100.",
+    )
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="How many purchases did I make at least $100?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "You made 1 purchase at or above $100."
+    completed_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "tool_call.completed"
+    )
+    assert completed_event["data"]["tool_name"] == "get_purchase_count_by_amount_threshold"
+    assert result.conversation_state["selected_purchase_ids"] == [
+        "40000000-0000-4000-8000-000000000003"
+    ]
+
+
+def test_chat_graph_ignores_invalid_model_threshold_arguments(caplog) -> None:
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-threshold",
+            name="get_purchase_count_by_amount_threshold",
+            arguments={"threshold_cents": -1, "comparison": "gte"},
+        ),
+        "You made 4 purchases.",
+    )
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="Summarize my purchases",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "You made 4 purchases."
+    ignored_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.ignored"
+    )
+    assert ignored_event["data"]["tool_name"] == "get_purchase_count_by_amount_threshold"
+
+
+def test_chat_graph_executes_model_requested_date_range_tool(caplog) -> None:
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-date-range",
+            name="get_purchase_history_by_date_range",
+            arguments={
+                "start_date": "2026-06-20",
+                "end_date": "2026-06-22",
+                "timezone": "America/Chicago",
+                "label": "June 20 through June 22, 2026",
+            },
+        ),
+        "You made 3 purchases from June 20 through June 22.",
+    )
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="Show my purchases from June 20 to June 22",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "You made 3 purchases from June 20 through June 22."
+    completed_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "tool_call.completed"
+    )
+    assert completed_event["data"]["tool_name"] == "get_purchase_history_by_date_range"
+    assert result.conversation_state["selected_date_range"]["label"] == (
+        "June 20 through June 22, 2026"
+    )
+
+
+def test_chat_graph_ignores_invalid_model_date_range_arguments(caplog) -> None:
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-date-range",
+            name="get_purchase_history_by_date_range",
+            arguments={
+                "start_date": "not-a-date",
+                "end_date": "2026-06-22",
+                "timezone": "America/Chicago",
+            },
+        ),
+        "You made 4 purchases.",
+    )
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="Summarize my purchases",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.content == "You made 4 purchases."
+    ignored_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.ignored"
+    )
+    assert ignored_event["data"]["tool_name"] == "get_purchase_history_by_date_range"
 
 
 def test_chat_graph_blocks_account_fact_answer_without_tool_result(caplog) -> None:
@@ -817,7 +1690,12 @@ def test_chat_graph_returns_graceful_response_when_final_model_call_fails(caplog
             purchase_id=None,
         )
 
-    assert result == AIChatResult(content=CHAT_UNAVAILABLE_RESPONSE, graph_ready=True)
+    assert result.content == CHAT_UNAVAILABLE_RESPONSE
+    assert result.graph_ready is True
+    assert result.conversation_state["current_page"] == {
+        "surface": "purchase_history",
+        "purchase": None,
+    }
     assert caplog.records[0].event == {
         "type": "model.failure",
         "reason": "RuntimeError",
@@ -942,10 +1820,13 @@ def test_chat_endpoint_emits_structured_route_log_events(caplog) -> None:
         "message_length": len("Show my purchases"),
         "customer_id": CUSTOMER_ID,
         "purchase_id": PURCHASE_ID,
+        "page_context": None,
+        "conversation_state": None,
     }
     assert events[0]["file"].endswith(("routes\\chat.py", "routes/chat.py"))
     assert events[0]["line"] > 0
     assert events[1]["data"]["response"]["message"]["content"] == "Received Show my purchases"
+    assert events[1]["data"]["response"]["conversation_state"] == EMPTY_CONVERSATION_STATE
 
 
 def test_chat_graph_emits_structured_graph_tool_and_response_log_events(caplog) -> None:
