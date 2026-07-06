@@ -34,7 +34,7 @@ def parse_refund_workflow_mutation_intent(message: str) -> str | None:
         r"\bprepare\s+(?:the\s+|a\s+|my\s+)?refund\b",
         r"\bfile\s+(?:the\s+|a\s+|my\s+)?refund\b",
         r"\brequest\s+(?:the\s+|a\s+|my\s+)?refund\b",
-        r"^\s*refund\s+(?:it|this|that|me|my\s+card|my\s+payment)\b",
+        r"^\s*refund\s+(?:it|this|that|them|those|these|me|my\s+card|my\s+payment)\b",
         r"\bgo\s+ahead\s+and\s+refund\b",
         r"\bmake\s+the\s+refund\b",
         r"\bcancel\s+and\s+refund\b",

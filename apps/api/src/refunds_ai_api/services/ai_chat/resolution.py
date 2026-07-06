@@ -370,13 +370,24 @@ def is_named_product_reference(candidate: str) -> bool:
     if normalized_candidate in {
         "that",
         "that one",
+        "that product",
+        "that type of product",
         "those",
+        "those products",
         "those purchases",
+        "those types of products",
+        "them",
+        "these",
+        "these products",
+        "these purchases",
+        "these types of products",
+        "they",
         "this",
         "this item",
         "this product",
         "this purchase",
         "this order",
+        "this type of product",
         "it",
         "its",
         "one",
@@ -404,10 +415,23 @@ def is_named_product_reference(candidate: str) -> bool:
         "highest priced",
     }:
         return False
+    if is_demonstrative_product_reference(normalized_candidate):
+        return False
     if is_generic_purchase_type_reference(normalized_candidate):
         return False
 
     return True
+
+
+def is_demonstrative_product_reference(normalized_candidate: str) -> bool:
+    """Return whether text is only a demonstrative product/group reference."""
+    return bool(
+        re.fullmatch(
+            r"(?:this|that|these|those|them|they)(?:\s+types?\s+of)?"
+            r"(?:\s+(?:product|products|purchase|purchases))?",
+            normalized_candidate,
+        )
+    )
 
 
 def is_generic_purchase_type_reference(normalized_candidate: str) -> bool:

@@ -123,3 +123,19 @@ Physical returns include one additional detail-page command: `Given to Carrier`.
 Tradeoff:
 
 The manual buttons are useful for integration testing and frontend iteration, but they are not the final product interaction model. Once the agent can invoke refund tools directly, the explicit `Prep Refund` and `Issue Refund` buttons should be removed or demoted so refund handling flows through the AI support experience while the detail page continues to render authoritative backend state.
+
+---
+
+## Insight 008 - Deterministic Chat Context Before Model Prose
+
+The AI chat workflow now resolves each user message into a deterministic conversation object and operation before selecting a graph workflow. Product references, active result sets, purchase types, date ranges, amount thresholds, page purchases, active purchases, and full purchase history are treated as separate objects instead of one broad "context" bucket.
+
+Reason:
+
+Follow-up questions like "list them", "what's the first one?", or "what is the policy for these types of products?" are easy for a model to over-broaden if the prompt also contains raw purchase-history tool output. The backend already knows the selected scope, so that scope should be represented explicitly. `conversation_state.active_result_set` remains compact and ID-only, while the final-response request hydrates safe display fields only when that filtered set is the primary answer source.
+
+This keeps routing deterministic, keeps client-carried state small, and makes logs easier to audit. Structured trace output can show both the active result set preview and the raw tool result summary without changing workflow behavior or asking the model to infer the intended scope.
+
+Tradeoff:
+
+The workflow has more small resolver modules and trace summaries, but the responsibility boundaries are clearer: backend code owns scope resolution, tools own authoritative data retrieval, and the model owns customer-facing wording from the provided source.

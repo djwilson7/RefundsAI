@@ -6,6 +6,8 @@
 
 Our goal is to provide a fair and transparent refund process for all purchases. Refund eligibility is determined by the type of product purchased and the conditions outlined below.
 
+RefundsAI support surfaces, including the AI chat assistant, should use this policy as the source of truth for customer-facing refund policy explanations. When a customer asks about a scoped set of purchases, the explanation should stay within that product type or active result-set scope instead of broadening to unrelated purchase categories.
+
 ---
 
 # Physical Products

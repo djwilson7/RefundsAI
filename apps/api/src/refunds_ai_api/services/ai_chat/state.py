@@ -18,6 +18,9 @@ EMPTY_CONVERSATION_STATE = {
     "selected_refund_context": None,
     "active_refund_context": None,
     "current_page": None,
+    "active_workflow": None,
+    "active_result_set": None,
+    "active_purchase": None,
 }
 
 def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]:
@@ -67,6 +70,9 @@ def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]
     active_refund_context = normalize_active_refund_context(
         state.get("active_refund_context")
     )
+    active_workflow = normalize_active_workflow(state.get("active_workflow"))
+    active_result_set = normalize_active_result_set(state.get("active_result_set"))
+    active_purchase = normalize_active_purchase(state.get("active_purchase"))
 
     return {
         **EMPTY_CONVERSATION_STATE,
@@ -95,6 +101,9 @@ def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]
         "current_page": state.get("current_page")
         if isinstance(state.get("current_page"), dict)
         else None,
+        "active_workflow": active_workflow,
+        "active_result_set": active_result_set,
+        "active_purchase": active_purchase,
     }
 
 
@@ -136,6 +145,85 @@ def normalize_active_refund_context(value: Any) -> dict[str, Any] | None:
         "reason_codes": [
             reason_code for reason_code in reason_codes if isinstance(reason_code, str)
         ],
+    }
+
+
+def normalize_active_workflow(value: Any) -> dict[str, Any] | None:
+    """Return a validated active deterministic workflow context."""
+    if not isinstance(value, dict):
+        return None
+    kind = value.get("kind")
+    if kind not in {"account_fact", "refund_policy", "refund_eligibility"}:
+        return None
+    object_kind = value.get("object_kind")
+    object_label = value.get("object_label")
+    operation = value.get("operation")
+    last_user_message = value.get("last_user_message")
+    last_tool_name = value.get("last_tool_name")
+    last_tool_result_summary = value.get("last_tool_result_summary")
+    return {
+        "kind": kind,
+        "object_kind": object_kind if isinstance(object_kind, str) else None,
+        "object_label": object_label if isinstance(object_label, str) else None,
+        "operation": operation if isinstance(operation, str) else None,
+        "last_user_message": last_user_message
+        if isinstance(last_user_message, str)
+        else None,
+        "last_tool_name": last_tool_name if isinstance(last_tool_name, str) else None,
+        "last_tool_result_summary": last_tool_result_summary
+        if isinstance(last_tool_result_summary, dict)
+        else {},
+    }
+
+
+def normalize_active_result_set(value: Any) -> dict[str, Any] | None:
+    """Return a validated active result-set context for follow-up routing."""
+    if not isinstance(value, dict):
+        return None
+    result_type = value.get("type")
+    if result_type not in {
+        "purchase_history",
+        "date_range",
+        "threshold",
+        "subscriptions",
+    }:
+        return None
+    purchase_ids = value.get("purchase_ids")
+    if not isinstance(purchase_ids, list):
+        purchase_ids = []
+    sort = value.get("sort")
+    label = value.get("label")
+    return {
+        "type": result_type,
+        "purchase_ids": [
+            str(purchase_id)
+            for purchase_id in purchase_ids
+            if isinstance(purchase_id, str)
+        ],
+        "sort": sort
+        if sort in {"purchase_date_desc", "purchase_date_asc"}
+        else None,
+        "label": label if isinstance(label, str) and label.strip() else None,
+    }
+
+
+def normalize_active_purchase(value: Any) -> dict[str, Any] | None:
+    """Return a validated active single-purchase context."""
+    if not isinstance(value, dict):
+        return None
+    purchase_id = value.get("purchase_id")
+    product_name = value.get("product_name")
+    purchase_type = value.get("purchase_type")
+    if not isinstance(purchase_id, str) or not purchase_id:
+        return None
+    if not isinstance(product_name, str) or not product_name:
+        return None
+    if purchase_type not in {"physical", "digital", "subscription"}:
+        return None
+    return {
+        "purchase_id": purchase_id,
+        "product_name": product_name,
+        "purchase_type": purchase_type,
     }
 
 

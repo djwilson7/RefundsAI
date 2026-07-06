@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from refunds_ai_api.services.money import format_cents
+
 from .logging import short_id, summarize_tool_results_for_context
 from .state import normalize_conversation_state
 
@@ -30,12 +32,14 @@ def build_compact_model_context_message(
     *,
     tool_results: list[dict[str, Any]] | None = None,
     page_reference: dict[str, Any] | None = None,
+    application_service: Any | None = None,
 ) -> dict[str, str] | None:
     """Return a small model-visible context message for follow-up grounding."""
     payload = compact_model_context_payload(
         state,
         tool_results=tool_results,
         page_reference=page_reference,
+        application_service=application_service,
     )
     if not payload:
         return None
@@ -54,6 +58,7 @@ def compact_model_context_payload(
     *,
     tool_results: list[dict[str, Any]] | None = None,
     page_reference: dict[str, Any] | None = None,
+    application_service: Any | None = None,
 ) -> dict[str, Any]:
     """Return only model-relevant state, without transcript or page payloads."""
     conversation_state = normalize_conversation_state(state.get("conversation_state"))
@@ -129,6 +134,15 @@ def compact_model_context_payload(
     if compact_state:
         payload["conversation_state"] = compact_state
 
+    response_context = build_deterministic_response_context(
+        state,
+        conversation_state=conversation_state,
+        tool_results=tool_results,
+        application_service=application_service,
+    )
+    if response_context is not None:
+        payload["response_context"] = response_context
+
     resolved_purchase = state.get("resolved_context_purchase")
     if isinstance(resolved_purchase, dict):
         payload["resolved_purchase"] = {
@@ -151,3 +165,134 @@ def compact_model_context_payload(
         payload["blocked_intent"] = blocked_intent
 
     return payload
+
+
+def build_deterministic_response_context(
+    state: dict[str, Any],
+    *,
+    conversation_state: dict[str, Any],
+    tool_results: list[dict[str, Any]] | None,
+    application_service: Any | None,
+) -> dict[str, Any] | None:
+    """Return deterministic answer context that should outrank raw tool results."""
+    active_result_set = conversation_state.get("active_result_set")
+    if not isinstance(active_result_set, dict):
+        return None
+
+    purchase_ids = [
+        purchase_id
+        for purchase_id in active_result_set.get("purchase_ids", [])
+        if isinstance(purchase_id, str)
+    ]
+    if not purchase_ids:
+        return None
+
+    primary_tool_result = primary_refund_tool_result(tool_results)
+    items = hydrate_active_result_set_items(
+        purchase_ids,
+        tool_results=tool_results,
+        application_service=(
+            application_service
+            if state.get("workflow_classification_reason") == "active_result_set_follow_up"
+            else None
+        ),
+        customer_id=state.get("customer_id"),
+    )
+    label = active_result_set.get("label")
+    response_context = {
+        "primary_answer_source": "active_result_set",
+        "answer_scope": label,
+        "active_result_set": {
+            "type": active_result_set.get("type"),
+            "label": label,
+            "count": len(purchase_ids),
+            "items": items,
+            "filters": active_result_set.get("filters"),
+            "selector": active_result_set.get("selector"),
+        },
+        "raw_tool_results": summarize_tool_results_for_context(
+            tool_results if isinstance(tool_results, list) else []
+        ),
+    }
+    if primary_tool_result is not None:
+        response_context["primary_answer_source"] = primary_tool_result["source"]
+        response_context[primary_tool_result["source"]] = primary_tool_result["result"]
+    return response_context
+
+
+def primary_refund_tool_result(
+    tool_results: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Return refund tool output that should outrank active result-set context."""
+    for tool_result in reversed(tool_results or []):
+        if not isinstance(tool_result, dict):
+            continue
+        name = tool_result.get("name")
+        if name == "get_refund_eligibility":
+            return {
+                "source": "refund_eligibility_result",
+                "result": tool_result.get("result"),
+            }
+        if name == "get_refund_policy":
+            return {
+                "source": "refund_policy_result",
+                "result": tool_result.get("result"),
+            }
+    return None
+
+
+def hydrate_active_result_set_items(
+    purchase_ids: list[str],
+    *,
+    tool_results: list[dict[str, Any]] | None,
+    application_service: Any | None,
+    customer_id: str | None,
+) -> list[dict[str, Any]]:
+    """Hydrate active result-set ids from latest tool rows, falling back to service data."""
+    purchases_by_id: dict[str, dict[str, Any]] = {}
+    for tool_result in reversed(tool_results or []):
+        result = tool_result.get("result") if isinstance(tool_result, dict) else None
+        if not isinstance(result, dict):
+            continue
+        purchases = result.get("purchases")
+        if not isinstance(purchases, list):
+            continue
+        for purchase in purchases:
+            if not isinstance(purchase, dict):
+                continue
+            purchase_id = purchase.get("id")
+            if isinstance(purchase_id, str) and purchase_id not in purchases_by_id:
+                purchases_by_id[purchase_id] = purchase
+
+    missing_ids = [
+        purchase_id for purchase_id in purchase_ids if purchase_id not in purchases_by_id
+    ]
+    if missing_ids and application_service is not None and isinstance(customer_id, str):
+        for purchase in application_service.list_user_purchases(customer_id):
+            purchase_id = purchase.get("id")
+            if isinstance(purchase_id, str) and purchase_id in missing_ids:
+                purchases_by_id[purchase_id] = purchase
+
+    return [
+        compact_purchase_for_response_context(purchases_by_id[purchase_id])
+        for purchase_id in purchase_ids
+        if purchase_id in purchases_by_id
+    ]
+
+
+def compact_purchase_for_response_context(purchase: dict[str, Any]) -> dict[str, Any]:
+    """Return customer-safe purchase fields for active result-set answers."""
+    amount_cents = purchase.get("amount_cents")
+    item = {
+        "id": purchase.get("id"),
+        "order_number": purchase.get("order_number"),
+        "product_name": purchase.get("product_name"),
+        "purchase_type": purchase.get("purchase_type"),
+        "status": purchase.get("status"),
+        "purchased_at": purchase.get("purchased_at"),
+    }
+    if purchase.get("amount_display"):
+        item["amount_display"] = purchase.get("amount_display")
+    elif isinstance(amount_cents, int):
+        item["amount_display"] = format_cents(amount_cents)
+    return {key: value for key, value in item.items() if value is not None}

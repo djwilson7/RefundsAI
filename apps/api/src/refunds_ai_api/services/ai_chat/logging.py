@@ -5,10 +5,12 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 from .models import ChatGraphState
+from .trace_formatting import format_trace_detail_block
 
 logger = logging.getLogger("refunds_ai_api.chat")
 console_logger = logging.getLogger("uvicorn.error")
@@ -73,7 +75,18 @@ def format_trace_console_message(event: dict[str, Any]) -> str:
         summary = f"{summary} - {message}"
     if details:
         summary = f"{summary} ({details})"
+    detail_block = structured_trace_detail(event_type, data)
+    if detail_block:
+        summary = f"{summary}\n\n{detail_block}"
     return summary
+
+
+def structured_trace_detail(event_type: str, data: dict[str, Any]) -> str | None:
+    """Return optional structured console detail block for one event."""
+    enabled = os.getenv("AI_CHAT_STRUCTURED_LOGS", "true").casefold()
+    if enabled in {"0", "false", "no", "off"}:
+        return None
+    return format_trace_detail_block(event_type, data)
 
 
 def build_model_context_summary(
@@ -88,13 +101,22 @@ def build_model_context_summary(
         maybe_tool_results = state.get("tool_results")
         effective_tool_results = maybe_tool_results if isinstance(maybe_tool_results, list) else []
 
+    conversation_state = (
+        state.get("conversation_state")
+        if isinstance(state.get("conversation_state"), dict)
+        else {}
+    )
+
     return {
         "conversation_state": summarize_conversation_state(
             state.get("conversation_state")
         ),
         "page_context": page_context_label(state.get("page_context")),
         "page_reference": page_reference_label(page_reference or state.get("page_reference")),
-        "tool_results": summarize_tool_results_for_context(effective_tool_results),
+        "tool_results": summarize_provided_context(
+            conversation_state,
+            effective_tool_results,
+        ),
         "intents": summarize_intents(state),
         "blocked_intent": state.get("blocked_intent"),
     }
@@ -119,6 +141,13 @@ def humanize_event_type(event_type: str) -> str:
         "tool_call.overridden": "Tool overridden",
         "tool_call.requested": "Tool requested",
         "tool_call.skipped": "Tool skipped",
+        "workflow.blocked": "Workflow blocked",
+        "workflow.classified": "Workflow classified",
+        "workflow.completed": "Workflow completed",
+        "workflow.context_resolved": "Workflow context resolved",
+        "workflow.executing": "Workflow executing",
+        "workflow.state_updated": "Workflow state updated",
+        "workflow.tool_overridden": "Workflow tool overridden",
     }
     return labels.get(event_type, event_type.replace("_", " ").replace(".", " ").title())
 
@@ -163,8 +192,24 @@ def trace_console_details(event_type: str, data: dict[str, Any]) -> str:
         "tool_call.forced",
         "tool_call.overridden",
         "tool_call.ignored",
+        "workflow.tool_overridden",
     }:
         return tool_trace_details(event_type, data)
+
+    if event_type.startswith("workflow."):
+        return join_trace_fields(
+            kind=data.get("kind"),
+            reason=data.get("reason"),
+            confidence=data.get("confidence"),
+            object=data.get("object"),
+            object_label=data.get("object_label"),
+            operation=data.get("operation"),
+            tool=data.get("tool_name"),
+            product=data.get("product_reference"),
+            workflow=active_workflow_label(data.get("active_workflow")),
+            result_set=active_result_set_label(data.get("active_result_set")),
+            purchase=active_purchase_label(data.get("active_purchase")),
+        )
 
     if event_type == "tool_call.skipped":
         return join_trace_fields(reason=data.get("reason"))
@@ -264,6 +309,9 @@ def summarize_conversation_state(value: Any) -> str | None:
     date_range = value.get("selected_date_range")
     current_page = value.get("current_page")
     active_refund_context = value.get("active_refund_context")
+    active_workflow = value.get("active_workflow")
+    active_result_set = value.get("active_result_set")
+    active_purchase = value.get("active_purchase")
     return join_trace_fields(
         type=value.get("selected_purchase_type"),
         product=value.get("selected_product"),
@@ -275,6 +323,9 @@ def summarize_conversation_state(value: Any) -> str | None:
         refund_selected=count_items(refund_ids),
         refund_context=value.get("selected_refund_context"),
         active_refund=active_refund_context_label(active_refund_context),
+        workflow=active_workflow_label(active_workflow),
+        result_set=active_result_set_label(active_result_set),
+        active_purchase=active_purchase_label(active_purchase),
         page=page_reference_label(current_page),
     )
 
@@ -297,6 +348,29 @@ def summarize_tool_results_for_context(tool_results: list[dict[str, Any]]) -> st
         return None
     suffix = f"; +{len(tool_results) - 3}" if len(tool_results) > 3 else ""
     return "; ".join(summaries) + suffix
+
+
+def summarize_provided_context(
+    conversation_state: dict[str, Any],
+    tool_results: list[dict[str, Any]],
+) -> str | None:
+    """Return active result-set context before raw tool-result summaries."""
+    raw_summary = summarize_tool_results_for_context(tool_results)
+    active_result_set = conversation_state.get("active_result_set")
+    if not isinstance(active_result_set, dict):
+        return raw_summary
+
+    purchase_ids = active_result_set.get("purchase_ids")
+    count = count_items(purchase_ids) or 0
+    active_summary = f"active_result_set:{count} purchases"
+    label = active_result_set.get("label")
+    if isinstance(label, str) and label:
+        active_summary = f"{active_summary}, label={label}"
+    if count == 0:
+        return raw_summary
+    if raw_summary:
+        return f"{active_summary}; raw={raw_summary}"
+    return active_summary
 
 
 def summarize_intents(state: dict[str, Any]) -> str | None:
@@ -322,6 +396,38 @@ def active_refund_context_label(value: Any) -> str | None:
         purchase=short_id(value.get("purchase_id")),
         stage=value.get("stage"),
         next=value.get("next_action"),
+    )
+
+
+def active_workflow_label(value: Any) -> str | None:
+    """Return a compact active workflow label."""
+    if not isinstance(value, dict):
+        return None
+    return join_trace_fields(
+        kind=value.get("kind"),
+        tool=value.get("last_tool_name"),
+    )
+
+
+def active_result_set_label(value: Any) -> str | None:
+    """Return a compact active result-set label."""
+    if not isinstance(value, dict):
+        return None
+    return join_trace_fields(
+        type=value.get("type"),
+        count=count_items(value.get("purchase_ids")),
+        label=value.get("label"),
+    )
+
+
+def active_purchase_label(value: Any) -> str | None:
+    """Return a compact active purchase label."""
+    if not isinstance(value, dict):
+        return None
+    return join_trace_fields(
+        product=value.get("product_name"),
+        purchase=short_id(value.get("purchase_id")),
+        type=value.get("purchase_type"),
     )
 
 

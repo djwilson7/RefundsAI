@@ -71,6 +71,8 @@ If the model requests broad purchase history for a resolvable date-bounded, poli
 
 Broad purchase history is the fallback when no narrower deterministic tool applies.
 
+The chat workflow resolves each customer message into a deterministic conversation object plus operation before selecting a workflow. Conversation objects include explicit product references, demonstrative references to the active result set, purchase type, date range, amount threshold, page purchase, active purchase, active result set, full purchase history, and unknown. Operations include count, list, ranked selection, policy, eligibility, refund start, explanation, and unknown. The object-operation lookup decides whether the turn is an account fact, refund policy lookup, read-only eligibility lookup, blocked future mutation, or clarification.
+
 ## Conversation and Page Context
 
 The endpoint accepts compact page context for either the all-purchases surface or one purchase-detail surface by purchase id only. Full rendered page content must not be sent to the model.
@@ -87,13 +89,17 @@ The endpoint returns compact conversation state for follow-up routing:
 * `selected_refund_purchase_ids`
 * `selected_refund_context`
 * `active_refund_context`
+* `active_result_set`
+* `active_workflow`
 * `current_page`
 
-The chat graph injects compact model-visible context into both tool-selection and final-response model requests when it is relevant. This context may include selected purchase type, product, purchase id, selected purchase id counts with short ids, policy scope, refund context, active refund context, current purchase-detail reference, summarized tool data, and blocked-action context. It must not include the full prior transcript or full rendered page content.
+The chat graph injects compact model-visible context into both tool-selection and final-response model requests when it is relevant. This context may include selected purchase type, product, purchase id, selected purchase id counts with short ids, active result set label and count, policy scope, refund context, active refund context, current purchase-detail reference, summarized tool data, and blocked-action context. It must not include the full prior transcript or full rendered page content.
 
-Before honoring any model-requested tool, the backend resolves authoritative context in this order: page purchase references, active refund workflow context, explicit product/SKU/order/purchase-id references, selected single purchase, scoped selected purchase set, global purchase history, then clarification. The model may interpret language, but it does not decide which purchase, scope, policy, or workflow target is authoritative.
+Before honoring any model-requested tool, the backend resolves authoritative context in this order: explicit named product references, demonstrative or pronoun references to an active purchase/result set, explicit purchase type, explicit date range, explicit amount threshold, page purchase, active purchase, active result set, full purchase history, then unknown or clarification. The model may interpret language, but it does not decide which purchase, scope, policy, or workflow target is authoritative.
 
-Aggregate and list results become the active purchase scope for follow-up resolution. Examples include purchase-type groups, amount-threshold groups, date ranges, and any other filtered purchase-history result that returns `selected_purchase_ids`. These results also store `selected_scope_label` for customer-safe follow-up phrasing.
+Aggregate and list results become the active purchase scope for follow-up resolution. Examples include purchase-type groups, amount-threshold groups, date ranges, and any other filtered purchase-history result that returns `selected_purchase_ids`. These results also store `selected_scope_label` for customer-safe follow-up phrasing and `active_result_set` as an ID-only state object with `type`, `purchase_ids`, `sort`, and `label`.
+
+When `active_result_set` is the primary final-response answer source, the final-response package hydrates the selected ids into safe display fields already available to the model, such as product name, purchase type, display amount, status, and purchase date. The hydrated item list is model-request context only; it must not be written back into `conversation_state.active_result_set`.
 
 Scoped ranking follow-ups using "one", "that one", "those", "last one", "first one", "latest", "most recent", "newest", "oldest", "earliest", "cheapest", or "most expensive" resolve inside the selected purchase id set first when it exists. "Oldest", "earliest", and "first" rank by the lowest `purchased_at`; "latest", "most recent", "newest", and "last one" rank by the highest `purchased_at`; "cheapest" and "most expensive" rank by `amount_cents`. The backend uses global ranked purchase history only when no selected set exists.
 
@@ -137,6 +143,8 @@ Backend chat logs should include sequential trace events for the observable orch
 * final generated response
 
 Structured application log records should retain full event data for tests and future audit surfaces. Console output should render those events as concise human-readable step summaries and avoid dumping full nested prompt, tool, or response payloads. Console summaries should still show the model-relevant context: compact selected conversation state, current page or resolved page reference, intent flags, tool result summaries provided to the model, and blocked-action reasons.
+
+Final-response console summaries should distinguish raw tool results from active-result-set context. Raw purchase-history results may be summarized as totals and counts, while active-result-set context should show its label/count and, when it is the primary answer source, a capped `items_preview` containing only safe model-visible display fields.
 
 ---
 

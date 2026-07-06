@@ -329,6 +329,8 @@ The agent uses `gpt-5.4-mini` for the current OpenAI integration. The completed 
 * [x] Agent responses for purchase-history summaries, counts, totals, and type-based aggregation.
 * [x] Structured execution logs for intent classification, tool calls, computed aggregates, and final responses.
 * [x] Backend tests for read-only graph-node boundaries and purchase-summary behavior.
+* [x] Focused graph-node modules for validation, tool selection, tool execution, and final response generation.
+* [x] Active result-set response grounding for scoped follow-up list and ranked-selection questions.
 
 #### Phase 2: Policy Lookup
 
@@ -345,6 +347,7 @@ Example customer question: "What is the refund policy for my digital products?"
 * [x] Fail-closed product entity resolution before product-specific policy lookup.
 * [x] Product-name resolver for policy follow-ups using exact, partial, and fuzzy matching against backend purchase rows.
 * [x] Explicit product-name follow-ups can escape narrowed selected sets and re-resolve against full purchase history.
+* [x] Object-operation workflow lookup for policy follow-ups, including demonstrative references to the active result set.
 
 #### Phase 3: Eligibility Evaluation
 
@@ -355,6 +358,7 @@ Example customer question: "Which of my digital products can be refunded?"
 * [x] Agent responses for refundable purchases, refund denials, eligibility reasons, required next actions, and policy context.
 * [x] Structured logs for eligibility tool selection, deterministic eligibility results, policy context, and non-mutating refund guidance.
 * [x] Backend tests confirming the agent does not infer, override, or calculate refund eligibility outside deterministic backend services.
+* [x] Structured readable trace formatting for workflow classification, workflow context, execution decisions, tool results, and final-response model context.
 
 #### Phase 4: Refund Workflow
 
@@ -372,9 +376,10 @@ Example customer question: "Start a refund for the eligible one."
 * [x] Agent correctly explains refund policy without evaluating account-specific eligibility.
 * [x] Agent resolves phase-two policy follow-ups from compact conversation state without replaying the full transcript.
 * [x] Agent resolves purchase-detail page policy follow-ups from current page purchase id without evaluating eligibility.
+* [x] Agent resolves active-result-set policy and eligibility follow-ups without treating demonstrative phrases as literal product names.
 * [x] Agent correctly explains backend-evaluated refund eligibility without mutating refund workflow state.
 * [x] LangGraph nodes call backend services through stable contracts.
-* [x] Structured logs capture intent, tool execution, aggregate calculations, policy lookup, eligibility lookup, blocked future-phase requests, and final responses.
+* [x] Structured logs capture intent, workflow lookup, tool execution, aggregate calculations, policy lookup, eligibility lookup, active-result-set previews, blocked future-phase requests, and final responses.
 
 ---
 

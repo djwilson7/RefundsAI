@@ -49,6 +49,7 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
         state,
         tool_results=tool_results,
         page_reference=state.get("page_reference"),
+        application_service=runtime.application_service,
     )
     if compact_context_message is not None:
         messages.append(compact_context_message)
@@ -64,13 +65,22 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
             }
         )
     if tool_results:
+        raw_tool_result_label = (
+            "Read-only account tool result: Raw trace/debug only. If "
+            "deterministic response context sets primary_answer_source to "
+            "active_result_set, do not broaden your answer to these raw results: "
+        )
+        conversation_state = state.get("conversation_state")
+        if not (
+            isinstance(conversation_state, dict)
+            and isinstance(conversation_state.get("active_result_set"), dict)
+        ):
+            raw_tool_result_label = "Read-only account tool result: "
         messages.append(
             {
                 "role": "user",
-                "content": (
-                    "Read-only account tool result: "
-                    f"{json.dumps(tool_results, default=str)}"
-                ),
+                "content": raw_tool_result_label
+                + f"{json.dumps(tool_results, default=str)}",
             }
         )
     page_reference = state.get("page_reference")
@@ -94,7 +104,11 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
                 "refund flows. Use the tool result when relevant. When the "
                 "backend provides resolved purchase context, use that concrete "
                 "purchase before ranking or selecting from broader purchase "
-                "history. If the customer asks a ranking follow-up without "
+                "history. If deterministic response context says "
+                "primary_answer_source is active_result_set, answer only from "
+                "active_result_set and do not broaden the answer to the full raw "
+                "tool result. Use the active result set label when describing "
+                "that scoped result. If the customer asks a ranking follow-up without "
                 "refund, return, policy, eligibility, approval, or process "
                 "wording, answer only the purchase fact requested and do not "
                 "discuss refund policy. Do not expose backend terms such as "

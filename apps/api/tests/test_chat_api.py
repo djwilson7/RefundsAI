@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -13,6 +14,7 @@ from refunds_ai_api.services.ai_chat import (
     CHAT_UNAVAILABLE_RESPONSE,
     CUSTOMER_CONTEXT_REQUIRED_RESPONSE,
     EMPTY_CONVERSATION_STATE,
+    REFUND_WORKFLOW_NOT_READY_RESPONSE,
     AIChatResult,
     AIChatService,
     ModelToolCall,
@@ -29,6 +31,26 @@ from refunds_ai_api.services.ai_chat import (
     parse_refund_policy_query,
     parse_tool_arguments,
     should_force_purchase_history_tool,
+)
+from refunds_ai_api.services.ai_chat.models import EligibilityResolution
+from refunds_ai_api.services.ai_chat.trace_formatting import (
+    MAX_MESSAGE_PREVIEW_CHARS,
+    MAX_RESPONSE_PREVIEW_CHARS,
+    format_debug_block,
+    format_trace_detail_block,
+    preview_text,
+    summarize_tool_result,
+    summarize_workflow_classification,
+    summarize_workflow_context,
+)
+from refunds_ai_api.services.ai_chat.workflows.classification import (
+    WorkflowKind,
+    classify_workflow,
+)
+from refunds_ai_api.services.ai_chat.workflows.context import resolve_workflow_context
+from refunds_ai_api.services.ai_chat.workflows.execution import (
+    block_invalid_workflow_transition,
+    execute_workflow,
 )
 from refunds_ai_api.services.dates import (
     build_inclusive_date_range,
@@ -263,6 +285,44 @@ class AmbiguousProductApplicationService(DeveloperToolkitApplicationService):
         ]
 
 
+class LastWeekApplicationService(FakeApplicationService):
+    def list_user_purchases(self, user_id: str) -> list[dict[str, Any]]:
+        purchases = super().list_user_purchases(user_id)
+        return [
+            {
+                **purchases[0],
+                "purchased_at": datetime(2026, 7, 1, 14, 30, tzinfo=UTC),
+            },
+            {
+                **purchases[2],
+                "purchased_at": datetime(2026, 7, 3, 14, 30, tzinfo=UTC),
+            },
+            {
+                **purchases[3],
+                "purchased_at": datetime(2026, 6, 20, 14, 30, tzinfo=UTC),
+            },
+        ]
+
+
+class WindowsLicenseApplicationService(FakeApplicationService):
+    def list_user_purchases(self, user_id: str) -> list[dict[str, Any]]:
+        purchases = super().list_user_purchases(user_id)
+        return [
+            {
+                "id": "40000000-0000-4000-8000-000000000007",
+                "order_number": "RAI-10007",
+                "purchase_type": "digital",
+                "product_name": "Windows License",
+                "sku": "DIG-WINDOWS-LICENSE",
+                "amount_cents": 14900,
+                "purchased_at": datetime(2026, 6, 26, 14, 30, tzinfo=UTC),
+                "status": "completed",
+                "details_url": "/api/purchases/40000000-0000-4000-8000-000000000007/details",
+            },
+            *purchases,
+        ]
+
+
 class UnknownToolModelClient:
     def __init__(self) -> None:
         self.calls = 0
@@ -351,6 +411,41 @@ class ToolCallingModelClient:
             return ModelTurn(content=None, tool_calls=[self.tool_call])
 
         return ModelTurn(content=self.response, tool_calls=[])
+
+
+class ActiveResultSetAnswerModelClient:
+    def __init__(self, *, mode: str = "list") -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.mode = mode
+        self.final_response_context: dict[str, Any] | None = None
+
+    def generate(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> ModelTurn:
+        self.calls.append({"messages": messages, "tools": tools})
+
+        if len(self.calls) == 1:
+            return ModelTurn(content=None, tool_calls=[])
+
+        compact_message = next(
+            message
+            for message in messages
+            if message["content"].startswith("Compact conversation context")
+        )
+        payload = json.loads(compact_message["content"].split(": ", 1)[1])
+        response_context = payload["response_context"]
+        self.final_response_context = response_context
+        items = response_context["active_result_set"]["items"]
+        if self.mode == "first":
+            item = items[0]
+            return ModelTurn(content=f"The first one was {item['product_name']}.", tool_calls=[])
+        product_names = ", ".join(item["product_name"] for item in items)
+        return ModelTurn(
+            content=f"{response_context['answer_scope']}: {product_names}.",
+            tool_calls=[],
+        )
 
 
 class LeakyFinalResponseModelClient:
@@ -453,6 +548,405 @@ def build_client(chat_service: Any) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_ai_chat_service] = lambda: chat_service
     return TestClient(app)
+
+
+class WorkflowRuntime:
+    def __init__(self, application_service: Any) -> None:
+        self.application_service = application_service
+        self.model = "gpt-5.4-mini"
+
+
+def test_workflow_classification_uses_deterministic_precedence() -> None:
+    assert (
+        classify_workflow(
+            "Start the refund if this is eligible.",
+            conversation_state={},
+            page_context={},
+        ).kind
+        is WorkflowKind.REFUND_MUTATION
+    )
+    assert (
+        classify_workflow(
+            "Is this refundable and what is the refund policy?",
+            conversation_state={"selected_purchase_id": PURCHASE_ID},
+            page_context={},
+        ).kind
+        is WorkflowKind.REFUND_ELIGIBILITY
+    )
+    assert (
+        classify_workflow(
+            "What is the refund policy for subscriptions?",
+            conversation_state={},
+            page_context={},
+        ).kind
+        is WorkflowKind.REFUND_POLICY
+    )
+    assert (
+        classify_workflow(
+            "How many subscriptions have I paid for?",
+            conversation_state={},
+            page_context={},
+        ).kind
+        is WorkflowKind.ACCOUNT_FACT
+    )
+    follow_up = classify_workflow(
+        "What was the last one?",
+        conversation_state={
+            "active_result_set": {
+                "type": "subscriptions",
+                "purchase_ids": ["purchase-1", "purchase-2"],
+                "sort": "purchase_date_desc",
+                "label": "your subscriptions",
+            }
+        },
+        page_context={},
+    )
+    assert follow_up.kind is WorkflowKind.ACCOUNT_FACT
+    assert follow_up.reason == "active_result_set_follow_up"
+    assert (
+        classify_workflow(
+            "Who plays football tonight?",
+            conversation_state={},
+            page_context={},
+        ).kind
+        is WorkflowKind.OFF_DOMAIN
+    )
+
+
+def test_workflow_context_resolves_page_reference_and_policy_purchase() -> None:
+    runtime = WorkflowRuntime(FakeApplicationService())
+    classification = classify_workflow(
+        "What is the refund policy for this item?",
+        conversation_state={},
+        page_context={"surface": "purchase_detail", "purchase_id": PURCHASE_ID},
+    )
+
+    context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "What is the refund policy for this item?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_detail", "purchase_id": PURCHASE_ID},
+            "conversation_state": {},
+        },
+        classification,
+    )
+
+    assert context.kind is WorkflowKind.REFUND_POLICY
+    assert context.page_reference["purchase"]["id"] == PURCHASE_ID
+    assert context.policy_lookup_query == {
+        "scope": "product_type",
+        "purchase_type": "digital",
+    }
+    assert context.resolved_purchase["product_name"] == "Design Template Pack"
+
+
+def test_workflow_context_blocks_unresolved_product_reference() -> None:
+    runtime = WorkflowRuntime(FakeApplicationService())
+    classification = classify_workflow(
+        "Can I refund the Developer Toolkit?",
+        conversation_state={},
+        page_context={},
+    )
+
+    context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "Can I refund the Developer Toolkit?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": {},
+        },
+        classification,
+    )
+
+    assert context.kind is WorkflowKind.REFUND_ELIGIBILITY
+    assert context.unresolved_product_reference == "Developer Toolkit"
+
+
+def test_workflow_context_resolves_latest_follow_up_from_active_result_set() -> None:
+    runtime = WorkflowRuntime(FakeApplicationService())
+    conversation_state = {
+        "selected_purchase_type": "digital",
+        "selected_purchase_ids": [
+            PURCHASE_ID,
+            "40000000-0000-4000-8000-000000000002",
+        ],
+        "selected_scope_label": "your digital purchases",
+    }
+    classification = classify_workflow(
+        "What was the last one?",
+        conversation_state=conversation_state,
+        page_context={},
+    )
+
+    context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "What was the last one?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": conversation_state,
+        },
+        classification,
+    )
+
+    assert context.kind is WorkflowKind.ACCOUNT_FACT
+    assert context.resolved_context_purchase["id"] == (
+        "40000000-0000-4000-8000-000000000002"
+    )
+    assert context.resolved_context_purchase["product_name"] == "Icon Set"
+
+
+def test_workflow_context_resolves_eligibility_and_policy_from_active_purchase() -> None:
+    runtime = WorkflowRuntime(FakeApplicationService())
+    conversation_state = {
+        "selected_purchase_id": "40000000-0000-4000-8000-000000000003",
+        "selected_product": "Keyboard",
+        "selected_purchase_type": "physical",
+    }
+
+    eligibility_classification = classify_workflow(
+        "Is it eligible?",
+        conversation_state=conversation_state,
+        page_context={},
+    )
+    eligibility_context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "Is it eligible?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": conversation_state,
+        },
+        eligibility_classification,
+    )
+
+    assert eligibility_context.kind is WorkflowKind.REFUND_ELIGIBILITY
+    assert eligibility_context.eligibility_resolution.purchase_ids == [
+        "40000000-0000-4000-8000-000000000003"
+    ]
+    assert eligibility_context.eligibility_resolution.context == "selected_purchase"
+
+    policy_classification = classify_workflow(
+        "What is the refund policy for it?",
+        conversation_state=conversation_state,
+        page_context={},
+    )
+    policy_context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "What is the refund policy for it?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": conversation_state,
+        },
+        policy_classification,
+    )
+
+    assert policy_context.kind is WorkflowKind.REFUND_POLICY
+    assert policy_context.policy_lookup_query == {
+        "scope": "product_type",
+        "purchase_type": "physical",
+    }
+    assert policy_context.resolved_purchase["product_name"] == "Keyboard"
+
+
+def test_workflow_execution_runs_deterministic_tools_by_workflow() -> None:
+    runtime = WorkflowRuntime(FakeApplicationService())
+
+    threshold_context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "How many purchases have I made over $100?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": {},
+            "tool_calls": [],
+        },
+        classify_workflow(
+            "How many purchases have I made over $100?",
+            conversation_state={},
+            page_context={},
+        ),
+    )
+    _state, threshold_results = execute_workflow(
+        runtime,
+        {
+            "message": "How many purchases have I made over $100?",
+            "customer_id": CUSTOMER_ID,
+            "tool_calls": [],
+        },
+        threshold_context,
+    )
+    assert threshold_results[0]["name"] == "get_purchase_count_by_amount_threshold"
+
+    date_context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "Show me purchases from last week.",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": {},
+            "tool_calls": [],
+        },
+        classify_workflow(
+            "Show me purchases from last week.",
+            conversation_state={},
+            page_context={},
+        ),
+    )
+    _state, date_results = execute_workflow(
+        runtime,
+        {
+            "message": "Show me purchases from last week.",
+            "customer_id": CUSTOMER_ID,
+            "tool_calls": [],
+        },
+        date_context,
+    )
+    assert date_results[0]["name"] == "get_purchase_history_by_date_range"
+
+    history_context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "Summarize my purchases.",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": {},
+            "tool_calls": [],
+        },
+        classify_workflow(
+            "Summarize my purchases.",
+            conversation_state={},
+            page_context={},
+        ),
+    )
+    _state, history_results = execute_workflow(
+        runtime,
+        {
+            "message": "Summarize my purchases.",
+            "customer_id": CUSTOMER_ID,
+            "tool_calls": [],
+        },
+        history_context,
+    )
+    assert history_results[0]["name"] == "get_customer_purchase_history"
+
+
+def test_workflow_execution_runs_policy_and_eligibility_tools() -> None:
+    runtime = WorkflowRuntime(FakeApplicationService())
+
+    policy_context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "What is the refund policy for digital products?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": {},
+            "tool_calls": [],
+        },
+        classify_workflow(
+            "What is the refund policy for digital products?",
+            conversation_state={},
+            page_context={},
+        ),
+    )
+    _state, policy_results = execute_workflow(
+        runtime,
+        {
+            "message": "What is the refund policy for digital products?",
+            "customer_id": CUSTOMER_ID,
+            "tool_calls": [],
+        },
+        policy_context,
+    )
+    assert policy_results[0]["name"] == "get_refund_policy"
+    assert policy_results[0]["result"]["purchase_type"] == "digital"
+
+    eligibility_context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "Can I refund this item?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_detail", "purchase_id": PURCHASE_ID},
+            "conversation_state": {},
+            "tool_calls": [],
+        },
+        classify_workflow(
+            "Can I refund this item?",
+            conversation_state={},
+            page_context={"surface": "purchase_detail", "purchase_id": PURCHASE_ID},
+        ),
+    )
+    _state, eligibility_results = execute_workflow(
+        runtime,
+        {
+            "message": "Can I refund this item?",
+            "customer_id": CUSTOMER_ID,
+            "tool_calls": [],
+        },
+        eligibility_context,
+    )
+    assert eligibility_results[0]["name"] == "get_refund_eligibility"
+    assert eligibility_results[0]["result"]["resolved_purchase_ids"] == [PURCHASE_ID]
+
+
+def test_workflow_execution_blocks_mutation_and_skips_off_domain_tools() -> None:
+    runtime = WorkflowRuntime(FakeApplicationService())
+    mutation_classification = classify_workflow(
+        "Issue the refund.",
+        conversation_state={},
+        page_context={},
+    )
+    mutation_context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "Issue the refund.",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": {},
+        },
+        mutation_classification,
+    )
+
+    blocked_state = block_invalid_workflow_transition(
+        runtime,
+        {
+            "message": "Issue the refund.",
+            "customer_id": CUSTOMER_ID,
+            "conversation_state": {},
+        },
+        mutation_context,
+    )
+
+    assert blocked_state["assistant_response"] == REFUND_WORKFLOW_NOT_READY_RESPONSE
+
+    off_domain_context = resolve_workflow_context(
+        runtime,
+        {
+            "message": "Who plays football tonight?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": {},
+            "tool_calls": [],
+        },
+        classify_workflow(
+            "Who plays football tonight?",
+            conversation_state={},
+            page_context={},
+        ),
+    )
+    _state, off_domain_results = execute_workflow(
+        runtime,
+        {
+            "message": "Who plays football tonight?",
+            "customer_id": CUSTOMER_ID,
+            "tool_calls": [],
+        },
+        off_domain_context,
+    )
+    assert off_domain_results == []
 
 
 def test_chat_endpoint_returns_graph_response() -> None:
@@ -694,11 +1188,15 @@ def test_chat_graph_skips_purchase_history_tool_for_off_domain_message(caplog) -
         "graph.started",
         "model.requested",
         "tool_call.requested",
+        "workflow.classified",
+        "workflow.context_resolved",
+        "workflow.executing",
         "tool_call.skipped",
+        "workflow.state_updated",
         "model.requested",
         "response.generated",
     ]
-    assert caplog.records[3].event["data"] == {"reason": "off_domain_intent"}
+    assert caplog.records[6].event["data"] == {"reason": "off_domain_intent"}
 
 
 def test_chat_graph_forces_purchase_history_tool_for_account_domain_message() -> None:
@@ -1570,10 +2068,12 @@ def test_chat_graph_ranking_follow_up_after_purchase_type_aggregate_is_account_f
         for record in caplog.records
         if hasattr(record, "event")
     )
-    ignored_event = next(
-        record.event for record in caplog.records if record.event["type"] == "tool_call.ignored"
+    overridden_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.overridden"
     )
-    assert ignored_event["data"]["reason"] == "policy_intent_not_detected"
+    assert overridden_event["data"]["reason"] == "account_domain_intent"
+    assert overridden_event["data"]["requested_tool_name"] == "get_refund_policy"
+    assert overridden_event["data"]["tool_name"] == "get_customer_purchase_history"
 
 
 def test_chat_graph_sanitizes_backend_terms_from_final_response() -> None:
@@ -2113,6 +2613,1110 @@ def test_chat_graph_subscription_temporal_chain_updates_concrete_purchase_state(
         if message["content"].startswith("Compact conversation context")
     )
     assert '"selected_purchase_type": "subscription"' in compact_context_message["content"]
+
+
+def test_chat_graph_subscription_fact_to_last_one_to_eligibility_workflow_chain() -> None:
+    application_service = DeveloperToolkitApplicationService()
+    first_chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have paid for 2 subscriptions."),
+    )
+
+    first_result = first_chat_service.create_response(
+        message="How many subscriptions have I paid for?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    assert first_result.conversation_state["active_workflow"]["kind"] == "account_fact"
+    assert first_result.conversation_state["active_result_set"] == {
+        "type": "subscriptions",
+        "purchase_ids": [
+            "40000000-0000-4000-8000-000000000005",
+            "40000000-0000-4000-8000-000000000004",
+        ],
+        "sort": "purchase_date_desc",
+        "label": "your subscriptions",
+    }
+
+    second_chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("The latest paid subscription was Developer Toolkit."),
+    )
+    second_result = second_chat_service.create_response(
+        message="What was the last one?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    assert second_result.conversation_state["active_workflow"]["kind"] == "account_fact"
+    assert second_result.conversation_state["active_purchase"] == {
+        "purchase_id": "40000000-0000-4000-8000-000000000005",
+        "product_name": "Developer Toolkit",
+        "purchase_type": "subscription",
+    }
+
+    third_chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Developer Toolkit is eligible."),
+    )
+    third_result = third_chat_service.create_response(
+        message="Is it refundable?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=second_result.conversation_state,
+    )
+
+    assert third_result.content == "Developer Toolkit is eligible."
+    assert application_service.refund_workflow_requests == [
+        "40000000-0000-4000-8000-000000000005"
+    ]
+    assert third_result.conversation_state["active_workflow"]["kind"] == (
+        "refund_eligibility"
+    )
+    assert third_result.conversation_state["active_refund_context"]["purchase_id"] == (
+        "40000000-0000-4000-8000-000000000005"
+    )
+
+
+def test_chat_graph_date_range_first_policy_eligibility_workflow_chain() -> None:
+    application_service = FakeApplicationService()
+    first_chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Here are your purchases from that range."),
+    )
+
+    first_result = first_chat_service.create_response(
+        message="Show me purchases between June 20 and June 22.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    assert first_result.conversation_state["active_workflow"]["kind"] == "account_fact"
+    assert first_result.conversation_state["active_result_set"]["type"] == "date_range"
+    assert first_result.conversation_state["selected_purchase_ids"] == [
+        PURCHASE_ID,
+        "40000000-0000-4000-8000-000000000002",
+        "40000000-0000-4000-8000-000000000003",
+    ]
+
+    second_chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("The first purchase was Design Template Pack."),
+    )
+    second_result = second_chat_service.create_response(
+        message="What was the first one?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    assert second_result.conversation_state["active_purchase"] == {
+        "purchase_id": PURCHASE_ID,
+        "product_name": "Design Template Pack",
+        "purchase_type": "digital",
+    }
+
+    third_chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Design Template Pack follows digital policy."),
+    )
+    third_result = third_chat_service.create_response(
+        message="What is the refund policy for it?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=second_result.conversation_state,
+    )
+
+    assert third_result.conversation_state["active_workflow"]["kind"] == "refund_policy"
+    assert third_result.conversation_state["selected_purchase_id"] == PURCHASE_ID
+
+    fourth_chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Design Template Pack is eligible."),
+    )
+    fourth_result = fourth_chat_service.create_response(
+        message="Is it eligible?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=third_result.conversation_state,
+    )
+
+    assert fourth_result.content == "Design Template Pack is eligible."
+    assert application_service.refund_workflow_requests == [PURCHASE_ID]
+    assert fourth_result.conversation_state["active_workflow"]["kind"] == (
+        "refund_eligibility"
+    )
+    assert fourth_result.conversation_state["active_refund_context"]["purchase_id"] == (
+        PURCHASE_ID
+    )
+
+
+def test_chat_graph_list_follow_up_answers_from_active_digital_result_set(caplog) -> None:
+    application_service = FakeApplicationService()
+    first_chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have 2 digital purchases."),
+    )
+    first_result = first_chat_service.create_response(
+        message="How many digital purchases have I made?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    second_model_client = ActiveResultSetAnswerModelClient()
+    second_chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=second_model_client,
+    )
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        second_result = second_chat_service.create_response(
+            message="Can you list them please.",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=first_result.conversation_state,
+        )
+
+    assert second_result.content == (
+        "your digital purchases: Design Template Pack, Icon Set."
+    )
+    assert "Keyboard" not in second_result.content
+    assert "Pro Subscription" not in second_result.content
+    response_context = second_model_client.final_response_context
+    assert response_context["primary_answer_source"] == "active_result_set"
+    assert response_context["answer_scope"] == "your digital purchases"
+    assert response_context["active_result_set"]["count"] == 2
+    assert {
+        item["purchase_type"] for item in response_context["active_result_set"]["items"]
+    } == {"digital"}
+    final_request_event = [
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "model.requested"
+        and record.event["data"]["phase"] == "final_response"
+    ][-1]
+    assert (
+        final_request_event["data"]["model_context"]["tool_results"]
+        == "active_result_set:2 purchases, label=your digital purchases; "
+        "raw=get_customer_purchase_history:4 purchases, $209.99"
+    )
+
+
+def test_chat_graph_first_follow_up_selects_from_active_digital_result_set() -> None:
+    application_service = FakeApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have 2 digital purchases."),
+    ).create_response(
+        message="How many digital purchases have I made?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    second_model_client = ActiveResultSetAnswerModelClient(mode="first")
+    second_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=second_model_client,
+    ).create_response(
+        message="What's the first one?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    assert second_result.content == "The first one was Design Template Pack."
+    assert second_result.conversation_state["selected_purchase_id"] == PURCHASE_ID
+    assert second_model_client.final_response_context["active_result_set"]["items"][0][
+        "product_name"
+    ] == "Design Template Pack"
+
+
+def test_chat_graph_list_follow_up_answers_from_active_date_range_result_set() -> None:
+    application_service = LastWeekApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Here are your purchases from last week."),
+    ).create_response(
+        message="Show purchases from last week.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    second_model_client = ActiveResultSetAnswerModelClient()
+    second_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=second_model_client,
+    ).create_response(
+        message="List them.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    assert second_result.content == (
+        "last week's purchases: Design Template Pack, Keyboard."
+    )
+    assert "Pro Subscription" not in second_result.content
+    assert second_model_client.final_response_context["active_result_set"]["type"] == (
+        "date_range"
+    )
+    assert {
+        item["product_name"]
+        for item in second_model_client.final_response_context["active_result_set"][
+            "items"
+        ]
+    } == {"Design Template Pack", "Keyboard"}
+
+
+def test_chat_graph_list_follow_up_answers_from_active_subscription_result_set() -> None:
+    application_service = DeveloperToolkitApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have paid for 2 subscriptions."),
+    ).create_response(
+        message="How many subscriptions have I paid for?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    second_model_client = ActiveResultSetAnswerModelClient()
+    second_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=second_model_client,
+    ).create_response(
+        message="List them.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    assert second_result.content == (
+        "your subscriptions: Developer Toolkit, Pro Subscription."
+    )
+    assert "Design Template Pack" not in second_result.content
+    assert "Keyboard" not in second_result.content
+    assert {
+        item["purchase_type"]
+        for item in second_model_client.final_response_context["active_result_set"][
+            "items"
+        ]
+    } == {"subscription"}
+
+
+def test_chat_graph_subscription_result_set_follow_up_routes_to_eligibility(
+    caplog,
+) -> None:
+    application_service = DeveloperToolkitApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have paid for 2 subscriptions."),
+    ).create_response(
+        message="How many subscriptions have I paid for?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+    second_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("your subscriptions: Developer Toolkit, Pro Subscription."),
+    ).create_response(
+        message="Can you list them please?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    third_model_client = NoToolModelClient("Both subscriptions are eligible.")
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        third_result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=third_model_client,
+        ).create_response(
+            message="Am I able to refund them?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=second_result.conversation_state,
+        )
+
+    assert third_result.conversation_state["active_workflow"]["kind"] == (
+        "refund_eligibility"
+    )
+    assert third_result.conversation_state["active_workflow"]["object_kind"] == (
+        "active_result_set"
+    )
+    assert third_result.conversation_state["active_workflow"]["object_label"] == (
+        "your subscriptions"
+    )
+    assert third_result.conversation_state["active_workflow"]["operation"] == (
+        "eligibility"
+    )
+    assert application_service.refund_workflow_requests == [
+        "40000000-0000-4000-8000-000000000005",
+        "40000000-0000-4000-8000-000000000004",
+    ]
+    compact_context_message = next(
+        message
+        for message in third_model_client.calls[-1]["messages"]
+        if message["content"].startswith("Compact conversation context")
+    )
+    response_context = json.loads(compact_context_message["content"].split(": ", 1)[1])[
+        "response_context"
+    ]
+    assert response_context["primary_answer_source"] == "refund_eligibility_result"
+    assert response_context["active_result_set"]["label"] == "your subscriptions"
+    classified_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "workflow.classified"
+    )
+    assert classified_event["data"] | {
+        "kind": "refund_eligibility",
+        "object": "active_result_set",
+        "object_label": "your subscriptions",
+        "operation": "eligibility",
+        "reason": "active_result_set_refund_query",
+    } == classified_event["data"]
+    completed_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "tool_call.completed"
+    )
+    assert completed_event["data"]["tool_name"] == "get_refund_eligibility"
+    assert not any(
+        record.event["type"] == "tool_call.overridden"
+        and record.event["data"]["tool_name"] == "get_customer_purchase_history"
+        for record in caplog.records
+    )
+
+
+def test_chat_graph_digital_result_set_follow_up_routes_to_eligibility() -> None:
+    application_service = FakeApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have 2 digital purchases."),
+    ).create_response(
+        message="How many digital purchases have I made?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+    second_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("your digital purchases: Design Template Pack, Icon Set."),
+    ).create_response(
+        message="List them.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    third_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("One digital purchase is eligible."),
+    ).create_response(
+        message="Can I refund them?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=second_result.conversation_state,
+    )
+
+    assert third_result.conversation_state["active_workflow"]["kind"] == (
+        "refund_eligibility"
+    )
+    assert third_result.conversation_state["active_workflow"]["object_kind"] == (
+        "active_result_set"
+    )
+    assert third_result.conversation_state["active_workflow"]["operation"] == (
+        "eligibility"
+    )
+    assert application_service.refund_workflow_requests == [
+        PURCHASE_ID,
+        "40000000-0000-4000-8000-000000000002",
+    ]
+
+
+def test_chat_graph_selected_purchase_follow_up_routes_to_single_eligibility() -> None:
+    application_service = LastWeekApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Here are your purchases from last week."),
+    ).create_response(
+        message="Show my purchases from last week.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+    second_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("The first purchase was Design Template Pack."),
+    ).create_response(
+        message="What was the first one?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    third_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Design Template Pack is eligible."),
+    ).create_response(
+        message="Is it refundable?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=second_result.conversation_state,
+    )
+
+    assert third_result.conversation_state["active_workflow"]["kind"] == (
+        "refund_eligibility"
+    )
+    assert third_result.conversation_state["active_workflow"]["object_kind"] == (
+        "active_purchase"
+    )
+    assert application_service.refund_workflow_requests == [PURCHASE_ID]
+
+
+def test_chat_graph_active_result_set_policy_follow_up_routes_to_policy() -> None:
+    application_service = DeveloperToolkitApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have paid for 2 subscriptions."),
+    ).create_response(
+        message="How many subscriptions have I paid for?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    second_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Subscriptions follow the subscription policy."),
+    ).create_response(
+        message="What is the policy for them?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    assert second_result.conversation_state["active_workflow"]["kind"] == "refund_policy"
+    assert second_result.conversation_state["active_workflow"]["object_kind"] == (
+        "active_result_set"
+    )
+    assert second_result.conversation_state["active_workflow"]["operation"] == "policy"
+    assert second_result.conversation_state["selected_policy_scope"] == "product_type"
+    assert second_result.conversation_state["selected_purchase_type"] == "subscription"
+
+
+def test_chat_graph_digital_result_set_demonstrative_policy_uses_digital_policy(
+    caplog,
+) -> None:
+    application_service = FakeApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have 2 digital purchases."),
+    ).create_response(
+        message="How many digital purchases have I made?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        second_result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=NoToolModelClient("Digital products can be refunded within 15 days."),
+        ).create_response(
+            message="What is the refund policy for these types of products?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=first_result.conversation_state,
+        )
+
+    assert second_result.conversation_state["active_workflow"]["kind"] == "refund_policy"
+    assert second_result.conversation_state["active_workflow"]["object_kind"] == (
+        "active_result_set"
+    )
+    assert second_result.conversation_state["active_workflow"]["object_label"] == (
+        "your digital purchases"
+    )
+    assert second_result.conversation_state["active_workflow"]["operation"] == "policy"
+    assert second_result.conversation_state["selected_policy_scope"] == "product_type"
+    assert second_result.conversation_state["selected_purchase_type"] == "digital"
+    classified_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "workflow.classified"
+    )
+    assert classified_event["data"]["kind"] == "refund_policy"
+    assert classified_event["data"]["reason"] == "active_result_set_policy"
+    assert classified_event["data"]["object"] == "active_result_set"
+    assert classified_event["data"]["object_label"] == "your digital purchases"
+    assert classified_event["data"]["operation"] == "policy"
+    completed_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "tool_call.completed"
+    )
+    assert completed_event["data"]["tool_name"] == "get_refund_policy"
+    assert completed_event["data"]["result"]["purchase_type"] == "digital"
+    assert not any(
+        record.event["type"] == "response.blocked"
+        and record.event["data"].get("reason") == "product_reference_unresolved"
+        for record in caplog.records
+    )
+
+
+def test_chat_graph_subscription_result_set_demonstrative_policy_uses_subscription_policy(
+    caplog,
+) -> None:
+    application_service = DeveloperToolkitApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have paid for 2 subscriptions."),
+    ).create_response(
+        message="How many subscriptions have I paid for?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        second_result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=NoToolModelClient("Subscriptions follow the subscription policy."),
+        ).create_response(
+            message="What is the refund policy for these types of products?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=first_result.conversation_state,
+        )
+
+    assert second_result.conversation_state["active_workflow"]["object_kind"] == (
+        "active_result_set"
+    )
+    assert second_result.conversation_state["selected_purchase_type"] == "subscription"
+    completed_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "tool_call.completed"
+    )
+    assert completed_event["data"]["tool_name"] == "get_refund_policy"
+    assert completed_event["data"]["result"]["purchase_type"] == "subscription"
+
+
+def test_chat_graph_generic_demonstrative_policy_uses_active_result_set(
+    caplog,
+) -> None:
+    application_service = FakeApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have 2 digital purchases."),
+    ).create_response(
+        message="How many digital purchases have I made?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        second_result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=NoToolModelClient("Digital products can be refunded within 15 days."),
+        ).create_response(
+            message="What is the policy for those products?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=first_result.conversation_state,
+        )
+
+    assert second_result.conversation_state["active_workflow"]["kind"] == "refund_policy"
+    assert second_result.conversation_state["active_workflow"]["object_kind"] == (
+        "active_result_set"
+    )
+    assert second_result.conversation_state["selected_purchase_type"] == "digital"
+    assert not any(
+        record.event["type"] == "response.blocked"
+        and record.event["data"].get("product_reference") == "those products"
+        for record in caplog.records
+    )
+
+
+def test_chat_graph_concrete_product_policy_still_uses_product_reference() -> None:
+    result = AIChatService(
+        application_service=WindowsLicenseApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Windows License follows the digital policy."),
+    ).create_response(
+        message="What is the policy for Windows License?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    assert result.conversation_state["active_workflow"]["kind"] == "refund_policy"
+    assert result.conversation_state["active_workflow"]["object_kind"] == (
+        "product_reference"
+    )
+    assert result.conversation_state["active_workflow"]["object_label"] == (
+        "Windows License"
+    )
+    assert result.conversation_state["selected_product"] == "Windows License"
+    assert result.conversation_state["selected_purchase_type"] == "digital"
+
+
+def test_chat_graph_demonstrative_policy_without_active_state_is_not_product_reference(
+    caplog,
+) -> None:
+    model_client = NoToolModelClient("Here is the general refund policy.")
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = AIChatService(
+            application_service=FakeApplicationService(),
+            model="gpt-5.4-mini",
+            model_client=model_client,
+        ).create_response(
+            message="What is the policy for these products?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.conversation_state["active_workflow"] is None
+    classified_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "workflow.classified"
+    )
+    assert classified_event["data"]["kind"] == "off_domain"
+    assert classified_event["data"]["object"] == "unknown"
+    assert classified_event["data"]["operation"] == "policy"
+    assert not any(
+        record.event["type"] == "response.blocked"
+        and record.event["data"].get("product_reference") == "these products"
+        for record in caplog.records
+    )
+
+
+def test_trace_formatting_formats_nested_dictionary_blocks() -> None:
+    block = format_debug_block(
+        "Example",
+        {
+            "workflow": {"kind": "refund_eligibility", "reason": "selected_set"},
+            "items": ["one", "two"],
+        },
+    )
+
+    assert block.startswith("--- Example ---")
+    assert "workflow:\n  kind: refund_eligibility" in block
+    assert "items:\n  - one\n  - two" in block
+    assert block.endswith("--- end Example ---")
+
+
+def test_trace_formatting_truncates_long_lists_and_previews() -> None:
+    block = format_debug_block("Items", {"items": list(range(12))})
+    message_preview = preview_text(
+        "x" * (MAX_MESSAGE_PREVIEW_CHARS + 20),
+        max_chars=MAX_MESSAGE_PREVIEW_CHARS,
+    )
+    response_preview = preview_text(
+        "y" * (MAX_RESPONSE_PREVIEW_CHARS + 20),
+        max_chars=MAX_RESPONSE_PREVIEW_CHARS,
+    )
+
+    assert "... 2 more items not shown" in block
+    assert len(message_preview) == MAX_MESSAGE_PREVIEW_CHARS
+    assert message_preview.endswith("...")
+    assert len(response_preview) == MAX_RESPONSE_PREVIEW_CHARS
+    assert response_preview.endswith("...")
+
+
+def test_trace_formatting_includes_final_response_active_result_set_items_preview() -> None:
+    response_context = {
+        "primary_answer_source": "active_result_set",
+        "answer_scope": "your digital purchases",
+        "active_result_set": {
+            "type": "purchase_history",
+            "label": "your digital purchases",
+            "count": 6,
+            "items": [
+                {
+                    "id": f"purchase-{index}",
+                    "order_number": f"RAI-{index}",
+                    "product_name": f"Digital Product {index}",
+                    "purchase_type": "digital",
+                    "amount_display": "$10.00",
+                    "status": "completed",
+                    "purchased_at": "2026-06-20T14:30:00+00:00",
+                }
+                for index in range(6)
+            ],
+        },
+    }
+    block = format_trace_detail_block(
+        "model.requested",
+        {
+            "phase": "final_response",
+            "model": "gpt-5.4-mini",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "Compact conversation context for resolving follow-up "
+                        f"references: {json.dumps({'response_context': response_context})}"
+                    ),
+                }
+            ],
+            "tools": [],
+            "model_context": {
+                "tool_results": (
+                    "active_result_set:6 purchases, label=your digital purchases; "
+                    "raw=get_customer_purchase_history:12 purchases, $1169.88"
+                )
+            },
+        },
+    )
+
+    assert "primary_answer_source: active_result_set" in block
+    assert "items_preview:" in block
+    assert "product_name: Digital Product 0" in block
+    assert "purchase_type: digital" in block
+    assert "amount_display: $10.00" in block
+    assert "status: completed" in block
+    assert "purchased_at: 2026-06-20T14:30:00+00:00" in block
+    assert "... 1 more items not shown" in block
+    assert "id: purchase-0" not in block
+    assert "order_number: RAI-0" not in block
+
+
+def test_trace_formatting_summarizes_workflow_classification() -> None:
+    classification = classify_workflow(
+        "Am I able to refund them?",
+        conversation_state={
+            "active_result_set": {
+                "type": "subscriptions",
+                "purchase_ids": ["purchase-1", "purchase-2"],
+                "sort": "purchase_date_desc",
+                "label": "your subscriptions",
+            }
+        },
+        page_context={},
+    )
+
+    summary = summarize_workflow_classification(classification)
+
+    assert summary["workflow"]["kind"] == "refund_eligibility"
+    assert summary["conversation_object"]["kind"] == "active_result_set"
+    assert summary["conversation_object"]["label"] == "your subscriptions"
+    assert summary["operation"]["kind"] == "eligibility"
+    assert summary["lookup"]["key"] == "active_result_set + eligibility"
+
+
+def test_trace_formatting_summarizes_workflow_context_with_eligibility_ids() -> None:
+    context = WorkflowRuntime(FakeApplicationService())
+    classification = classify_workflow(
+        "Can I refund them?",
+        conversation_state={
+            "active_result_set": {
+                "type": "subscriptions",
+                "purchase_ids": ["purchase-1", "purchase-2"],
+                "sort": "purchase_date_desc",
+                "label": "your subscriptions",
+            }
+        },
+        page_context={},
+    )
+    workflow_context = resolve_workflow_context(
+        context,
+        {
+            "message": "Can I refund them?",
+            "customer_id": CUSTOMER_ID,
+            "page_context": {"surface": "purchase_history"},
+            "conversation_state": {
+                "active_result_set": {
+                    "type": "subscriptions",
+                    "purchase_ids": ["purchase-1", "purchase-2"],
+                    "sort": "purchase_date_desc",
+                    "label": "your subscriptions",
+                }
+            },
+        },
+        classification,
+    )
+    workflow_context = workflow_context.__class__(
+        **{
+            **workflow_context.__dict__,
+            "eligibility_resolution": EligibilityResolution(
+                ["purchase-1", "purchase-2"],
+                "selected_set",
+            ),
+        }
+    )
+
+    summary = summarize_workflow_context(workflow_context)
+
+    assert summary["eligibility_resolution"] == {
+        "purchase_ids": ["purchase-1", "purchase-2"],
+        "context": "selected_set",
+    }
+
+
+def test_trace_formatting_summarizes_purchase_history_tool_result() -> None:
+    result = get_customer_purchase_history(FakeApplicationService(), CUSTOMER_ID)
+
+    summary = summarize_tool_result("get_customer_purchase_history", result)
+
+    assert summary["summary"] == "4 purchases, $209.99"
+    assert summary["aggregates"]["total_purchase_count"] == 4
+    assert summary["items_preview"][0].startswith(PURCHASE_ID)
+
+
+def test_trace_formatting_summarizes_refund_eligibility_tool_result() -> None:
+    result = get_refund_eligibility(
+        FakeApplicationService(),
+        CUSTOMER_ID,
+        purchase_ids=[PURCHASE_ID, "40000000-0000-4000-8000-000000000002"],
+        context="selected_set",
+    )
+
+    summary = summarize_tool_result("get_refund_eligibility", result)
+
+    assert summary["summary"] == "2 purchases, 1 eligible, 1 blocked"
+    assert summary["result"]["purchase_count"] == 2
+    assert "eligible" in summary["result"]["items"][0]
+    assert "blocked" in summary["result"]["items"][1]
+
+
+def test_trace_formatting_formats_blocked_workflow_with_non_null_reason() -> None:
+    block = format_trace_detail_block(
+        "workflow.blocked",
+        {
+            "kind": "refund_mutation",
+            "reason": None,
+            "object": "active_result_set",
+            "object_label": "your subscriptions",
+            "operation": "start_refund",
+        },
+    )
+
+    assert "--- Workflow Blocked ---" in block
+    assert "reason: refund_mutation_not_ready" in block
+    assert "operation: start_refund" in block
+
+
+def test_chat_graph_console_logs_include_structured_workflow_sections(caplog) -> None:
+    application_service = DeveloperToolkitApplicationService()
+
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        first_result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=NoToolModelClient("You have paid for 2 subscriptions."),
+        ).create_response(
+            message="How many subscriptions do I currently have?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+        second_result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=NoToolModelClient("Here are your subscriptions."),
+        ).create_response(
+            message="List them.",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=first_result.conversation_state,
+        )
+        third_result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=NoToolModelClient("Subscriptions follow the subscription policy."),
+        ).create_response(
+            message="What is the refund policy for these types of products?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=second_result.conversation_state,
+        )
+        fourth_result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=NoToolModelClient("Both subscriptions are eligible."),
+        ).create_response(
+            message="Am I able to refund them?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=third_result.conversation_state,
+        )
+        AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=NoToolModelClient("This response should not be used."),
+        ).create_response(
+            message="Let's do that.",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=fourth_result.conversation_state,
+        )
+
+    console_output = "\n".join(record.getMessage() for record in caplog.records)
+    assert "--- Workflow Classification ---" in console_output
+    assert "--- Workflow Context ---" in console_output
+    assert "--- Tool Result ---" in console_output
+    assert "--- Workflow State Update ---" in console_output
+    assert "--- Workflow Blocked ---" in console_output
+    assert "reason: refund_mutation_not_ready" in console_output
+
+
+def test_chat_graph_active_result_set_refund_mutation_remains_blocked() -> None:
+    application_service = DeveloperToolkitApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have paid for 2 subscriptions."),
+    ).create_response(
+        message="How many subscriptions have I paid for?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+    second_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Both subscriptions are eligible."),
+    ).create_response(
+        message="Can I refund them?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    third_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("This should not be used."),
+    ).create_response(
+        message="Let's do that.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=second_result.conversation_state,
+    )
+
+    assert second_result.conversation_state["active_workflow"]["kind"] == (
+        "refund_eligibility"
+    )
+    assert third_result.content == REFUND_WORKFLOW_NOT_READY_RESPONSE
+
+
+def test_chat_graph_account_fact_list_follow_up_stays_account_fact() -> None:
+    application_service = DeveloperToolkitApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have paid for 2 subscriptions."),
+    ).create_response(
+        message="How many subscriptions have I paid for?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    second_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Here are your subscriptions."),
+    ).create_response(
+        message="List them.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    assert second_result.conversation_state["active_workflow"]["kind"] == "account_fact"
+    assert second_result.conversation_state["active_workflow"]["object_kind"] == (
+        "active_result_set"
+    )
+    assert second_result.conversation_state["active_workflow"]["operation"] == "list"
+
+
+def test_workflow_lookup_routes_digital_count_as_purchase_type_account_fact() -> None:
+    classification = classify_workflow(
+        "How many digital purchases have I made?",
+        conversation_state={},
+        page_context={},
+    )
+
+    assert classification.kind is WorkflowKind.ACCOUNT_FACT
+    assert classification.conversation_object.kind.value == "purchase_type"
+    assert classification.conversation_object.purchase_type == "digital"
+    assert classification.operation.operation.value == "count"
+
+
+def test_chat_graph_model_history_conflict_overridden_to_result_set_eligibility(
+    caplog,
+) -> None:
+    application_service = DeveloperToolkitApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("You have paid for 2 subscriptions."),
+    ).create_response(
+        message="How many subscriptions have I paid for?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-history-conflict",
+            name="get_customer_purchase_history",
+            arguments={},
+        ),
+        "Both subscriptions are eligible.",
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=model_client,
+        ).create_response(
+            message="Am I able to refund them?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state=first_result.conversation_state,
+        )
+
+    assert result.conversation_state["active_workflow"]["kind"] == "refund_eligibility"
+    assert application_service.refund_workflow_requests == [
+        "40000000-0000-4000-8000-000000000005",
+        "40000000-0000-4000-8000-000000000004",
+    ]
+    override_event = next(
+        record.event
+        for record in caplog.records
+        if record.event["type"] == "workflow.tool_overridden"
+    )
+    assert override_event["data"]["requested_tool_name"] == "get_customer_purchase_history"
+    assert override_event["data"]["tool_name"] == "get_refund_eligibility"
+
 
 def test_chat_graph_uses_current_detail_page_for_policy_context(caplog) -> None:
     model_client = NoToolModelClient("Digital products can be refunded within 15 days.")
@@ -3030,7 +4634,7 @@ def test_chat_graph_executes_model_requested_date_range_tool(caplog) -> None:
     )
     assert completed_event["data"]["tool_name"] == "get_purchase_history_by_date_range"
     assert result.conversation_state["selected_date_range"]["label"] == (
-        "June 20 through June 22, 2026"
+        "June 20, 2026 through June 22, 2026"
     )
 
 
@@ -3241,11 +4845,13 @@ def test_trace_console_message_summarizes_model_request_without_nested_payloads(
 
     message = format_trace_console_message(event)
 
-    assert message == (
+    assert message.startswith(
         "AI graph step 2: Model requested - Sending tool-selection package to the "
         "model. (phase=tool_selection, model=gpt-5.4-mini, messages=2, "
         "tools=get_customer_purchase_history, get_refund_eligibility)"
     )
+    assert "--- Model Request ---" in message
+    assert "available_tools:\n  - get_customer_purchase_history" in message
     assert "You are RefundsAI" not in message
     assert "Which purchases can be refunded" not in message
 
@@ -3273,12 +4879,13 @@ def test_trace_console_message_summarizes_tool_result_without_nested_payloads() 
 
     message = format_trace_console_message(event)
 
-    assert message == (
+    assert message.startswith(
         "AI graph step 5: Tool completed - Backend refund-eligibility tool "
         "completed. (tool=get_refund_eligibility, result=3 purchases, "
         "2 eligible, 1 blocked)"
     )
-    assert "Developer Toolkit" not in message
+    assert "--- Tool Result ---" in message
+    assert "summary: 3 purchases, 2 eligible, 1 blocked" in message
     assert "subscription_active" not in message
 
 
@@ -3402,23 +5009,30 @@ def test_chat_graph_emits_structured_graph_tool_and_response_log_events(caplog) 
         "graph.started",
         "model.requested",
         "tool_call.requested",
+        "workflow.classified",
+        "workflow.context_resolved",
+        "workflow.executing",
+        "workflow.tool_overridden",
+        "tool_call.overridden",
         "tool_call.executing",
         "tool_call.completed",
+        "workflow.completed",
+        "workflow.state_updated",
         "model.requested",
         "response.generated",
     ]
-    assert [event["step"] for event in events] == [1, 2, 3, 4, 5, 6, 7]
+    assert [event["step"] for event in events] == list(range(1, 15))
     assert events[1]["data"]["messages"][0]["content"].startswith(
         "You are RefundsAI's customer support assistant."
     )
     assert "Do not use Markdown" in events[1]["data"]["messages"][0]["content"]
     assert "unrelated topics" in events[1]["data"]["messages"][0]["content"]
-    assert events[4]["data"]["result"]["aggregates"]["total_purchase_count"] == 4
-    assert events[6]["data"]["assistant_response"] == (
+    assert events[9]["data"]["result"]["aggregates"]["total_purchase_count"] == 4
+    assert events[13]["data"]["assistant_response"] == (
         "You made 2 digital purchases totaling $75.00."
     )
-    assert events[6]["file"].endswith(("services\\ai_chat.py", "services/ai_chat.py"))
-    assert events[6]["line"] > 0
+    assert events[13]["file"].endswith(("services\\ai_chat.py", "services/ai_chat.py"))
+    assert events[13]["line"] > 0
 
 
 def test_openapi_documents_chat_endpoint() -> None:
