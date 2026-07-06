@@ -3,6 +3,7 @@
 import {
   createContext,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
   useContext,
   useEffect,
@@ -56,8 +57,12 @@ type ConversationState = Readonly<{
   selected_product?: string | null;
   selected_purchase_id?: string | null;
   selected_purchase_ids?: string[];
+  selected_scope_label?: string | null;
   selected_policy_scope?: string | null;
   selected_date_range?: Record<string, string> | null;
+  selected_refund_purchase_ids?: string[];
+  selected_refund_context?: string | null;
+  active_refund_context?: Record<string, unknown> | null;
   current_page?: Record<string, unknown> | null;
 }>;
 
@@ -243,9 +248,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     }
   }
 
-  async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  async function submitChatMessage() {
     const message = chatInput.trim();
 
     if (!message || chatState === "sending") {
@@ -292,6 +295,20 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
       ]);
       setChatState("error");
     }
+  }
+
+  async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitChatMessage();
+  }
+
+  function handleChatInputKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+    void submitChatMessage();
   }
 
   return (
@@ -369,6 +386,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
                     disabled={chatState === "sending"}
                     id={`${panelId}-chat`}
                     onChange={(event) => setChatInput(event.target.value)}
+                    onKeyDown={handleChatInputKeyDown}
                     placeholder="Ask about your purchases..."
                     rows={3}
                     value={chatInput}

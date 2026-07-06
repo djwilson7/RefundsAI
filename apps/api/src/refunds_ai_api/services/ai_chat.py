@@ -47,26 +47,58 @@ ACCOUNT_DATA_REQUIRED_RESPONSE = (
     "I need account data before I can answer that. Please ask about your purchases, "
     "orders, account activity, or refund flow."
 )
-ELIGIBILITY_NOT_READY_RESPONSE = (
-    "I can explain the refund policy, but I cannot evaluate specific purchase "
-    "eligibility yet."
-)
 REFUND_WORKFLOW_NOT_READY_RESPONSE = (
     "I can explain refund policy, but I cannot start or change a refund workflow yet."
+)
+REFUND_WORKFLOW_CONFIRMATION_REQUIRED_RESPONSE = (
+    "Please confirm the product name or order number before continuing the refund workflow."
 )
 CUSTOMER_CONTEXT_REQUIRED_RESPONSE = (
     "I need an active customer session before I can inspect purchase history. "
     "Please load a mock customer, then ask again."
 )
+REFUND_CONTEXT_STAGES = {
+    "eligibility_confirmed",
+    "ineligible",
+    "awaiting_customer_confirmation",
+    "awaiting_return_label",
+    "return_label_ready",
+}
 EMPTY_CONVERSATION_STATE = {
     "selected_purchase_type": None,
     "selected_product": None,
     "selected_purchase_id": None,
     "selected_purchase_ids": [],
+    "selected_scope_label": None,
     "selected_policy_scope": None,
     "selected_date_range": None,
+    "selected_refund_purchase_ids": [],
+    "selected_refund_context": None,
+    "active_refund_context": None,
     "current_page": None,
 }
+ROUTING_PRECEDENCE = (
+    "page_purchase_reference",
+    "active_refund_workflow_context",
+    "explicit_purchase_reference",
+    "selected_single_purchase",
+    "scoped_selected_purchase_set",
+    "aggregate_list_scope_capture",
+    "explicit_policy_intent",
+    "explicit_eligibility_intent",
+    "supported_mutation_intent",
+    "clarification",
+)
+FORBIDDEN_CUSTOMER_RESPONSE_TERMS = (
+    "selected context",
+    "selected set",
+    "resolver",
+    "tool",
+    "state",
+    "purchase_ids",
+    "node",
+    "graph",
+)
 SUPPORTED_ACCOUNT_TOPICS = (
     "account, purchases, orders, refund policies, refund-related questions, "
     "and account activity"
@@ -74,11 +106,12 @@ SUPPORTED_ACCOUNT_TOPICS = (
 SYSTEM_PROMPT = (
     "You are RefundsAI's customer support assistant. For purchase-history "
     "questions, call the relevant read-only purchase tool before answering. For "
-    "refund policy questions, call get_refund_policy before answering. Use only "
+    "refund policy questions, call get_refund_policy before answering. For refund "
+    "eligibility questions, call get_refund_eligibility before answering. Use only "
     "tool-provided purchase data for counts, totals, purchase types, statuses, "
     "and dates. Use only tool-provided refund policy data for policy explanations. "
-    "Do not assess refund eligibility or initiate refund workflow actions. Keep "
-    "the conversation grounded in the "
+    "Use only tool-provided refund eligibility data for eligibility explanations. "
+    "Do not initiate refund workflow actions. Keep the conversation grounded in the "
     "customer's account, account history, purchases, orders, account activity, "
     "and refund flows. If the customer asks about unrelated topics, briefly and "
     "gracefully redirect them to account, purchase, order, activity, or refund "
@@ -101,8 +134,10 @@ class ChatGraphState(TypedDict, total=False):
     tool_results: list[dict[str, Any]]
     account_fact_intent: bool
     policy_lookup_intent: bool
+    eligibility_lookup_intent: bool
     blocked_intent: str
     page_reference: dict[str, Any]
+    resolved_context_purchase: dict[str, Any]
     invalid_model_output: bool
     assistant_response: str
     error: str
@@ -124,6 +159,16 @@ class ModelTurn:
 
     content: str | None
     tool_calls: list[ModelToolCall]
+
+
+@dataclass(frozen=True)
+class EligibilityResolution:
+    """Resolved purchase ids and context for a read-only eligibility lookup."""
+
+    purchase_ids: list[str]
+    context: str
+    resolved_purchase: dict[str, Any] | None = None
+    unresolved_product_reference: str | None = None
 
 
 class ChatModelClient(Protocol):
@@ -247,6 +292,19 @@ class AIChatService:
         )
 
     def _build_graph(self):
+        # The graph shape stays intentionally small; deterministic context resolution
+        # happens inside execute_tools before any model-requested tool is honored.
+        # Routing precedence:
+        # 1. Page purchase references such as "this product" or "this order".
+        # 2. Active refund workflow context for continuation commands.
+        # 3. Explicit product, SKU, order number, or purchase id references.
+        # 4. Selected single purchase for vague follow-ups like "it" or "that item".
+        # 5. Scoped selected purchase set for ranking terms.
+        # 6. Aggregate/list scope capture for future follow-ups.
+        # 7. Explicit policy intent.
+        # 8. Explicit eligibility intent.
+        # 9. Supported mutation intent, currently blocked in Phase 3.
+        # 10. Clarification when unresolved or ambiguous.
         graph_builder = StateGraph(ChatGraphState)
         graph_builder.add_node("validate_context", self._validate_context)
         graph_builder.add_node("request_tool_call", self._request_tool_call)
@@ -287,12 +345,37 @@ class AIChatService:
             conversation_state=state.get("conversation_state"),
             page_context=state.get("page_context"),
         )
-        blocked_intent = parse_blocked_refund_intent(state["message"])
+        eligibility_intent = has_refund_eligibility_intent(
+            state["message"],
+            conversation_state=state.get("conversation_state"),
+        )
+        blocked_intent = parse_refund_workflow_mutation_intent(state["message"])
 
-        if not state.get("customer_id") and policy_lookup_query is None and blocked_intent is None:
+        if (
+            not state.get("customer_id")
+            and policy_lookup_query is None
+            and blocked_intent is None
+            and not eligibility_intent
+        ):
             state = log_trace_step(
                 state,
                 message="Stopped before model call because no customer context was supplied.",
+                event_type="graph.stopped",
+                data={"reason": "customer_context_required"},
+            )
+            return {
+                **state,
+                "assistant_response": CUSTOMER_CONTEXT_REQUIRED_RESPONSE,
+                "error": "customer_context_required",
+            }
+
+        if not state.get("customer_id") and eligibility_intent:
+            state = log_trace_step(
+                state,
+                message=(
+                    "Stopped before eligibility lookup because no customer "
+                    "context was supplied."
+                ),
                 event_type="graph.stopped",
                 data={"reason": "customer_context_required"},
             )
@@ -324,11 +407,15 @@ class AIChatService:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": state["message"]},
         ]
+        compact_context_message = build_compact_model_context_message(state)
+        if compact_context_message is not None:
+            messages.append(compact_context_message)
         tools = [
             get_customer_purchase_history_tool_schema(),
             get_purchase_count_by_amount_threshold_tool_schema(),
             get_purchase_history_by_date_range_tool_schema(),
             get_refund_policy_tool_schema(),
+            get_refund_eligibility_tool_schema(),
         ]
         state = log_trace_step(
             {**state, "account_fact_intent": account_fact_intent},
@@ -339,6 +426,7 @@ class AIChatService:
                 "model": self.model,
                 "messages": messages,
                 "tools": tools,
+                "model_context": build_model_context_summary(state),
             },
         )
 
@@ -416,39 +504,141 @@ class AIChatService:
             customer_id,
             state.get("page_context"),
         )
-        blocked_refund_intent = parse_blocked_refund_intent(state["message"])
-
-        if blocked_refund_intent is not None:
-            response = (
-                ELIGIBILITY_NOT_READY_RESPONSE
-                if blocked_refund_intent == "eligibility"
-                else REFUND_WORKFLOW_NOT_READY_RESPONSE
+        workflow_continuation_intent = parse_refund_workflow_continuation_intent(
+            state["message"]
+        )
+        if workflow_continuation_intent is not None:
+            normalized_state = normalize_conversation_state(
+                state.get("conversation_state")
             )
+            active_refund_context = normalized_state.get("active_refund_context")
+            if active_refund_context is not None:
+                state = log_trace_step(
+                    state,
+                    message=(
+                        "Resolved refund workflow continuation from active refund "
+                        "context."
+                    ),
+                    event_type="response.blocked",
+                    data={
+                        "reason": "refund_workflow_action_not_wired",
+                        "purchase_id": active_refund_context["purchase_id"],
+                        "next_action": active_refund_context.get("next_action"),
+                        "model_context": build_model_context_summary(
+                            {
+                                **state,
+                                "conversation_state": normalized_state,
+                                "blocked_intent": workflow_continuation_intent,
+                            },
+                            page_reference=page_reference,
+                        ),
+                    },
+                    level=logging.WARNING,
+                )
+                return {
+                    **state,
+                    "tool_results": [],
+                    "assistant_response": build_refund_workflow_action_not_wired_response(
+                        active_refund_context
+                    ),
+                    "blocked_intent": workflow_continuation_intent,
+                    "conversation_state": update_conversation_state_for_page_reference(
+                        normalized_state,
+                        page_reference,
+                    ),
+                    "page_reference": page_reference,
+                }
+
             state = log_trace_step(
                 state,
-                message="Blocked refund request outside the current AI phase.",
+                message=(
+                    "Blocked refund workflow continuation because no active refund "
+                    "context was available."
+                ),
                 event_type="response.blocked",
-                data={"reason": f"{blocked_refund_intent}_not_ready"},
+                data={
+                    "reason": "active_refund_context_required",
+                    "model_context": build_model_context_summary(
+                        {
+                            **state,
+                            "conversation_state": normalized_state,
+                            "blocked_intent": workflow_continuation_intent,
+                        },
+                        page_reference=page_reference,
+                    ),
+                },
                 level=logging.WARNING,
             )
             return {
                 **state,
                 "tool_results": [],
-                "assistant_response": response,
+                "assistant_response": REFUND_WORKFLOW_CONFIRMATION_REQUIRED_RESPONSE,
+                "blocked_intent": workflow_continuation_intent,
+                "conversation_state": update_conversation_state_for_page_reference(
+                    normalized_state,
+                    page_reference,
+                ),
+                "page_reference": page_reference,
+            }
+
+        blocked_refund_intent = parse_refund_workflow_mutation_intent(state["message"])
+        eligibility_resolution = resolve_refund_eligibility_query(
+            state["message"],
+            conversation_state=state.get("conversation_state"),
+            page_context=state.get("page_context"),
+            application_service=self.application_service,
+            customer_id=customer_id,
+        )
+        resolved_context_purchase = resolve_purchase_fact_context(
+            self.application_service,
+            customer_id,
+            state["message"],
+            state.get("conversation_state"),
+            state.get("page_context"),
+        )
+
+        if blocked_refund_intent is not None:
+            state = log_trace_step(
+                state,
+                message="Blocked refund request outside the current AI phase.",
+                event_type="response.blocked",
+                data={
+                    "reason": f"{blocked_refund_intent}_not_ready",
+                    "model_context": build_model_context_summary(
+                        state,
+                        page_reference=page_reference,
+                    ),
+                },
+                level=logging.WARNING,
+            )
+            return {
+                **state,
+                "tool_results": [],
+                "assistant_response": REFUND_WORKFLOW_NOT_READY_RESPONSE,
                 "blocked_intent": blocked_refund_intent,
             }
 
-        if unresolved_product_reference is not None:
+        unresolved_reference = (
+            eligibility_resolution.unresolved_product_reference
+            if eligibility_resolution is not None
+            and eligibility_resolution.unresolved_product_reference is not None
+            else unresolved_product_reference
+        )
+        if unresolved_reference is not None:
             state = log_trace_step(
                 state,
                 message=(
-                    "Blocked product-specific policy response because entity "
+                    "Blocked product-specific refund response because entity "
                     "resolution failed."
                 ),
                 event_type="response.blocked",
                 data={
                     "reason": "product_reference_unresolved",
-                    "product_reference": unresolved_product_reference,
+                    "product_reference": unresolved_reference,
+                    "model_context": build_model_context_summary(
+                        state,
+                        page_reference=page_reference,
+                    ),
                 },
                 level=logging.WARNING,
             )
@@ -456,7 +646,7 @@ class AIChatService:
                 **state,
                 "tool_results": [],
                 "assistant_response": build_unresolved_product_response(
-                    unresolved_product_reference
+                    unresolved_reference
                 ),
                 "blocked_intent": "product_reference_unresolved",
                 "conversation_state": update_conversation_state_for_page_reference(
@@ -468,6 +658,46 @@ class AIChatService:
 
         for tool_call in state.get("tool_calls", []):
             if tool_call.name == "get_customer_purchase_history":
+                if eligibility_resolution is not None:
+                    state = log_trace_step(
+                        state,
+                        message=(
+                            "Overriding broad purchase-history tool selection with "
+                            "the deterministic refund-eligibility tool."
+                        ),
+                        event_type="tool_call.overridden",
+                        data={
+                            "requested_tool_name": tool_call.name,
+                            "tool_name": "get_refund_eligibility",
+                            "reason": "eligibility_lookup_intent",
+                            "purchase_ids": eligibility_resolution.purchase_ids,
+                            "context": eligibility_resolution.context,
+                        },
+                    )
+                    result = get_refund_eligibility(
+                        self.application_service,
+                        customer_id,
+                        purchase_ids=eligibility_resolution.purchase_ids,
+                        context=eligibility_resolution.context,
+                    )
+                    tool_results.append(
+                        {
+                            "tool_call_id": tool_call.id,
+                            "name": "get_refund_eligibility",
+                            "result": result,
+                        }
+                    )
+                    state = log_trace_step(
+                        state,
+                        message="Backend refund-eligibility tool completed.",
+                        event_type="tool_call.completed",
+                        data={
+                            "tool_name": "get_refund_eligibility",
+                            "result": result,
+                        },
+                    )
+                    continue
+
                 if policy_lookup_query is not None:
                     state = log_trace_step(
                         state,
@@ -636,6 +866,21 @@ class AIChatService:
                         data={"tool_name": tool_call.name, "arguments": tool_call.arguments},
                     )
                     continue
+                if policy_lookup_query is None:
+                    state = log_trace_step(
+                        state,
+                        message=(
+                            "Ignoring refund-policy tool request because the "
+                            "message was resolved as an account fact."
+                        ),
+                        event_type="tool_call.ignored",
+                        data={
+                            "tool_name": tool_call.name,
+                            "arguments": tool_call.arguments,
+                            "reason": "policy_intent_not_detected",
+                        },
+                    )
+                    continue
                 if policy_lookup_query is not None and policy_arguments != policy_lookup_query:
                     state = log_trace_step(
                         state,
@@ -675,6 +920,96 @@ class AIChatService:
                 state = log_trace_step(
                     state,
                     message="Backend refund-policy tool completed.",
+                    event_type="tool_call.completed",
+                    data={
+                        "tool_name": tool_call.name,
+                        "result": result,
+                    },
+                )
+                continue
+
+            if tool_call.name == "get_refund_eligibility":
+                eligibility_arguments = parse_model_refund_eligibility_arguments(
+                    tool_call.arguments
+                )
+                if eligibility_arguments is None:
+                    state = log_trace_step(
+                        state,
+                        message="Ignoring invalid refund-eligibility tool arguments.",
+                        event_type="tool_call.ignored",
+                        data={"tool_name": tool_call.name, "arguments": tool_call.arguments},
+                    )
+                    continue
+                if eligibility_resolution is None and resolved_context_purchase is not None:
+                    state = log_trace_step(
+                        state,
+                        message=(
+                            "Ignoring refund-eligibility tool request because the "
+                            "message was resolved as an account fact."
+                        ),
+                        event_type="tool_call.ignored",
+                        data={
+                            "tool_name": tool_call.name,
+                            "arguments": tool_call.arguments,
+                            "reason": "eligibility_intent_not_detected",
+                        },
+                    )
+                    continue
+                if eligibility_resolution is not None:
+                    effective_purchase_ids = eligibility_resolution.purchase_ids
+                    effective_context = eligibility_resolution.context
+                    if (
+                        eligibility_arguments["purchase_ids"] != effective_purchase_ids
+                        or eligibility_arguments["context"] != effective_context
+                    ):
+                        state = log_trace_step(
+                            state,
+                            message=(
+                                "Overriding refund-eligibility tool arguments with "
+                                "resolved conversation context."
+                            ),
+                            event_type="tool_call.overridden",
+                            data={
+                                "requested_tool_name": tool_call.name,
+                                "tool_name": "get_refund_eligibility",
+                                "reason": "resolved_eligibility_context",
+                                "model_arguments": eligibility_arguments,
+                                "purchase_ids": effective_purchase_ids,
+                                "context": effective_context,
+                            },
+                        )
+                else:
+                    effective_purchase_ids = eligibility_arguments["purchase_ids"]
+                    effective_context = eligibility_arguments["context"]
+
+                state = log_trace_step(
+                    state,
+                    message="Executing backend refund-eligibility tool.",
+                    event_type="tool_call.executing",
+                    data={
+                        "tool_call_id": tool_call.id,
+                        "tool_name": tool_call.name,
+                        "model_arguments": tool_call.arguments,
+                        "effective_purchase_ids": effective_purchase_ids,
+                        "context": effective_context,
+                    },
+                )
+                result = get_refund_eligibility(
+                    self.application_service,
+                    customer_id,
+                    purchase_ids=effective_purchase_ids,
+                    context=effective_context,
+                )
+                tool_results.append(
+                    {
+                        "tool_call_id": tool_call.id,
+                        "name": tool_call.name,
+                        "result": result,
+                    }
+                )
+                state = log_trace_step(
+                    state,
+                    message="Backend refund-eligibility tool completed.",
                     event_type="tool_call.completed",
                     data={
                         "tool_name": tool_call.name,
@@ -742,7 +1077,47 @@ class AIChatService:
         account_fact_intent = bool(state.get("account_fact_intent")) or has_account_fact_intent(
             state["message"]
         )
-        if not tool_results and policy_lookup_query is not None:
+        if resolved_context_purchase is not None:
+            account_fact_intent = True
+
+        if not tool_results and eligibility_resolution is not None:
+            state = log_trace_step(
+                state,
+                message=(
+                    "No supported tool was requested for a refund-eligibility query; "
+                    "forcing the deterministic refund-eligibility tool."
+                ),
+                event_type="tool_call.forced",
+                data={
+                    "tool_name": "get_refund_eligibility",
+                    "reason": "eligibility_lookup_intent",
+                    "purchase_ids": eligibility_resolution.purchase_ids,
+                    "context": eligibility_resolution.context,
+                },
+            )
+            result = get_refund_eligibility(
+                self.application_service,
+                customer_id,
+                purchase_ids=eligibility_resolution.purchase_ids,
+                context=eligibility_resolution.context,
+            )
+            tool_results.append(
+                {
+                    "tool_call_id": "forced-get-refund-eligibility",
+                    "name": "get_refund_eligibility",
+                    "result": result,
+                }
+            )
+            state = log_trace_step(
+                state,
+                message="Forced backend refund-eligibility tool completed.",
+                event_type="tool_call.completed",
+                data={
+                    "tool_name": "get_refund_eligibility",
+                    "result": result,
+                },
+            )
+        elif not tool_results and policy_lookup_query is not None:
             state = log_trace_step(
                 state,
                 message=(
@@ -897,12 +1272,15 @@ class AIChatService:
             "tool_results": tool_results,
             "account_fact_intent": account_fact_intent,
             "policy_lookup_intent": policy_lookup_query is not None,
+            "eligibility_lookup_intent": eligibility_resolution is not None,
+            "resolved_context_purchase": resolved_context_purchase,
             "conversation_state": update_conversation_state(
                 state["message"],
                 current_state=state.get("conversation_state"),
                 tool_results=tool_results,
                 policy_lookup_query=policy_lookup_query,
-                resolved_purchase=resolved_purchase,
+                eligibility_resolution=eligibility_resolution,
+                resolved_purchase=resolved_purchase or resolved_context_purchase,
                 page_reference=page_reference,
             ),
             "page_reference": page_reference,
@@ -930,6 +1308,24 @@ class AIChatService:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": state["message"]},
         ]
+        compact_context_message = build_compact_model_context_message(
+            state,
+            tool_results=tool_results,
+            page_reference=state.get("page_reference"),
+        )
+        if compact_context_message is not None:
+            messages.append(compact_context_message)
+        resolved_context_purchase = state.get("resolved_context_purchase")
+        if resolved_context_purchase is not None:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Backend-resolved purchase context: "
+                        f"{json.dumps(resolved_context_purchase, default=str)}"
+                    ),
+                }
+            )
         if tool_results:
             messages.append(
                 {
@@ -958,9 +1354,20 @@ class AIChatService:
                 "content": (
                     "Answer the customer's request if it is about their account, "
                     "account history, purchases, orders, account activity, or "
-                    "refund flows. Use the tool result when relevant. For refund "
+                    "refund flows. Use the tool result when relevant. When the "
+                    "backend provides resolved purchase context, use that concrete "
+                    "purchase before ranking or selecting from broader purchase "
+                    "history. If the customer asks a ranking follow-up without "
+                    "refund, return, policy, eligibility, approval, or process "
+                    "wording, answer only the purchase fact requested and do not "
+                    "discuss refund policy. Do not expose backend terms such as "
+                    "selected context, selected set, state, tool, resolver, or "
+                    "purchase ids. For refund "
                     "policy questions, answer only from the refund-policy tool "
                     "result and keep the answer scoped to the customer's request. "
+                    "For refund eligibility questions, answer only from the "
+                    "refund-eligibility tool result and do not offer to start, "
+                    "prepare, issue, submit, or process a refund. "
                     "If the request is unrelated, briefly redirect the customer "
                     "back to supported account topics. Return plain standard text "
                     "only, with no Markdown formatting."
@@ -977,6 +1384,11 @@ class AIChatService:
                 "model": self.model,
                 "messages": messages,
                 "tools": tools,
+                "model_context": build_model_context_summary(
+                    state,
+                    tool_results=tool_results,
+                    page_reference=page_reference,
+                ),
             },
         )
 
@@ -1001,7 +1413,10 @@ class AIChatService:
                 "error": "final_model_request_failed",
             }
 
-        assistant_response = turn.content or CHAT_UNAVAILABLE_RESPONSE
+        assistant_response = sanitize_customer_response(
+            turn.content or CHAT_UNAVAILABLE_RESPONSE,
+            state,
+        )
         state = log_trace_step(
             state,
             message="Model generated final assistant response.",
@@ -1023,6 +1438,62 @@ class AIChatService:
         )
 
         return {**state, "assistant_response": assistant_response}
+
+
+def sanitize_customer_response(response: str, state: ChatGraphState) -> str:
+    """Replace customer-facing responses that expose backend routing terms."""
+    if not contains_forbidden_customer_response_term(response):
+        return response
+
+    safe_response = build_customer_safe_resolved_purchase_response(state)
+    return safe_response or (
+        "I can help with account history, purchases, orders, refund policy, and "
+        "refund eligibility."
+    )
+
+
+def contains_forbidden_customer_response_term(response: str) -> bool:
+    """Return whether the assistant text exposes backend implementation terms."""
+    normalized_response = response.casefold()
+    for term in FORBIDDEN_CUSTOMER_RESPONSE_TERMS:
+        pattern = r"(?<![a-z0-9_])" + re.escape(term.casefold()) + r"(?![a-z0-9_])"
+        if re.search(pattern, normalized_response):
+            return True
+    return False
+
+
+def build_customer_safe_resolved_purchase_response(
+    state: ChatGraphState,
+) -> str | None:
+    """Return deterministic prose for resolved purchase facts when sanitizing."""
+    resolved_purchase = state.get("resolved_context_purchase")
+    if not isinstance(resolved_purchase, dict):
+        return None
+
+    product_name = resolved_purchase.get("product_name")
+    if not isinstance(product_name, str) or not product_name:
+        return None
+
+    ranking_reference = parse_purchase_ranking_reference(state.get("message", ""))
+    conversation_state = normalize_conversation_state(state.get("conversation_state"))
+    scope_label = conversation_state.get("selected_scope_label") or "your purchases"
+    if ranking_reference is not None:
+        ranking_label = {
+            "newest": "latest",
+            "oldest": "oldest",
+            "cheapest": "cheapest",
+            "most_expensive": "most expensive",
+        }[ranking_reference]
+        amount_display = resolved_purchase.get("amount_display")
+        amount_suffix = (
+            f" for {amount_display}" if isinstance(amount_display, str) else ""
+        )
+        return (
+            f"The {ranking_label} purchase from {scope_label} is "
+            f"{product_name}{amount_suffix}."
+        )
+
+    return f"The purchase I found is {product_name}."
 
 
 def should_continue(state: ChatGraphState) -> str:
@@ -1410,6 +1881,28 @@ def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]
     if not isinstance(selected_purchase_ids, list):
         selected_purchase_ids = []
 
+    selected_scope_label = state.get("selected_scope_label")
+    if not isinstance(selected_scope_label, str) or not selected_scope_label.strip():
+        selected_scope_label = None
+    if (
+        selected_scope_label is None
+        and selected_purchase_ids
+        and selected_purchase_type in {"digital", "physical", "subscription"}
+    ):
+        selected_scope_label = build_purchase_type_scope_label(selected_purchase_type)
+
+    selected_refund_purchase_ids = state.get("selected_refund_purchase_ids")
+    if not isinstance(selected_refund_purchase_ids, list):
+        selected_refund_purchase_ids = []
+
+    selected_refund_context = state.get("selected_refund_context")
+    if not isinstance(selected_refund_context, str):
+        selected_refund_context = None
+
+    active_refund_context = normalize_active_refund_context(
+        state.get("active_refund_context")
+    )
+
     return {
         **EMPTY_CONVERSATION_STATE,
         "selected_purchase_type": selected_purchase_type,
@@ -1424,11 +1917,60 @@ def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]
             for purchase_id in selected_purchase_ids
             if isinstance(purchase_id, str)
         ],
+        "selected_scope_label": selected_scope_label,
         "selected_policy_scope": selected_policy_scope,
         "selected_date_range": selected_date_range,
+        "selected_refund_purchase_ids": [
+            str(purchase_id)
+            for purchase_id in selected_refund_purchase_ids
+            if isinstance(purchase_id, str)
+        ],
+        "selected_refund_context": selected_refund_context,
+        "active_refund_context": active_refund_context,
         "current_page": state.get("current_page")
         if isinstance(state.get("current_page"), dict)
         else None,
+    }
+
+
+def normalize_active_refund_context(value: Any) -> dict[str, Any] | None:
+    """Return a validated active refund workflow context."""
+    if not isinstance(value, dict):
+        return None
+
+    purchase_id = value.get("purchase_id")
+    product_name = value.get("product_name")
+    purchase_type = value.get("purchase_type")
+    eligible = value.get("eligible")
+    stage = value.get("stage")
+    next_action = value.get("next_action")
+    reason_codes = value.get("reason_codes")
+
+    if not isinstance(purchase_id, str) or not purchase_id:
+        return None
+    if not isinstance(product_name, str) or not product_name:
+        return None
+    if purchase_type not in {"physical", "digital", "subscription"}:
+        return None
+    if not isinstance(eligible, bool):
+        return None
+    if stage not in REFUND_CONTEXT_STAGES:
+        return None
+    if next_action is not None and not isinstance(next_action, str):
+        return None
+    if not isinstance(reason_codes, list):
+        reason_codes = []
+
+    return {
+        "purchase_id": purchase_id,
+        "product_name": product_name,
+        "purchase_type": purchase_type,
+        "eligible": eligible,
+        "stage": stage,
+        "next_action": next_action,
+        "reason_codes": [
+            reason_code for reason_code in reason_codes if isinstance(reason_code, str)
+        ],
     }
 
 
@@ -1508,13 +2050,20 @@ def resolve_refund_policy_query_with_purchase(
         message,
         conversation_state=normalized_state,
     )
+    normalized_message = message.casefold()
     page_purchase = None
-    if has_context_reference(message.casefold()) and product_reference is None:
+    if has_page_context_reference(normalized_message) and product_reference is None:
         page_purchase = resolve_purchase_by_id(
             application_service,
             customer_id,
             normalize_page_context(page_context).get("purchase_id"),
         )
+    selected_single_purchase = resolve_selected_single_purchase(
+        application_service,
+        customer_id,
+        message,
+        normalized_state,
+    )
     selected_set_purchase = resolve_purchase_from_selected_set(
         application_service,
         customer_id,
@@ -1533,13 +2082,15 @@ def resolve_refund_policy_query_with_purchase(
             if resolved_purchase is None:
                 return None, None, product_reference
         else:
-            resolved_purchase = selected_set_purchase or page_purchase
+            resolved_purchase = (
+                page_purchase or selected_single_purchase or selected_set_purchase
+            )
             if resolved_purchase is None and policy_query.get("purchase_type") is None:
                 resolved_purchase = resolve_purchase_mention(
                     application_service,
                     customer_id,
                     message,
-                ) or resolve_global_recent_purchase(
+                ) or resolve_global_ranked_purchase(
                     application_service,
                     customer_id,
                     message,
@@ -1565,13 +2116,13 @@ def resolve_refund_policy_query_with_purchase(
         if resolved_purchase is None:
             return None, None, product_reference
     if resolved_purchase is None:
-        resolved_purchase = selected_set_purchase or page_purchase
+        resolved_purchase = page_purchase or selected_single_purchase or selected_set_purchase
     if resolved_purchase is None:
         resolved_purchase = resolve_purchase_mention(
             application_service,
             customer_id,
             message,
-        ) or resolve_global_recent_purchase(
+        ) or resolve_global_ranked_purchase(
             application_service,
             customer_id,
             message,
@@ -1601,12 +2152,301 @@ def resolve_refund_policy_query_with_purchase(
     )
 
 
+def resolve_refund_eligibility_query(
+    message: str,
+    *,
+    conversation_state: dict[str, Any] | None,
+    page_context: dict[str, Any] | None,
+    application_service: ApplicationService | None,
+    customer_id: str | None,
+) -> EligibilityResolution | None:
+    """Resolve read-only refund eligibility intent to active-customer purchase ids."""
+    normalized_state = normalize_conversation_state(conversation_state)
+    if not has_refund_eligibility_intent(
+        message,
+        conversation_state=normalized_state,
+    ):
+        return None
+    if application_service is None or customer_id is None:
+        return EligibilityResolution([], "customer_context_required")
+
+    product_reference = extract_product_reference(message)
+    if product_reference is not None:
+        resolved_purchase = resolve_purchase_reference(
+            application_service,
+            customer_id,
+            product_reference,
+        )
+        if resolved_purchase is None:
+            return EligibilityResolution(
+                [],
+                "product",
+                unresolved_product_reference=product_reference,
+            )
+        return EligibilityResolution(
+            [resolved_purchase["id"]],
+            "product",
+            resolved_purchase=resolved_purchase,
+        )
+
+    normalized_message = message.casefold()
+    if has_context_reference(normalized_message):
+        page_purchase = resolve_purchase_by_id(
+            application_service,
+            customer_id,
+            normalize_page_context(page_context).get("purchase_id"),
+        )
+        if page_purchase is not None and has_page_context_reference(normalized_message):
+            return EligibilityResolution(
+                [page_purchase["id"]],
+                "current_page",
+                resolved_purchase=page_purchase,
+            )
+
+        selected_purchase = resolve_selected_single_purchase(
+            application_service,
+            customer_id,
+            message,
+            normalized_state,
+        )
+        if selected_purchase is not None:
+            return EligibilityResolution(
+                [selected_purchase["id"]],
+                "selected_purchase",
+                resolved_purchase=selected_purchase,
+            )
+
+        selected_ids = selected_purchase_ids_for_refund_context(
+            application_service,
+            customer_id,
+            message,
+            normalized_state,
+        )
+        if selected_ids:
+            resolved_purchase = (
+                resolve_purchase_by_id(application_service, customer_id, selected_ids[0])
+                if len(selected_ids) == 1
+                else None
+            )
+            return EligibilityResolution(
+                selected_ids,
+                "selected_set",
+                resolved_purchase=resolved_purchase,
+            )
+
+    purchase_type = parse_purchase_type_filter(message)
+    if purchase_type is not None:
+        purchase_ids = [
+            str(purchase["id"])
+            for purchase in application_service.list_user_purchases(customer_id)
+            if purchase.get("purchase_type") == purchase_type
+        ]
+        return EligibilityResolution(purchase_ids, purchase_type)
+
+    date_range_query = parse_date_range_query(message)
+    if date_range_query is not None:
+        date_range_result = get_purchase_history_by_date_range(
+            application_service,
+            customer_id,
+            start_date=date_range_query["start_date"],
+            end_date=date_range_query["end_date"],
+            timezone_name=date_range_query["timezone"],
+            label=date_range_query.get("label"),
+        )
+        return EligibilityResolution(
+            [
+                str(purchase["id"])
+                for purchase in date_range_result.get("purchases", [])
+                if isinstance(purchase.get("id"), str)
+            ],
+            "date_range",
+        )
+
+    purchase_mention = resolve_purchase_mention(application_service, customer_id, message)
+    if purchase_mention is not None:
+        return EligibilityResolution(
+            [purchase_mention["id"]],
+            "product",
+            resolved_purchase=purchase_mention,
+        )
+
+    purchase_ids = [
+        str(purchase["id"])
+        for purchase in application_service.list_user_purchases(customer_id)
+        if isinstance(purchase.get("id"), str)
+    ]
+    return EligibilityResolution(purchase_ids, "all_purchases")
+
+
+def has_refund_eligibility_intent(
+    message: str,
+    *,
+    conversation_state: dict[str, Any] | None = None,
+) -> bool:
+    """Return whether text asks for backend-evaluated refund eligibility."""
+    normalized_message = message.casefold()
+    normalized_state = normalize_conversation_state(conversation_state)
+    if parse_refund_workflow_mutation_intent(message) is not None:
+        return False
+
+    eligibility_patterns = (
+        r"\bwhich\b.+\b(?:can|could)\s+be\s+refund(?:ed|able)\b",
+        r"\bwhich\b.+\b(?:eligible|eligibility)\b",
+        r"\bcan\s+i\s+refund\b",
+        r"\bcould\s+i\s+refund\b",
+        r"\bcan\s+i\s+get\s+my\s+money\s+back\b",
+        r"\bam\s+i\s+eligible\b",
+        r"\bis\b.+\beligible\s+for\s+(?:a\s+)?refund\b",
+        r"\bcan\b.+\bbe\s+refund(?:ed|able)\b",
+        r"\brefund\s+eligibility\b",
+    )
+    if any(re.search(pattern, normalized_message) for pattern in eligibility_patterns):
+        return True
+
+    has_prior_refund_context = bool(
+        normalized_state.get("selected_refund_purchase_ids")
+        or normalized_state.get("selected_refund_context")
+    )
+    return has_prior_refund_context and has_context_reference(normalized_message)
+
+
+def parse_refund_workflow_mutation_intent(message: str) -> str | None:
+    """Return a blocked future-phase refund workflow mutation intent, if present."""
+    normalized_message = message.casefold()
+    if "refund" not in normalized_message and "return" not in normalized_message:
+        return None
+
+    mutation_patterns = (
+        r"\bstart\s+(?:the\s+|a\s+|my\s+)?refund\b",
+        r"\bbegin\s+(?:the\s+|a\s+|my\s+)?refund\b",
+        r"\bsubmit\s+(?:the\s+|a\s+|my\s+)?refund\b",
+        r"\bprocess\s+(?:the\s+|a\s+|my\s+)?refund\b",
+        r"\bissue\s+(?:the\s+|a\s+|my\s+)?refund\b",
+        r"\bprepare\s+(?:the\s+|a\s+|my\s+)?refund\b",
+        r"\bfile\s+(?:the\s+|a\s+|my\s+)?refund\b",
+        r"\brequest\s+(?:the\s+|a\s+|my\s+)?refund\b",
+        r"^\s*refund\s+(?:it|this|that|me|my\s+card|my\s+payment)\b",
+        r"\bgo\s+ahead\s+and\s+refund\b",
+        r"\bmake\s+the\s+refund\b",
+        r"\bcancel\s+and\s+refund\b",
+    )
+    if any(re.search(pattern, normalized_message) for pattern in mutation_patterns):
+        return "workflow"
+
+    return None
+
+
+def parse_refund_workflow_continuation_intent(message: str) -> str | None:
+    """Return whether text asks to continue the active refund workflow."""
+    normalized_message = message.casefold()
+    continuation_patterns = (
+        r"\bgenerate\s+(?:the\s+|a\s+)?return\s+label\b",
+        r"\bcreate\s+(?:the\s+|a\s+)?return\s+label\b",
+        r"\bstart\s+(?:the\s+|a\s+|my\s+)?return\b",
+        r"\bi(?:'d| would)\s+like\s+to\s+return\s+(?:it|the\s+item|this\s+item|that\s+item)\b",
+        r"\breturn\s+(?:it|the\s+item|this\s+item|that\s+item)\b",
+        r"^\s*proceed\s*[.!?]*\s*$",
+        r"^\s*yes,?\s+continue\s*[.!?]*\s*$",
+    )
+    if any(re.search(pattern, normalized_message) for pattern in continuation_patterns):
+        return "workflow_continuation"
+
+    return None
+
+
+def build_refund_workflow_action_not_wired_response(
+    active_refund_context: dict[str, Any],
+) -> str:
+    """Return a deterministic Phase 3 response for a resolved workflow action."""
+    product_name = active_refund_context["product_name"]
+    next_action = active_refund_context.get("next_action")
+
+    if active_refund_context.get("eligible") is not True:
+        return (
+            f"{product_name} is not eligible for a refund workflow, so there is "
+            "no refund action to continue."
+        )
+
+    if next_action == "generate_return_label":
+        return (
+            f"{product_name} is eligible, and the next required step is generating "
+            "a return label. That workflow action is not wired yet."
+        )
+
+    if isinstance(next_action, str) and next_action:
+        return (
+            f"{product_name} is eligible, and the next required step is "
+            f"{humanize_refund_action(next_action)}. That workflow action is not "
+            "wired yet."
+        )
+
+    return (
+        f"{product_name} is eligible for a refund workflow. The next workflow "
+        "action is not wired yet."
+    )
+
+
+def humanize_refund_action(action: str) -> str:
+    """Return user-facing text for backend refund action keys."""
+    labels = {
+        "generate_return_label": "generating a return label",
+        "invalidate_code": "invalidating the issued code",
+        "invalidate_digital_entitlement": "invalidating the issued code",
+        "cancel_subscription": "cancelling the subscription",
+        "await_carrier_acceptance": "waiting for carrier acceptance",
+        "issue_funds": "issuing funds",
+        "request_refund": "preparing the refund",
+    }
+    return labels.get(action, action.replace("_", " "))
+
+
+def selected_purchase_ids_for_refund_context(
+    application_service: ApplicationService | None,
+    customer_id: str | None,
+    message: str,
+    conversation_state: dict[str, Any],
+) -> list[str]:
+    """Resolve selected purchase ids for eligibility pronoun follow-ups."""
+    normalized_message = message.casefold()
+    selected_ids = conversation_state.get("selected_refund_purchase_ids") or conversation_state.get(
+        "selected_purchase_ids"
+    )
+    if not selected_ids:
+        return []
+
+    if has_temporal_purchase_reference(normalized_message) or has_reference_phrase(
+        normalized_message,
+        "that one",
+    ):
+        selected_purchase = resolve_purchase_from_selected_set(
+            application_service,
+            customer_id,
+            message,
+            {**conversation_state, "selected_purchase_ids": selected_ids},
+        )
+        return [selected_purchase["id"]] if selected_purchase is not None else []
+
+    if any(
+        has_reference_phrase(normalized_message, term)
+        for term in ("those", "them", "these")
+    ):
+        return [str(purchase_id) for purchase_id in selected_ids if isinstance(purchase_id, str)]
+
+    if has_reference_phrase(normalized_message, "one"):
+        selected_purchase = resolve_purchase_from_selected_set(
+            application_service,
+            customer_id,
+            message,
+            {**conversation_state, "selected_purchase_ids": selected_ids},
+        )
+        return [selected_purchase["id"]] if selected_purchase is not None else []
+
+    return []
+
+
 def has_policy_follow_up_intent(message: str, conversation_state: dict[str, Any]) -> bool:
     """Return whether a short follow-up can reuse prior policy context."""
-    if (
-        conversation_state.get("selected_policy_scope") is None
-        and conversation_state.get("selected_purchase_type") is None
-    ):
+    if conversation_state.get("selected_policy_scope") is None:
         return False
 
     normalized_message = message.casefold()
@@ -1618,11 +2458,16 @@ def has_policy_follow_up_intent(message: str, conversation_state: dict[str, Any]
         "those purchases",
         "them",
         "it",
+        "its",
         "this",
         "this item",
         "this purchase",
         "most recent one",
         "latest one",
+        "newest",
+        "oldest",
+        "earliest",
+        "first",
         "what about",
     )
     return any(has_reference_phrase(normalized_message, term) for term in follow_up_terms)
@@ -1632,10 +2477,13 @@ def extract_product_reference(message: str) -> str | None:
     """Extract a likely named product/SKU/order reference from supported follow-up text."""
     stripped_message = message.strip().strip("?.! ")
     normalized_message = stripped_message.casefold()
-    if not stripped_message or has_recent_purchase_reference(normalized_message):
+    if not stripped_message or has_purchase_ranking_reference(normalized_message):
         return None
 
     patterns = (
+        r"\bcan\s+i\s+refund\s+(?:my\s+|the\s+)?(.+)$",
+        r"\bcan\s+i\s+get\s+my\s+money\s+back\s+for\s+(?:my\s+|the\s+)?(.+)$",
+        r"\bcan\s+(?:my\s+|the\s+)?(.+?)\s+be\s+refunded\b",
         r"\bwhat\s+about\s+(?:the\s+)?(.+)$",
         r"\brefund\s+policy\s+for\s+(?:the\s+)?(.+)$",
         r"\bpolicy\s+for\s+(?:the\s+)?(.+)$",
@@ -1680,10 +2528,34 @@ def is_named_product_reference(candidate: str) -> bool:
         "those purchases",
         "this",
         "this item",
+        "this product",
+        "this purchase",
+        "this order",
         "it",
+        "its",
         "one",
+        "last one",
+        "last purchase",
+        "first one",
+        "first purchase",
         "latest one",
         "most recent one",
+        "latest",
+        "most recent",
+        "newest",
+        "newest one",
+        "oldest",
+        "oldest one",
+        "earliest",
+        "earliest one",
+        "first",
+        "cheapest",
+        "least expensive",
+        "lowest price",
+        "lowest priced",
+        "most expensive",
+        "highest price",
+        "highest priced",
     }:
         return False
     if is_generic_purchase_type_reference(normalized_candidate):
@@ -1761,6 +2633,8 @@ def match_purchase_reference(
     ]
     if len(partial_matches) == 1:
         return build_resolved_purchase(partial_matches[0])
+    if len(partial_matches) > 1:
+        return None
 
     fuzzy_matches = sorted(
         (
@@ -1779,6 +2653,8 @@ def match_purchase_reference(
         key=lambda match: match[0],
     )
     if fuzzy_matches and fuzzy_matches[0][0] >= 0.78:
+        if len(fuzzy_matches) > 1 and fuzzy_matches[1][0] >= 0.74:
+            return None
         return build_resolved_purchase(fuzzy_matches[0][1])
 
     return None
@@ -1789,6 +2665,7 @@ def purchase_search_values(purchase: dict[str, Any]) -> list[str]:
     return [
         normalize_match_text(str(value))
         for value in (
+            purchase.get("id"),
             purchase.get("product_name"),
             purchase.get("sku"),
             purchase.get("order_number"),
@@ -1825,13 +2702,30 @@ def resolve_purchase_mention(
     )
 
 
+def resolve_selected_single_purchase(
+    application_service: ApplicationService | None,
+    customer_id: str | None,
+    message: str,
+    conversation_state: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Resolve vague singular follow-ups to the selected purchase before set scope."""
+    if not has_selected_single_purchase_reference(message):
+        return None
+
+    selected_purchase_id = conversation_state.get("selected_purchase_id")
+    if not isinstance(selected_purchase_id, str):
+        return None
+
+    return resolve_purchase_by_id(application_service, customer_id, selected_purchase_id)
+
+
 def resolve_purchase_from_selected_set(
     application_service: ApplicationService | None,
     customer_id: str | None,
     message: str,
     conversation_state: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """Resolve pronoun follow-ups inside the previously selected purchase set."""
+    """Resolve pronoun and ranking follow-ups inside the selected purchase set."""
     if not has_selected_set_reference(message):
         return None
 
@@ -1847,7 +2741,11 @@ def resolve_purchase_from_selected_set(
         return build_resolved_purchase(purchases[0])
 
     normalized_message = message.casefold()
-    if has_recent_purchase_reference(normalized_message) or "one" in normalized_message:
+    ranking_reference = parse_purchase_ranking_reference(normalized_message)
+    ranked_purchase = select_ranked_purchase(purchases, ranking_reference)
+    if ranked_purchase is not None:
+        return build_resolved_purchase(ranked_purchase)
+    if has_reference_phrase(normalized_message, "one"):
         return build_resolved_purchase(sort_purchases_by_recency(purchases)[0])
 
     selected_purchase_type = conversation_state.get("selected_purchase_type")
@@ -1863,13 +2761,40 @@ def resolve_purchase_from_selected_set(
     return None
 
 
-def resolve_global_recent_purchase(
+def has_selected_single_purchase_reference(message: str) -> bool:
+    """Return whether text points at the current selected purchase, not a set."""
+    normalized_message = message.casefold()
+    if has_purchase_ranking_reference(normalized_message):
+        return False
+    if any(
+        has_reference_phrase(normalized_message, term)
+        for term in ("those", "them", "these", "those purchases")
+    ):
+        return False
+    return any(
+        has_reference_phrase(normalized_message, term)
+        for term in (
+            "it",
+            "its",
+            "that",
+            "that item",
+            "that purchase",
+            "that product",
+            "this item",
+            "this purchase",
+            "this product",
+        )
+    )
+
+
+def resolve_global_ranked_purchase(
     application_service: ApplicationService | None,
     customer_id: str | None,
     message: str,
 ) -> dict[str, Any] | None:
-    """Resolve global latest/most-recent references only when no selected set exists."""
-    if not has_recent_purchase_reference(message.casefold()):
+    """Resolve global ranked references only when no selected set exists."""
+    ranking_reference = parse_purchase_ranking_reference(message.casefold())
+    if ranking_reference is None:
         return None
     if application_service is None or customer_id is None:
         return None
@@ -1878,7 +2803,103 @@ def resolve_global_recent_purchase(
     if not purchases:
         return None
 
-    return build_resolved_purchase(sort_purchases_by_recency(purchases)[0])
+    ranked_purchase = select_ranked_purchase(purchases, ranking_reference)
+    return build_resolved_purchase(ranked_purchase) if ranked_purchase is not None else None
+
+
+def resolve_ranked_purchase_context(
+    application_service: ApplicationService | None,
+    customer_id: str | None,
+    message: str,
+    conversation_state: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Resolve non-policy ranked purchase questions from backend purchase rows."""
+    normalized_state = normalize_conversation_state(conversation_state)
+    ranking_reference = parse_purchase_ranking_reference(message)
+    if ranking_reference is None:
+        return None
+
+    selected_purchase_ids = normalized_state.get("selected_purchase_ids")
+    purchases = (
+        list_purchases_by_ids(application_service, customer_id, selected_purchase_ids)
+        if selected_purchase_ids
+        else (
+            application_service.list_user_purchases(customer_id)
+            if application_service is not None and customer_id is not None
+            else []
+        )
+    )
+    ranked_purchase = select_ranked_purchase(purchases, ranking_reference)
+    return (
+        build_resolved_purchase_fact(ranked_purchase)
+        if ranked_purchase is not None
+        else None
+    )
+
+
+def resolve_purchase_fact_context(
+    application_service: ApplicationService | None,
+    customer_id: str | None,
+    message: str,
+    conversation_state: dict[str, Any] | None,
+    page_context: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Resolve deterministic purchase facts before honoring model tool choices."""
+    normalized_message = message.casefold()
+    normalized_state = normalize_conversation_state(conversation_state)
+
+    if has_page_context_reference(normalized_message):
+        page_purchase = resolve_purchase_fact_by_id(
+            application_service,
+            customer_id,
+            normalize_page_context(page_context).get("purchase_id"),
+        )
+        if page_purchase is not None:
+            return page_purchase
+
+    product_reference = extract_product_reference(message)
+    if product_reference is not None:
+        explicit_purchase = resolve_purchase_reference_fact(
+            application_service,
+            customer_id,
+            product_reference,
+        )
+        if explicit_purchase is not None:
+            return explicit_purchase
+
+    if has_selected_single_purchase_reference(message):
+        selected_purchase = resolve_purchase_fact_by_id(
+            application_service,
+            customer_id,
+            normalized_state.get("selected_purchase_id"),
+        )
+        if selected_purchase is not None:
+            return selected_purchase
+
+    return resolve_ranked_purchase_context(
+        application_service,
+        customer_id,
+        message,
+        normalized_state,
+    )
+
+
+def select_ranked_purchase(
+    purchases: list[dict[str, Any]],
+    ranking_reference: str | None,
+) -> dict[str, Any] | None:
+    """Select one purchase by a parsed ranking reference."""
+    if not purchases or ranking_reference is None:
+        return None
+    if ranking_reference == "newest":
+        return sort_purchases_by_recency(purchases)[0]
+    if ranking_reference == "oldest":
+        return sort_purchases_by_recency(purchases)[-1]
+    if ranking_reference == "cheapest":
+        return min(purchases, key=lambda purchase: int(purchase.get("amount_cents") or 0))
+    if ranking_reference == "most_expensive":
+        return max(purchases, key=lambda purchase: int(purchase.get("amount_cents") or 0))
+    return None
 
 
 def list_purchases_by_ids(
@@ -1896,6 +2917,42 @@ def list_purchases_by_ids(
         for purchase in application_service.list_user_purchases(customer_id)
         if str(purchase.get("id")) in selected_ids
     ]
+
+
+def resolve_purchase_reference_fact(
+    application_service: ApplicationService | None,
+    customer_id: str | None,
+    product_reference: str,
+) -> dict[str, Any] | None:
+    """Resolve a named purchase reference and return fact fields."""
+    resolved_purchase = resolve_purchase_reference(
+        application_service,
+        customer_id,
+        product_reference,
+    )
+    if resolved_purchase is None:
+        return None
+    return resolve_purchase_fact_by_id(
+        application_service,
+        customer_id,
+        resolved_purchase["id"],
+    )
+
+
+def resolve_purchase_fact_by_id(
+    application_service: ApplicationService | None,
+    customer_id: str | None,
+    purchase_id: str | None,
+) -> dict[str, Any] | None:
+    """Resolve one purchase id to model-facing fact fields."""
+    if application_service is None or customer_id is None or purchase_id is None:
+        return None
+
+    for purchase in application_service.list_user_purchases(customer_id):
+        if str(purchase.get("id")) == purchase_id:
+            return build_resolved_purchase_fact(purchase)
+
+    return None
 
 
 def sort_purchases_by_recency(purchases: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1934,6 +2991,17 @@ def build_resolved_purchase(purchase: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_resolved_purchase_fact(purchase: dict[str, Any]) -> dict[str, Any]:
+    """Return a small resolved purchase shape for model-facing account facts."""
+    amount_cents = int(purchase.get("amount_cents") or 0)
+    return {
+        **build_resolved_purchase(purchase),
+        "amount_cents": amount_cents,
+        "amount_display": format_cents(amount_cents),
+        "purchased_at": purchase.get("purchased_at"),
+    }
+
+
 def normalize_match_text(value: str) -> str:
     """Normalize text for lightweight product resolution."""
     return " ".join(re.sub(r"[^a-z0-9]+", " ", value.casefold()).split())
@@ -1946,6 +3014,21 @@ def has_selected_set_reference(message: str) -> bool:
         "one",
         "that one",
         "those",
+        "last one",
+        "last purchase",
+        "first one",
+        "first purchase",
+        "latest",
+        "most recent",
+        "newest",
+        "oldest",
+        "earliest",
+        "first",
+        "cheapest",
+        "least expensive",
+        "lowest price",
+        "most expensive",
+        "highest price",
         "most recent one",
         "latest one",
     )
@@ -1954,10 +3037,74 @@ def has_selected_set_reference(message: str) -> bool:
 
 def has_recent_purchase_reference(message: str) -> bool:
     """Return whether text asks for the latest purchase in the active scope."""
-    return has_reference_phrase(message, "latest one") or has_reference_phrase(
-        message,
-        "most recent one",
-    )
+    return parse_temporal_purchase_reference(message) == "newest"
+
+
+def has_temporal_purchase_reference(message: str) -> bool:
+    """Return whether text asks for a temporal purchase in the active scope."""
+    return parse_temporal_purchase_reference(message) is not None
+
+
+def has_purchase_ranking_reference(message: str) -> bool:
+    """Return whether text asks for a ranked purchase in the active scope."""
+    return parse_purchase_ranking_reference(message) is not None
+
+
+def parse_purchase_ranking_reference(message: str) -> str | None:
+    """Return a supported purchase ranking reference from user text."""
+    normalized_message = message.casefold()
+    temporal_reference = parse_temporal_purchase_reference(normalized_message)
+    if temporal_reference is not None:
+        return temporal_reference
+    if any(
+        has_reference_phrase(normalized_message, term)
+        for term in ("cheapest", "least expensive", "lowest price", "lowest priced")
+    ):
+        return "cheapest"
+    if any(
+        has_reference_phrase(normalized_message, term)
+        for term in ("most expensive", "highest price", "highest priced")
+    ):
+        return "most_expensive"
+    return None
+
+
+def parse_temporal_purchase_reference(message: str) -> str | None:
+    """Return newest/oldest when text asks for a temporal purchase reference."""
+    normalized_message = message.casefold()
+    if any(
+        has_reference_phrase(normalized_message, term)
+        for term in (
+            "latest",
+            "latest one",
+            "most recent",
+            "most recent one",
+            "newest",
+            "newest one",
+            "last one",
+            "last purchase",
+        )
+    ):
+        return "newest"
+
+    if any(
+        has_reference_phrase(normalized_message, term)
+        for term in ("oldest", "oldest one", "earliest", "earliest one")
+    ):
+        return "oldest"
+    if any(
+        has_reference_phrase(normalized_message, term)
+        for term in ("first one", "first purchase")
+    ) or (
+        has_reference_phrase(normalized_message, "first")
+        and not any(
+            has_reference_phrase(normalized_message, term)
+            for term in ("first week", "first month", "first quarter")
+        )
+    ):
+        return "oldest"
+
+    return None
 
 
 def has_reference_phrase(message: str, phrase: str) -> bool:
@@ -1974,6 +3121,7 @@ def update_conversation_state(
     current_state: dict[str, Any] | None,
     tool_results: list[dict[str, Any]],
     policy_lookup_query: dict[str, Any] | None,
+    eligibility_resolution: EligibilityResolution | None,
     resolved_purchase: dict[str, Any] | None,
     page_reference: dict[str, Any] | None,
 ) -> dict[str, Any]:
@@ -1987,9 +3135,23 @@ def update_conversation_state(
         next_state["selected_purchase_type"] = explicit_type
 
     if resolved_purchase is not None:
+        active_refund_context = next_state.get("active_refund_context")
+        selected_purchase_ids = next_state.get("selected_purchase_ids") or []
         next_state["selected_purchase_id"] = resolved_purchase["id"]
         next_state["selected_product"] = resolved_purchase["product_name"]
         next_state["selected_purchase_type"] = resolved_purchase["purchase_type"]
+        if (
+            selected_purchase_ids
+            and resolved_purchase["id"] not in selected_purchase_ids
+            and has_explicit_resolved_purchase_reference(message, resolved_purchase)
+        ):
+            next_state["selected_purchase_ids"] = []
+            next_state["selected_scope_label"] = None
+        if (
+            isinstance(active_refund_context, dict)
+            and active_refund_context.get("purchase_id") != resolved_purchase["id"]
+        ):
+            next_state["active_refund_context"] = None
 
     if page_reference is not None:
         next_state["current_page"] = page_reference
@@ -1998,6 +3160,19 @@ def update_conversation_state(
         next_state["selected_policy_scope"] = policy_lookup_query["scope"]
         if policy_lookup_query.get("purchase_type") is not None:
             next_state["selected_purchase_type"] = policy_lookup_query["purchase_type"]
+
+    if eligibility_resolution is not None and eligibility_resolution.purchase_ids:
+        next_state["selected_refund_purchase_ids"] = eligibility_resolution.purchase_ids
+        next_state["selected_refund_context"] = eligibility_resolution.context
+        next_state["selected_purchase_ids"] = eligibility_resolution.purchase_ids
+        if eligibility_resolution.resolved_purchase is not None:
+            next_state["selected_purchase_id"] = eligibility_resolution.resolved_purchase["id"]
+            next_state["selected_product"] = eligibility_resolution.resolved_purchase[
+                "product_name"
+            ]
+            next_state["selected_purchase_type"] = eligibility_resolution.resolved_purchase[
+                "purchase_type"
+            ]
 
     for tool_result in tool_results:
         result = tool_result.get("result", {})
@@ -2009,13 +3184,18 @@ def update_conversation_state(
                     for purchase_id in matching_purchase_ids
                     if isinstance(purchase_id, str)
                 ]
+                next_state["selected_scope_label"] = build_threshold_scope_label(result)
+                next_state["selected_policy_scope"] = None
         if tool_result.get("name") == "get_purchase_history_by_date_range":
-            next_state["selected_date_range"] = result.get("date_range")
+            date_range = result.get("date_range")
+            next_state["selected_date_range"] = date_range
             next_state["selected_purchase_ids"] = [
                 str(purchase["id"])
                 for purchase in result.get("purchases", [])
                 if isinstance(purchase.get("id"), str)
             ]
+            next_state["selected_scope_label"] = build_date_range_scope_label(date_range)
+            next_state["selected_policy_scope"] = None
         if tool_result.get("name") in {
             "get_customer_purchase_history",
             "get_purchase_history_by_date_range",
@@ -2032,11 +3212,128 @@ def update_conversation_state(
                     for purchase in matching_purchases
                     if isinstance(purchase.get("id"), str)
                 ]
+                next_state["selected_scope_label"] = build_purchase_type_scope_label(
+                    selected_type
+                )
+                next_state["selected_policy_scope"] = None
                 if len(matching_purchases) == 1:
                     next_state["selected_purchase_id"] = matching_purchases[0]["id"]
                     next_state["selected_product"] = matching_purchases[0]["product_name"]
+        if tool_result.get("name") == "get_refund_eligibility":
+            active_refund_context = build_active_refund_context_from_eligibility_result(
+                result
+            )
+            next_state["active_refund_context"] = active_refund_context
 
     return next_state
+
+
+def build_purchase_type_scope_label(purchase_type: str) -> str:
+    """Return customer-facing scope labels for purchase-type aggregates."""
+    labels = {
+        "digital": "your digital purchases",
+        "physical": "your physical purchases",
+        "subscription": "your subscriptions",
+    }
+    return labels.get(purchase_type, "your purchases")
+
+
+def build_date_range_scope_label(date_range: Any) -> str | None:
+    """Return customer-facing scope labels for date-range aggregates."""
+    if not isinstance(date_range, dict):
+        return None
+    label = date_range.get("label")
+    if not isinstance(label, str) or not label.strip():
+        return None
+    normalized_label = label.casefold()
+    if normalized_label in {"last week", "this week"}:
+        return f"{normalized_label}'s purchases"
+    return f"purchases from {label}"
+
+
+def build_threshold_scope_label(result: dict[str, Any]) -> str | None:
+    """Return customer-facing scope labels for amount-threshold aggregates."""
+    comparison = result.get("comparison")
+    threshold_dollars = result.get("threshold_dollars")
+    if comparison not in {"gt", "gte", "lt", "lte"} or not isinstance(
+        threshold_dollars,
+        str,
+    ):
+        return None
+    comparison_labels = {
+        "gt": "over",
+        "gte": "at least",
+        "lt": "under",
+        "lte": "at most",
+    }
+    return f"purchases {comparison_labels[comparison]} ${threshold_dollars}"
+
+
+def has_explicit_resolved_purchase_reference(
+    message: str,
+    resolved_purchase: dict[str, Any],
+) -> bool:
+    """Return whether text explicitly names the resolved purchase or identifiers."""
+    normalized_message = normalize_match_text(message)
+    for key in ("id", "product_name", "sku", "order_number"):
+        value = resolved_purchase.get(key)
+        if not isinstance(value, str):
+            continue
+        normalized_value = normalize_match_text(value)
+        if normalized_value and normalized_value in normalized_message:
+            return True
+    return extract_product_reference(message) is not None
+
+
+def build_active_refund_context_from_eligibility_result(
+    result: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build active refund context from a single resolved eligibility result."""
+    purchases = result.get("purchases")
+    if not isinstance(purchases, list) or len(purchases) != 1:
+        return None
+
+    purchase = purchases[0]
+    if not isinstance(purchase, dict):
+        return None
+
+    purchase_id = purchase.get("id")
+    product_name = purchase.get("product_name")
+    purchase_type = purchase.get("purchase_type")
+    required_action = purchase.get("required_action")
+    eligible = purchase.get("can_enter_refund_workflow") is True
+    if (
+        not isinstance(purchase_id, str)
+        or not isinstance(product_name, str)
+        or purchase_type not in {"physical", "digital", "subscription"}
+    ):
+        return None
+
+    next_action = required_action if isinstance(required_action, str) else None
+    if next_action == "none":
+        next_action = None
+
+    if not eligible:
+        stage = "ineligible"
+        next_action = None
+    elif next_action == "generate_return_label":
+        stage = "awaiting_return_label"
+    else:
+        stage = "eligibility_confirmed"
+
+    reasons = purchase.get("reasons")
+    if not isinstance(reasons, list):
+        reasons = []
+
+    return {
+        "purchase_id": purchase_id,
+        "product_name": product_name,
+        "purchase_type": purchase_type,
+        "eligible": eligible,
+        "stage": stage,
+        "next_action": next_action,
+        "reason_codes": [reason for reason in reasons if isinstance(reason, str)],
+    }
 
 
 def update_conversation_state_for_page_reference(
@@ -2067,7 +3364,9 @@ def parse_refund_policy_query(
     has_release_intent = has_funds_release_intent(normalized_message)
     if not has_refund_domain and not has_release_intent:
         return None
-    if parse_blocked_refund_intent(message) is not None:
+    if has_refund_eligibility_intent(message):
+        return None
+    if parse_refund_workflow_mutation_intent(message) is not None:
         return None
 
     purchase_type = parse_policy_purchase_type(normalized_message)
@@ -2094,49 +3393,38 @@ def has_context_reference(message: str) -> bool:
         "those",
         "them",
         "it",
+        "its",
         "this",
         "this item",
         "this purchase",
         "these",
+        "latest",
+        "most recent",
+        "newest",
+        "oldest",
+        "earliest",
+        "first",
         "most recent one",
         "latest one",
     )
     return any(has_reference_phrase(message, term) for term in reference_terms)
 
 
+def has_page_context_reference(message: str) -> bool:
+    """Return whether text explicitly points at the current page purchase."""
+    reference_terms = (
+        "this",
+        "this item",
+        "this product",
+        "this purchase",
+        "this order",
+    )
+    return any(has_reference_phrase(message, term) for term in reference_terms)
+
+
 def parse_blocked_refund_intent(message: str) -> str | None:
-    """Return a blocked future-phase refund intent, if present."""
-    normalized_message = message.casefold()
-    if "refund" not in normalized_message and "return" not in normalized_message:
-        return None
-
-    workflow_terms = (
-        "begin",
-        "cancel",
-        "file",
-        "issue",
-        "process",
-        "request",
-        "start",
-        "submit",
-    )
-    if any(term in normalized_message for term in workflow_terms):
-        return "workflow"
-
-    eligibility_terms = (
-        "am i eligible",
-        "can be refunded",
-        "can i get",
-        "can i refund",
-        "can it be refunded",
-        "eligible",
-        "eligibility",
-        "which",
-    )
-    if any(term in normalized_message for term in eligibility_terms):
-        return "eligibility"
-
-    return None
+    """Return blocked refund mutation intent for backward-compatible callers."""
+    return parse_refund_workflow_mutation_intent(message)
 
 
 def has_policy_lookup_intent(message: str) -> bool:
@@ -2211,6 +3499,19 @@ def parse_model_refund_policy_arguments(arguments: dict[str, Any]) -> dict[str, 
     if purchase_type is not None and purchase_type not in {"digital", "physical", "subscription"}:
         return None
     return {"scope": scope, "purchase_type": purchase_type}
+
+
+def parse_model_refund_eligibility_arguments(arguments: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate model-provided refund-eligibility arguments before tool execution."""
+    purchase_ids = arguments.get("purchase_ids")
+    context = arguments.get("context", "model_requested")
+    if not isinstance(purchase_ids, list) or not purchase_ids:
+        return None
+    if not all(isinstance(purchase_id, str) for purchase_id in purchase_ids):
+        return None
+    if not isinstance(context, str) or not context:
+        context = "model_requested"
+    return {"purchase_ids": purchase_ids, "context": context}
 
 
 def amount_matches_threshold(amount_cents: int, threshold_cents: int, comparison: str) -> bool:
@@ -2317,6 +3618,37 @@ def get_refund_policy_tool_schema() -> dict[str, Any]:
     }
 
 
+def get_refund_eligibility_tool_schema() -> dict[str, Any]:
+    """Return the OpenAI tool schema for read-only backend refund eligibility."""
+    return {
+        "name": "get_refund_eligibility",
+        "description": (
+            "Evaluate read-only refund eligibility for backend-resolved purchase ids. "
+            "This tool does not start, prepare, submit, process, or issue refunds."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "purchase_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "description": "Purchase ids already resolved by the backend chat graph.",
+                },
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "Small context label such as product, digital, current_page, "
+                        "selected_set, date_range, or all_purchases."
+                    ),
+                },
+            },
+            "required": ["purchase_ids"],
+            "additionalProperties": False,
+        },
+    }
+
+
 def get_customer_purchase_history_tool_schema() -> dict[str, Any]:
     """Return the OpenAI tool schema for the purchase-history reader."""
     return {
@@ -2407,6 +3739,74 @@ def get_purchase_count_by_amount_threshold(
         "threshold_cents": threshold_cents,
         "threshold_dollars": cents_to_dollar_string(threshold_cents),
         "comparison": comparison,
+    }
+
+
+def get_refund_eligibility(
+    application_service: ApplicationService,
+    customer_id: str,
+    *,
+    purchase_ids: list[str],
+    context: str,
+) -> dict[str, Any]:
+    """Return backend-evaluated read-only refund eligibility for active purchases."""
+    active_purchases = {
+        str(purchase["id"]): purchase
+        for purchase in application_service.list_user_purchases(customer_id)
+    }
+    resolved_purchase_ids = [
+        purchase_id
+        for purchase_id in dict.fromkeys(purchase_ids)
+        if isinstance(purchase_id, str) and purchase_id in active_purchases
+    ]
+    rows: list[dict[str, Any]] = []
+    timezone = get_timezone(DEFAULT_CUSTOMER_TIMEZONE)
+
+    for purchase_id in resolved_purchase_ids:
+        purchase = active_purchases[purchase_id]
+        workflow = application_service.get_refund_workflow(purchase_id)
+        amount_cents = int(purchase["amount_cents"])
+        refundable_amount_cents = int(workflow["refundable_amount_cents"])
+        rows.append(
+            {
+                "id": purchase_id,
+                "order_number": purchase["order_number"],
+                "sku": purchase.get("sku"),
+                "product_name": purchase["product_name"],
+                "purchase_type": purchase["purchase_type"],
+                "status": purchase["status"],
+                "amount_cents": amount_cents,
+                "amount_dollars": cents_to_dollar_string(amount_cents),
+                "amount_display": format_cents(amount_cents),
+                "purchased_at": purchase["purchased_at"],
+                "purchased_date_display": format_date(purchase["purchased_at"], timezone),
+                "refund_stage": workflow["refund_stage"],
+                "can_enter_refund_workflow": workflow["can_enter_refund_workflow"],
+                "can_prepare_refund": workflow["can_prepare_refund"],
+                "can_issue_funds": workflow["can_issue_funds"],
+                "required_action": workflow["required_action"],
+                "refund_outcome": workflow["refund_outcome"],
+                "refundable_amount_cents": refundable_amount_cents,
+                "refundable_amount_dollars": cents_to_dollar_string(refundable_amount_cents),
+                "refundable_amount_display": format_cents(refundable_amount_cents),
+                "reasons": workflow["reasons"],
+                "policy_facts": workflow["policy_facts"],
+            }
+        )
+
+    return {
+        "customer_id": customer_id,
+        "context": context,
+        "requested_purchase_ids": purchase_ids,
+        "resolved_purchase_ids": resolved_purchase_ids,
+        "purchase_count": len(rows),
+        "eligible_count": sum(
+            1 for row in rows if row["can_enter_refund_workflow"] is True
+        ),
+        "blocked_count": sum(1 for row in rows if row["refund_stage"] == "blocked"),
+        "prepared_count": sum(1 for row in rows if row["refund_stage"] == "prepared"),
+        "issued_count": sum(1 for row in rows if row["refund_stage"] == "issued"),
+        "purchases": rows,
     }
 
 
@@ -2509,10 +3909,509 @@ def log_trace_step(
     )
     console_logger.log(
         level,
-        "ai.chat.trace %s",
-        json.dumps(event, default=str, sort_keys=True),
+        "%s",
+        format_trace_console_message(event),
     )
     return {**state, "trace_step": step + 1}
+
+
+def format_trace_console_message(event: dict[str, Any]) -> str:
+    """Return a compact, human-readable console summary for one trace event."""
+    event_type = str(event.get("type", "unknown"))
+    step = event.get("step", "?")
+    message = str(event.get("message", "")).strip()
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    details = trace_console_details(event_type, data)
+    summary = f"AI graph step {step}: {humanize_event_type(event_type)}"
+    if message:
+        summary = f"{summary} - {message}"
+    if details:
+        summary = f"{summary} ({details})"
+    return summary
+
+
+def build_model_context_summary(
+    state: dict[str, Any],
+    *,
+    tool_results: list[dict[str, Any]] | None = None,
+    page_reference: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return compact context describing what the model can use."""
+    effective_tool_results = tool_results
+    if effective_tool_results is None:
+        maybe_tool_results = state.get("tool_results")
+        effective_tool_results = maybe_tool_results if isinstance(maybe_tool_results, list) else []
+
+    return {
+        "conversation_state": summarize_conversation_state(
+            state.get("conversation_state")
+        ),
+        "page_context": page_context_label(state.get("page_context")),
+        "page_reference": page_reference_label(page_reference or state.get("page_reference")),
+        "tool_results": summarize_tool_results_for_context(effective_tool_results),
+        "intents": summarize_intents(state),
+        "blocked_intent": state.get("blocked_intent"),
+    }
+
+
+def build_compact_model_context_message(
+    state: dict[str, Any],
+    *,
+    tool_results: list[dict[str, Any]] | None = None,
+    page_reference: dict[str, Any] | None = None,
+) -> dict[str, str] | None:
+    """Return a small model-visible context message for follow-up grounding."""
+    payload = compact_model_context_payload(
+        state,
+        tool_results=tool_results,
+        page_reference=page_reference,
+    )
+    if not payload:
+        return None
+
+    return {
+        "role": "user",
+        "content": (
+            "Compact conversation context for resolving follow-up references: "
+            f"{json.dumps(payload, default=str, sort_keys=True)}"
+        ),
+    }
+
+
+def compact_model_context_payload(
+    state: dict[str, Any],
+    *,
+    tool_results: list[dict[str, Any]] | None = None,
+    page_reference: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return only model-relevant state, without transcript or page payloads."""
+    conversation_state = normalize_conversation_state(state.get("conversation_state"))
+    payload: dict[str, Any] = {}
+
+    compact_state: dict[str, Any] = {}
+    for key in (
+        "selected_purchase_type",
+        "selected_product",
+        "selected_purchase_id",
+        "selected_scope_label",
+        "selected_policy_scope",
+        "selected_refund_context",
+    ):
+        value = conversation_state.get(key)
+        if value:
+            compact_state[key] = value
+
+    selected_purchase_ids = [
+        str(purchase_id)
+        for purchase_id in conversation_state.get("selected_purchase_ids", [])
+        if isinstance(purchase_id, str)
+    ]
+    if selected_purchase_ids:
+        compact_state["selected_purchase_ids"] = {
+            "count": len(selected_purchase_ids),
+            "ids": [short_id(purchase_id) for purchase_id in selected_purchase_ids[:5]],
+        }
+
+    selected_refund_purchase_ids = [
+        str(purchase_id)
+        for purchase_id in conversation_state.get("selected_refund_purchase_ids", [])
+        if isinstance(purchase_id, str)
+    ]
+    if selected_refund_purchase_ids:
+        compact_state["selected_refund_purchase_ids"] = {
+            "count": len(selected_refund_purchase_ids),
+            "ids": [
+                short_id(purchase_id) for purchase_id in selected_refund_purchase_ids[:5]
+            ],
+        }
+
+    active_refund_context = conversation_state.get("active_refund_context")
+    if isinstance(active_refund_context, dict):
+        compact_state["active_refund_context"] = {
+            key: active_refund_context[key]
+            for key in (
+                "purchase_id",
+                "product_name",
+                "purchase_type",
+                "eligible",
+                "stage",
+                "next_action",
+            )
+            if key in active_refund_context
+        }
+
+    current_page = page_reference or conversation_state.get("current_page")
+    if isinstance(current_page, dict) and current_page.get("surface") == "purchase_detail":
+        current_page_purchase = current_page.get("purchase")
+        if not isinstance(current_page_purchase, dict):
+            current_page_purchase = current_page
+        compact_page_purchase: dict[str, Any] = {}
+        purchase_id = current_page.get("purchase_id") or current_page_purchase.get("id")
+        if purchase_id:
+            compact_page_purchase["purchase_id"] = purchase_id
+        for key in ("product_name", "purchase_type"):
+            if current_page_purchase.get(key):
+                compact_page_purchase[key] = current_page_purchase[key]
+        if compact_page_purchase:
+            compact_state["current_page_purchase"] = compact_page_purchase
+
+    if compact_state:
+        payload["conversation_state"] = compact_state
+
+    resolved_purchase = state.get("resolved_context_purchase")
+    if isinstance(resolved_purchase, dict):
+        payload["resolved_purchase"] = {
+            key: resolved_purchase[key]
+            for key in ("id", "product_name", "purchase_type", "amount_display", "purchased_at")
+            if resolved_purchase.get(key)
+        }
+
+    effective_tool_results = tool_results
+    if effective_tool_results is None:
+        maybe_tool_results = state.get("tool_results")
+        effective_tool_results = maybe_tool_results if isinstance(maybe_tool_results, list) else []
+    if effective_tool_results:
+        payload["available_tool_results"] = summarize_tool_results_for_context(
+            effective_tool_results
+        )
+
+    blocked_intent = state.get("blocked_intent")
+    if blocked_intent:
+        payload["blocked_intent"] = blocked_intent
+
+    return payload
+
+
+def humanize_event_type(event_type: str) -> str:
+    """Convert a dotted trace event type into readable console text."""
+    labels = {
+        "graph.started": "Graph started",
+        "graph.stopped": "Graph stopped",
+        "message.received": "Message received",
+        "model.failure": "Model unavailable",
+        "model.invalid_tool_output": "Invalid model tool output",
+        "model.requested": "Model requested",
+        "response.blocked": "Response blocked",
+        "response.generated": "Response generated",
+        "route.response_returned": "Route response returned",
+        "tool_call.completed": "Tool completed",
+        "tool_call.executing": "Tool executing",
+        "tool_call.forced": "Tool forced",
+        "tool_call.ignored": "Tool ignored",
+        "tool_call.overridden": "Tool overridden",
+        "tool_call.requested": "Tool requested",
+        "tool_call.skipped": "Tool skipped",
+    }
+    return labels.get(event_type, event_type.replace("_", " ").replace(".", " ").title())
+
+
+def trace_console_details(event_type: str, data: dict[str, Any]) -> str:
+    """Return event-specific details without dumping nested payloads."""
+    if event_type == "message.received":
+        return join_trace_fields(
+            message=shorten_text(data.get("message")),
+            customer=short_id(data.get("customer_id")),
+            purchase=short_id(data.get("purchase_id")),
+            page=page_context_label(data.get("page_context")),
+            state=summarize_conversation_state(data.get("conversation_state")),
+        )
+
+    if event_type == "graph.started":
+        return join_trace_fields(
+            customer=short_id(data.get("customer_id")),
+            purchase=short_id(data.get("purchase_id")),
+            page=page_context_label(data.get("page_context")),
+            model=data.get("model"),
+        )
+
+    if event_type == "model.requested":
+        return join_trace_fields(
+            phase=data.get("phase"),
+            model=data.get("model"),
+            messages=count_items(data.get("messages")),
+            tools=tool_names(data.get("tools")),
+            context=summarize_model_context(data.get("model_context")),
+        )
+
+    if event_type == "tool_call.requested":
+        return join_trace_fields(
+            tools=tool_call_names(data.get("tool_calls")),
+            content=shorten_text(data.get("model_content")),
+        )
+
+    if event_type in {
+        "tool_call.executing",
+        "tool_call.completed",
+        "tool_call.forced",
+        "tool_call.overridden",
+        "tool_call.ignored",
+    }:
+        return tool_trace_details(event_type, data)
+
+    if event_type == "tool_call.skipped":
+        return join_trace_fields(reason=data.get("reason"))
+
+    if event_type == "response.blocked":
+        return join_trace_fields(
+            reason=data.get("reason"),
+            product=data.get("product_reference"),
+            context=summarize_model_context(data.get("model_context")),
+        )
+
+    if event_type == "response.generated":
+        return join_trace_fields(
+            model=data.get("model"),
+            tools=data.get("tool_result_count"),
+            response=shorten_text(data.get("assistant_response")),
+        )
+
+    if event_type == "route.response_returned":
+        response = data.get("response") if isinstance(data.get("response"), dict) else {}
+        message = response.get("message") if isinstance(response.get("message"), dict) else {}
+        return join_trace_fields(
+            model=data.get("model"),
+            graph_ready=data.get("graph_ready"),
+            response=shorten_text(message.get("content")),
+            state=summarize_conversation_state(response.get("conversation_state")),
+        )
+
+    if event_type in {"graph.stopped", "model.failure", "model.invalid_tool_output"}:
+        return join_trace_fields(
+            reason=data.get("reason"),
+            model=data.get("model"),
+            detail=shorten_text(data.get("detail")),
+        )
+
+    return summarize_flat_trace_data(data)
+
+
+def tool_trace_details(event_type: str, data: dict[str, Any]) -> str:
+    """Return concise details for one tool-related trace event."""
+    result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    return join_trace_fields(
+        tool=data.get("tool_name"),
+        requested=data.get("requested_tool_name"),
+        reason=data.get("reason"),
+        customer=short_id(data.get("customer_id") or data.get("effective_customer_id")),
+        purchase_ids=summarize_ids(data.get("purchase_ids") or data.get("effective_purchase_ids")),
+        context=data.get("context"),
+        result=summarize_tool_result(result) if result else None,
+        arguments="invalid" if event_type == "tool_call.ignored" else None,
+    )
+
+
+def summarize_tool_result(result: dict[str, Any]) -> str:
+    """Return a compact description of model-facing tool output."""
+    if "aggregates" in result and isinstance(result["aggregates"], dict):
+        aggregates = result["aggregates"]
+        return (
+            f"{aggregates.get('total_purchase_count', 0)} purchases, "
+            f"${aggregates.get('total_amount_dollars', '0.00')}"
+        )
+    if "purchase_count" in result:
+        return (
+            f"{result.get('purchase_count', 0)} purchases, "
+            f"{result.get('eligible_count', 0)} eligible, "
+            f"{result.get('blocked_count', 0)} blocked"
+        )
+    if "count" in result:
+        return f"{result.get('count', 0)} matches"
+    if "sections" in result:
+        sections = result.get("sections")
+        return f"{count_items(sections)} policy sections"
+    return summarize_flat_trace_data(result)
+
+
+def summarize_model_context(value: Any) -> str | None:
+    """Return compact context the model had available for an event."""
+    if not isinstance(value, dict):
+        return None
+    return join_trace_fields(
+        state=value.get("conversation_state"),
+        page=value.get("page_context"),
+        page_ref=value.get("page_reference"),
+        provided=value.get("tool_results"),
+        intents=value.get("intents"),
+        blocked=value.get("blocked_intent"),
+    )
+
+
+def summarize_conversation_state(value: Any) -> str | None:
+    """Return compact selected conversation state without full payloads."""
+    if not isinstance(value, dict):
+        return None
+
+    selected_ids = value.get("selected_purchase_ids")
+    refund_ids = value.get("selected_refund_purchase_ids")
+    date_range = value.get("selected_date_range")
+    current_page = value.get("current_page")
+    active_refund_context = value.get("active_refund_context")
+    return join_trace_fields(
+        type=value.get("selected_purchase_type"),
+        product=value.get("selected_product"),
+        purchase=short_id(value.get("selected_purchase_id")),
+        selected=count_items(selected_ids),
+        scope=value.get("selected_scope_label"),
+        policy=value.get("selected_policy_scope"),
+        date=date_range.get("label") if isinstance(date_range, dict) else None,
+        refund_selected=count_items(refund_ids),
+        refund_context=value.get("selected_refund_context"),
+        active_refund=active_refund_context_label(active_refund_context),
+        page=page_reference_label(current_page),
+    )
+
+
+def summarize_tool_results_for_context(tool_results: list[dict[str, Any]]) -> str | None:
+    """Return compact summary of tool data made available to the model."""
+    if not tool_results:
+        return None
+
+    summaries = []
+    for tool_result in tool_results[:3]:
+        if not isinstance(tool_result, dict):
+            continue
+        name = tool_result.get("name")
+        result = tool_result.get("result")
+        if isinstance(name, str) and isinstance(result, dict):
+            summaries.append(f"{name}:{summarize_tool_result(result)}")
+
+    if not summaries:
+        return None
+    suffix = f"; +{len(tool_results) - 3}" if len(tool_results) > 3 else ""
+    return "; ".join(summaries) + suffix
+
+
+def summarize_intents(state: dict[str, Any]) -> str | None:
+    """Return compact graph intent flags that affect model/tool routing."""
+    labels = []
+    intent_fields = (
+        ("account", "account_fact_intent"),
+        ("policy", "policy_lookup_intent"),
+        ("eligibility", "eligibility_lookup_intent"),
+    )
+    for label, intent_field in intent_fields:
+        if state.get(intent_field) is True:
+            labels.append(label)
+    return ",".join(labels) if labels else None
+
+
+def active_refund_context_label(value: Any) -> str | None:
+    """Return a compact label for active refund workflow state."""
+    if not isinstance(value, dict):
+        return None
+    return join_trace_fields(
+        product=value.get("product_name"),
+        purchase=short_id(value.get("purchase_id")),
+        stage=value.get("stage"),
+        next=value.get("next_action"),
+    )
+
+
+def summarize_flat_trace_data(data: dict[str, Any]) -> str:
+    """Summarize shallow scalar data while ignoring nested payloads."""
+    fields: dict[str, Any] = {}
+    for key, value in data.items():
+        if isinstance(value, str | int | float | bool) or value is None:
+            fields[key] = shorten_text(value)
+    return join_trace_fields(**fields)
+
+
+def join_trace_fields(**fields: Any) -> str:
+    """Join non-empty trace fields into a stable compact string."""
+    parts = []
+    for key, value in fields.items():
+        if value is None or value == "" or value == []:
+            continue
+        parts.append(f"{key}={value}")
+    return ", ".join(parts)
+
+
+def count_items(value: Any) -> int | None:
+    """Return item count for list-like trace fields."""
+    return len(value) if isinstance(value, list) else None
+
+
+def tool_names(tools: Any) -> str | None:
+    """Return compact model tool names from OpenAI tool schemas."""
+    if not isinstance(tools, list):
+        return None
+    names = [str(tool.get("name")) for tool in tools if isinstance(tool, dict) and tool.get("name")]
+    if not names:
+        return "none"
+    return ", ".join(names)
+
+
+def tool_call_names(tool_calls: Any) -> str | None:
+    """Return compact model-requested tool names."""
+    if not isinstance(tool_calls, list):
+        return None
+    names = [
+        str(call.get("name"))
+        for call in tool_calls
+        if isinstance(call, dict) and call.get("name")
+    ]
+    return ", ".join(names) if names else "none"
+
+
+def page_context_label(page_context: Any) -> str | None:
+    """Return a compact page context label."""
+    if not isinstance(page_context, dict):
+        return None
+    surface = page_context.get("surface")
+    purchase_id = page_context.get("purchase_id")
+    if purchase_id:
+        return f"{surface}:{short_id(purchase_id)}"
+    return str(surface) if surface else None
+
+
+def page_reference_label(page_reference: Any) -> str | None:
+    """Return a compact resolved page reference label."""
+    if not isinstance(page_reference, dict):
+        return None
+
+    surface = page_reference.get("surface")
+    purchase = page_reference.get("purchase")
+    if isinstance(purchase, dict):
+        product = purchase.get("product_name")
+        purchase_type = purchase.get("purchase_type")
+        purchase_id = short_id(purchase.get("id"))
+        return join_trace_fields(
+            surface=surface,
+            product=product,
+            type=purchase_type,
+            id=purchase_id,
+        )
+    return str(surface) if surface else None
+
+
+def summarize_ids(value: Any) -> str | None:
+    """Return compact id list summary."""
+    if not isinstance(value, list):
+        return None
+    if not value:
+        return "none"
+    visible = [short_id(item) for item in value[:3]]
+    suffix = f"+{len(value) - 3}" if len(value) > 3 else ""
+    return ",".join(item for item in visible if item) + suffix
+
+
+def short_id(value: Any) -> str | None:
+    """Return a short readable identifier for UUID-like values."""
+    if not isinstance(value, str) or not value:
+        return None
+    if len(value) >= 8 and "-" in value:
+        return value[:8]
+    return value
+
+
+def shorten_text(value: Any, *, limit: int = 96) -> str | None:
+    """Return compact single-line text for console logs."""
+    if value is None:
+        return None
+    text = " ".join(str(value).split())
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
 
 
 def parse_tool_arguments(arguments: str | None) -> dict[str, Any]:

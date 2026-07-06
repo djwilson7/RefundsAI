@@ -316,9 +316,9 @@ Build the customer-facing experience on top of the backend API contracts from v0
 
 ## Objective
 
-Implement the AI agent layer incrementally and complete the technical exercise scope through read-only purchase intelligence plus deterministic refund policy lookup. Account-specific eligibility evaluation and controlled refund workflow execution remain documented future phases, but they are not required for the v0.5.0 milestone.
+Implement the AI agent layer incrementally and complete the technical exercise scope through read-only purchase intelligence, deterministic refund policy lookup, and backend-evaluated refund eligibility. Controlled refund workflow execution remains documented as the next phase.
 
-The agent uses `gpt-5.4-mini` for the current OpenAI integration. The completed milestone proves the model can retrieve account facts, call deterministic tools, preserve compact conversation context, and explain backend-owned refund policy without evaluating account-specific eligibility or mutating refund workflows.
+The agent uses `gpt-5.4-mini` for the current OpenAI integration. The completed milestone proves the model can retrieve account facts, call deterministic tools, preserve compact conversation context, explain backend-owned refund policy, and communicate backend-evaluated refund eligibility without mutating refund workflows.
 
 ### Planned Deliverables
 
@@ -350,11 +350,11 @@ Example customer question: "What is the refund policy for my digital products?"
 
 Example customer question: "Which of my digital products can be refunded?"
 
-* [ ] Read-only refund workflow tools backed by deterministic backend eligibility services.
-* [ ] Eligibility explanation flow that communicates backend-evaluated purchase outcomes without mutating refund state.
-* [ ] Agent responses for refundable purchases, refund denials, eligibility reasons, required next actions, and policy context.
-* [ ] Structured logs for eligibility tool selection, deterministic eligibility results, policy context, and non-mutating refund guidance.
-* [ ] Backend tests confirming the agent does not infer, override, or calculate refund eligibility outside deterministic backend services.
+* [x] Read-only refund workflow tools backed by deterministic backend eligibility services.
+* [x] Eligibility explanation flow that communicates backend-evaluated purchase outcomes without mutating refund state.
+* [x] Agent responses for refundable purchases, refund denials, eligibility reasons, required next actions, and policy context.
+* [x] Structured logs for eligibility tool selection, deterministic eligibility results, policy context, and non-mutating refund guidance.
+* [x] Backend tests confirming the agent does not infer, override, or calculate refund eligibility outside deterministic backend services.
 
 #### Phase 4: Refund Workflow
 
@@ -372,8 +372,9 @@ Example customer question: "Start a refund for the eligible one."
 * [x] Agent correctly explains refund policy without evaluating account-specific eligibility.
 * [x] Agent resolves phase-two policy follow-ups from compact conversation state without replaying the full transcript.
 * [x] Agent resolves purchase-detail page policy follow-ups from current page purchase id without evaluating eligibility.
+* [x] Agent correctly explains backend-evaluated refund eligibility without mutating refund workflow state.
 * [x] LangGraph nodes call backend services through stable contracts.
-* [x] Structured logs capture intent, tool execution, aggregate calculations, policy lookup, blocked future-phase requests, and final responses.
+* [x] Structured logs capture intent, tool execution, aggregate calculations, policy lookup, eligibility lookup, blocked future-phase requests, and final responses.
 
 ---
 

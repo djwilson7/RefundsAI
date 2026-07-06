@@ -150,6 +150,82 @@ describe("ApplicationHelpLayer", () => {
     ).toBeInTheDocument();
   });
 
+  it("submits chat messages with Enter from the textarea", async () => {
+    mockedPathname = "/user-home";
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            message: {
+              content: "Enter submitted the message.",
+            },
+          },
+        }),
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      <ApplicationHelpLayer>
+        <main>Purchase summary</main>
+        <HelpTriggerButton />
+      </ApplicationHelpLayer>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open help chat" }));
+    const input = screen.getByLabelText("Message the AI assistant");
+    fireEvent.change(input, {
+      target: { value: "Can I return this?" },
+    });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(fetch).toHaveBeenCalledWith("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: "Can I return this?",
+        customer_id: null,
+        purchase_id: null,
+        page_context: {
+          surface: "purchase_history",
+          purchase_id: null,
+        },
+        conversation_state: {},
+      }),
+    });
+    expect(await screen.findByText("Enter submitted the message.")).toBeInTheDocument();
+  });
+
+  it("does not submit chat messages with Shift Enter", () => {
+    mockedPathname = "/user-home";
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      <ApplicationHelpLayer>
+        <main>Purchase summary</main>
+        <HelpTriggerButton />
+      </ApplicationHelpLayer>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open help chat" }));
+    const input = screen.getByLabelText("Message the AI assistant");
+    fireEvent.change(input, {
+      target: { value: "Line one" },
+    });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter", shiftKey: true });
+    fireEvent.change(input, {
+      target: { value: "Line one\nLine two" },
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(input).toHaveValue("Line one\nLine two");
+  });
+
   it("sends returned conversation state on follow-up chat messages", async () => {
     mockedPathname = "/user-home";
     window.history.pushState(
