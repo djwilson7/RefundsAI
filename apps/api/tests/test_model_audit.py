@@ -9,7 +9,7 @@ from uuid import UUID
 import pytest
 
 from refunds_ai_api.repositories.application import RepositoryConflictError
-from refunds_ai_api.repositories.audit import ModelAuditRepository
+from refunds_ai_api.repositories.audit import AuditSessionNotFoundError, ModelAuditRepository
 from refunds_ai_api.services.audit import (
     ModelAuditEventKey,
     ModelAuditSession,
@@ -38,13 +38,68 @@ class StubCursor:
 
     def execute(self, statement: str, params: tuple[Any, ...] | None = None) -> None:
         self.connection.executed.append((statement, params))
+        normalized = " ".join(statement.split()).lower()
+        if "from public.model_audit_sessions" in normalized:
+            self.connection.result = [self.connection.session_row]
+        elif "from public.model_audit_events" in normalized:
+            self.connection.result = self.connection.event_rows
+        else:
+            self.connection.result = []
         self.rowcount = 0 if self.connection.force_conflict else 1
+
+    def fetchone(self) -> dict[str, Any] | None:
+        if self.connection.force_missing:
+            return None
+        return self.connection.result[0] if self.connection.result else None
+
+    def fetchall(self) -> list[dict[str, Any]]:
+        return list(self.connection.result)
 
 
 class StubConnection:
     def __init__(self) -> None:
         self.executed: list[tuple[str, tuple[Any, ...] | None]] = []
         self.force_conflict = False
+        self.force_missing = False
+        self.result: list[dict[str, Any]] = []
+        self.session_row = {
+            "id": SESSION_ID,
+            "trace_id": TRACE_ID,
+            "conversation_id": CONVERSATION_ID,
+            "customer_id": CUSTOMER_ID,
+            "request_id": "req-123",
+            "model_name": "gpt-5.4-mini",
+            "status": "succeeded",
+            "prompt_tokens": 12,
+            "completion_tokens": 7,
+            "total_tokens": 19,
+            "started_at": STARTED_AT,
+            "completed_at": COMPLETED_AT,
+            "latency_ms": 425,
+            "created_at": STARTED_AT,
+            "updated_at": COMPLETED_AT,
+            "event_count": 1,
+        }
+        self.event_rows = [
+            {
+                "id": UUID("73000000-0000-4000-8000-000000000001"),
+                "session_id": SESSION_ID,
+                "trace_id": TRACE_ID,
+                "sequence_number": 1,
+                "event_key": ModelAuditEventKey.REQUEST_RECEIVED,
+                "display_name": "Request received",
+                "category": "request",
+                "description": "The chat request was accepted.",
+                "display_order": 10,
+                "workflow_kind": "account_fact",
+                "tool_name": None,
+                "summary": "Request accepted.",
+                "input_json": {"message_length": 19},
+                "output_json": None,
+                "metadata_json": {"trace_event_type": "message.received"},
+                "created_at": STARTED_AT,
+            }
+        ]
 
     def cursor(self) -> StubCursor:
         return StubCursor(self)
@@ -273,3 +328,52 @@ def test_model_audit_repository_raises_when_session_completion_misses() -> None:
             status="failed",
             completed_at=COMPLETED_AT,
         )
+
+
+def test_model_audit_repository_lists_sessions() -> None:
+    connection = StubConnection()
+    repository = ModelAuditRepository(StubConnectionProvider(connection))
+
+    sessions = repository.list_sessions(limit=25)
+
+    query_sql, query_params = connection.executed[0]
+    assert "from public.model_audit_sessions" in query_sql.lower()
+    assert "left join public.model_audit_events" in query_sql.lower()
+    assert "order by s.started_at desc" in query_sql.lower()
+    assert query_params == (25,)
+    assert sessions == [connection.session_row]
+
+
+def test_model_audit_repository_gets_session() -> None:
+    connection = StubConnection()
+    repository = ModelAuditRepository(StubConnectionProvider(connection))
+
+    session = repository.get_session(SESSION_ID)
+
+    query_sql, query_params = connection.executed[0]
+    assert "where s.id = %s" in query_sql.lower()
+    assert query_params == (SESSION_ID,)
+    assert session == connection.session_row
+
+
+def test_model_audit_repository_raises_when_session_missing() -> None:
+    connection = StubConnection()
+    connection.force_missing = True
+    repository = ModelAuditRepository(StubConnectionProvider(connection))
+
+    with pytest.raises(AuditSessionNotFoundError, match="not found"):
+        repository.get_session(SESSION_ID)
+
+
+def test_model_audit_repository_lists_session_events_with_lookup_metadata() -> None:
+    connection = StubConnection()
+    repository = ModelAuditRepository(StubConnectionProvider(connection))
+
+    events = repository.list_events(SESSION_ID)
+
+    query_sql, query_params = connection.executed[0]
+    assert "from public.model_audit_events" in query_sql.lower()
+    assert "join public.model_audit_event_lookup" in query_sql.lower()
+    assert "order by e.sequence_number asc" in query_sql.lower()
+    assert query_params == (SESSION_ID,)
+    assert events == connection.event_rows

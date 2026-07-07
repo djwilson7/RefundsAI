@@ -16,6 +16,7 @@ from psycopg.types.json import Jsonb
 
 from refunds_ai_api.config import Settings
 from refunds_ai_api.repositories.application import (
+    EntityNotFoundError,
     RepositoryConfigurationError,
     RepositoryConflictError,
 )
@@ -201,6 +202,110 @@ class ModelAuditRepository:
                 )
                 if cursor.rowcount != 1:
                     raise RepositoryConflictError("Model audit session could not be completed.")
+
+    def list_sessions(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """Return recent audit sessions for the admin audit list."""
+        with self.connection_provider.open() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select
+                        s.id,
+                        s.trace_id,
+                        s.conversation_id,
+                        s.customer_id,
+                        s.request_id,
+                        s.model_name,
+                        s.status,
+                        s.prompt_tokens,
+                        s.completion_tokens,
+                        s.total_tokens,
+                        s.started_at,
+                        s.completed_at,
+                        s.latency_ms,
+                        s.created_at,
+                        s.updated_at,
+                        count(e.id)::integer as event_count
+                    from public.model_audit_sessions s
+                    left join public.model_audit_events e on e.session_id = s.id
+                    group by s.id
+                    order by s.started_at desc
+                    limit %s
+                    """,
+                    (limit,),
+                )
+                return list(cursor.fetchall())
+
+    def get_session(self, session_id: UUID) -> dict[str, Any]:
+        """Return one audit session summary with event count."""
+        with self.connection_provider.open() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select
+                        s.id,
+                        s.trace_id,
+                        s.conversation_id,
+                        s.customer_id,
+                        s.request_id,
+                        s.model_name,
+                        s.status,
+                        s.prompt_tokens,
+                        s.completion_tokens,
+                        s.total_tokens,
+                        s.started_at,
+                        s.completed_at,
+                        s.latency_ms,
+                        s.created_at,
+                        s.updated_at,
+                        count(e.id)::integer as event_count
+                    from public.model_audit_sessions s
+                    left join public.model_audit_events e on e.session_id = s.id
+                    where s.id = %s
+                    group by s.id
+                    """,
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise AuditSessionNotFoundError("Model audit session was not found.")
+                return dict(row)
+
+    def list_events(self, session_id: UUID) -> list[dict[str, Any]]:
+        """Return ordered audit events for one session with lookup metadata."""
+        with self.connection_provider.open() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select
+                        e.id,
+                        e.session_id,
+                        e.trace_id,
+                        e.sequence_number,
+                        e.event_key,
+                        l.display_name,
+                        l.category,
+                        l.description,
+                        l.display_order,
+                        e.workflow_kind,
+                        e.tool_name,
+                        e.summary,
+                        e.input_json,
+                        e.output_json,
+                        e.metadata_json,
+                        e.created_at
+                    from public.model_audit_events e
+                    join public.model_audit_event_lookup l on l.event_key = e.event_key
+                    where e.session_id = %s
+                    order by e.sequence_number asc
+                    """,
+                    (session_id,),
+                )
+                return list(cursor.fetchall())
+
+
+class AuditSessionNotFoundError(EntityNotFoundError):
+    """Raised when an audit session id does not resolve."""
 
 
 def adapt_jsonb(value: dict[str, Any] | None) -> Jsonb | None:

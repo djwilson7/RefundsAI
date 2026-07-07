@@ -448,9 +448,9 @@ Provide administrators with operational visibility, AI auditability, and live mo
 
 #### Phase 3: Read APIs
 
-* [ ] Add `GET /api/admin/audit/sessions`.
-* [ ] Add `GET /api/admin/audit/sessions/:id`.
-* [ ] Add `GET /api/admin/audit/sessions/:id/events`.
+* [x] Add `GET /api/admin/audit/sessions`.
+* [x] Add `GET /api/admin/audit/sessions/:id`.
+* [x] Add `GET /api/admin/audit/sessions/:id/events`.
 
 #### Phase 4: Realtime Stream
 
@@ -470,7 +470,7 @@ Provide administrators with operational visibility, AI auditability, and live mo
 
 * [x] Graph execution events successfully persisted as structured audit events.
 * [ ] Live timeline replayed and streamed immediately in the Admin UI without page refreshes.
-* [ ] Historical sessions accessible and inspectable in the Audit Viewer with detailed token usage and latency breakdowns.
+* [x] Historical sessions accessible through backend read APIs with token usage and latency fields.
 * [ ] Admin UI correctly resolves stable event keys to user-friendly labels and icons.
 
 ---

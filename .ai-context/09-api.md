@@ -70,20 +70,23 @@ Failure:
 | `POST` | `/api/purchases/{purchase_id}/refund/issue` | `ApplicationService.issue_refund` | Finalize prepared mock refund. |
 | `POST` | `/api/purchases/{purchase_id}/digital/redeem-code` | `ApplicationService.redeem_digital_code` | Simulate digital code redemption. |
 | `POST` | `/api/purchases/{purchase_id}/physical/confirm-carrier-acceptance` | `ApplicationService.confirm_carrier_acceptance` | Simulate carrier acceptance. |
+| `GET` | `/api/admin/audit/sessions` | `ModelAuditReadService.list_sessions` | List recent model audit sessions. |
+| `GET` | `/api/admin/audit/sessions/{session_id}` | `ModelAuditReadService.get_session` | Read one model audit session summary. |
+| `GET` | `/api/admin/audit/sessions/{session_id}/events` | `ModelAuditReadService.list_events` | Read ordered events for one audit session. |
 
 Authentication is currently mocked. These endpoints do not implement production auth.
 
-## Planned Admin Audit Endpoints
+## Admin Audit Endpoints
 
-The Phase 1 audit schema and writer service are implemented. HTTP read and stream
-contracts are planned for later v0.6.0 phases.
+The audit schema, writer, graph instrumentation, and HTTP read APIs are implemented.
+Realtime stream contracts are planned for Phase 4.
 
-| Method | Route | Planned phase | Purpose |
+| Method | Route | Status | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/admin/audit/sessions` | Phase 3 | List historical and active audit sessions. |
-| `GET` | `/api/admin/audit/sessions/{session_id}` | Phase 3 | Read one audit session summary. |
-| `GET` | `/api/admin/audit/sessions/{session_id}/events` | Phase 3 | Read ordered audit events for a session. |
-| `GET` | `/api/admin/audit/events/stream` | Phase 4 | SSE or WebSocket stream for active audit events. |
+| `GET` | `/api/admin/audit/sessions` | Implemented | List historical and active audit sessions. |
+| `GET` | `/api/admin/audit/sessions/{session_id}` | Implemented | Read one audit session summary. |
+| `GET` | `/api/admin/audit/sessions/{session_id}/events` | Implemented | Read ordered audit events for a session. |
+| `GET` | `/api/admin/audit/events/stream` | Planned Phase 4 | SSE or WebSocket stream for active audit events. |
 
 ## Health Endpoints
 
@@ -510,14 +513,41 @@ Clients may request a command. Backend services decide whether the command is al
 
 ## Admin Audit API Details
 
-Admin audit HTTP contracts are not implemented yet.
+Admin audit reads expose the persisted model audit timeline through standard response
+envelopes. Authentication remains mocked for this phase.
 
-Phase 3 should expose read APIs over the Phase 1 audit tables:
+### `GET /api/admin/audit/sessions`
 
-* `GET /api/admin/audit/sessions`
-* `GET /api/admin/audit/sessions/{session_id}`
-* `GET /api/admin/audit/sessions/{session_id}/events`
+Query:
 
-Phase 4 should add the realtime event stream. The response shapes should be defined
-when those routes are implemented, using `model_audit_event_lookup` for event labels
-and categories rather than hard-coded frontend mappings.
+* `limit`: optional, default `50`, minimum `1`, maximum `100`.
+
+Data:
+
+* `sessions[]`
+  * session identifiers: `id`, `trace_id`, `conversation_id`, `customer_id`, `request_id`
+  * model/status fields: `model_name`, `status`
+  * metrics: `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_ms`, `event_count`
+  * timestamps: `started_at`, `completed_at`, `created_at`, `updated_at`
+
+### `GET /api/admin/audit/sessions/{session_id}`
+
+Returns one `session` with the same shape as the session list item.
+
+Errors:
+
+* `AUDIT_SESSION_NOT_FOUND` with HTTP `404`
+* `DATABASE_NOT_CONFIGURED` with HTTP `503`
+
+### `GET /api/admin/audit/sessions/{session_id}/events`
+
+Returns ordered `events[]` for one session. Event rows include:
+
+* identifiers: `id`, `session_id`, `trace_id`
+* ordering and lookup metadata: `sequence_number`, `event_key`, `display_name`, `category`, `description`, `display_order`
+* trace facets: `workflow_kind`, `tool_name`, `summary`
+* payloads: `input_json`, `output_json`, `metadata_json`
+* `created_at`
+
+Event labels and categories come from `model_audit_event_lookup`; frontend code should
+not duplicate that mapping.

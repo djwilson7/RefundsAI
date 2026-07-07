@@ -417,6 +417,13 @@ Refund workflow reads:
 3. Evaluate deterministic policy in `services/refund_policy.py`.
 4. Return serialized workflow decision.
 
+Model audit admin reads:
+
+1. Read `model_audit_sessions` in reverse `started_at` order for the session list.
+2. Join `model_audit_events` to count events for session summaries.
+3. Join `model_audit_events` to `model_audit_event_lookup` for event labels, categories, descriptions, and display order.
+4. Order event timelines by `sequence_number`.
+
 ## Migration List
 
 | Migration | Purpose |
