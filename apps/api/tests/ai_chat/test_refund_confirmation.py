@@ -4,12 +4,12 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from refunds_ai_api.services.refund_policy import RefundWorkflowError
 from refunds_ai_api.services.refund_confirmation import (
+    _authorization_denial_reason,
     authorize_persisted_refund_confirmation,
     validate_refund_confirmation,
-    _authorization_denial_reason,
 )
+from refunds_ai_api.services.refund_policy import RefundWorkflowError
 
 from .fakes import CUSTOMER_ID, PURCHASE_ID, MutableRefundApplicationService
 
@@ -202,7 +202,11 @@ def test_persisted_refund_authorization_denies_without_validator_grant() -> None
 
 def test_parse_refund_confirmation_command() -> None:
     from refunds_ai_api.services.refund_confirmation import parse_refund_confirmation_command
-    assert parse_refund_confirmation_command("Confirm invalidate code and issue refund") == "digital"
+
+    assert (
+        parse_refund_confirmation_command("Confirm invalidate code and issue refund")
+        == "digital"
+    )
     assert parse_refund_confirmation_command("Confirm cancel and issue refund") == "subscription"
     assert parse_refund_confirmation_command("Confirm start return and issue label") == "physical"
     assert parse_refund_confirmation_command("invalid") is None
@@ -386,5 +390,4 @@ def test_authorize_persisted_refund_confirmation_mismatches() -> None:
         confirmation=confirmation,
     )
     assert reason == "refund_stage_not_mutable"
-
 

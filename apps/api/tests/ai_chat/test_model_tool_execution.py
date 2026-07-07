@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from typing import Any
-import pytest
-
 from refunds_ai_api.services.ai_chat import ModelToolCall
-from refunds_ai_api.services.ai_chat.model_tool_execution import execute_model_requested_tool_calls
-from refunds_ai_api.services.ai_chat.workflows.context import (
-    EligibilityResolution,
+from refunds_ai_api.services.ai_chat.model_tool_execution import (
+    execute_model_requested_tool_calls,
 )
+from refunds_ai_api.services.ai_chat.workflows.context import EligibilityResolution
+
 from .fakes import (
     CUSTOMER_ID,
     PURCHASE_ID,
     FakeApplicationService,
     WorkflowRuntime,
 )
+
 
 def test_execute_validate_customer_account_with_arguments_ignored() -> None:
     runtime = WorkflowRuntime(FakeApplicationService())
@@ -33,9 +32,10 @@ def test_execute_validate_customer_account_with_arguments_ignored() -> None:
         "eligibility_resolution": None,
         "resolved_context_purchase": None,
     }
-    
+
     new_state, results = execute_model_requested_tool_calls(runtime, state, context)
     assert len(results) == 0
+
 
 def test_execute_validate_customer_account_success() -> None:
     runtime = WorkflowRuntime(FakeApplicationService())

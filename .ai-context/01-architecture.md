@@ -199,6 +199,7 @@ Schema layers:
 | Identity | `users`, `roles`, `user_roles` |
 | Catalog and history | `products`, `purchases` |
 | Detail extensions | `digital_purchase_details`, `physical_purchase_details`, `subscription_purchase_details` |
+| Model audit | `model_audit_sessions`, `model_audit_events`, `model_audit_event_lookup` |
 
 PostgreSQL triggers derive refund deadlines and selected defaults:
 
@@ -259,7 +260,11 @@ It does not send full rendered page content or replay the full transcript.
 
 ### Model Audit Logging & Observability Stream
 
-Every customer interaction triggers model execution tracing:
+The Phase 1 audit foundation exists in `services/audit.py`, `repositories/audit.py`,
+and migration `014_create_model_audit_tables.py`. Phase 2 will connect chat graph
+execution to this writer.
+
+Target flow:
 
 ```text
 Customer Message

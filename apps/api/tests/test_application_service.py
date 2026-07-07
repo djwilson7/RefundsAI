@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+
 import pytest
 
 from refunds_ai_api.repositories.application import RepositoryConflictError
@@ -10,6 +11,7 @@ from refunds_ai_api.services.refund_policy import RefundWorkflowError
 
 EVALUATED_AT = datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
 PURCHASE_ID = "40000000-0000-4000-8000-000000000001"
+
 
 class DummyRepository:
     def __init__(self, raise_conflict: bool = False) -> None:
@@ -65,12 +67,23 @@ class DummyRepository:
         if self.raise_conflict:
             raise RepositoryConflictError("conflict")
 
-    def update_subscription_refund_requested(self, purchase_id: str, requested_at: Any, outcome: Any) -> None:
+    def update_subscription_refund_requested(
+        self,
+        purchase_id: str,
+        requested_at: Any,
+        outcome: Any,
+    ) -> None:
         self.called_methods.append("update_subscription_refund_requested")
         if self.raise_conflict:
             raise RepositoryConflictError("conflict")
 
-    def update_refund_issued(self, purchase_id: str, issued_at: Any, amount: Any, outcome: Any) -> None:
+    def update_refund_issued(
+        self,
+        purchase_id: str,
+        issued_at: Any,
+        amount: Any,
+        outcome: Any,
+    ) -> None:
         self.called_methods.append("update_refund_issued")
         if self.raise_conflict:
             raise RepositoryConflictError("conflict")
@@ -117,8 +130,11 @@ def test_application_service_simple_reads() -> None:
     assert repo.called_methods == ["get_purchase_detail"]
 
     repo.called_methods.clear()
-    assert service.get_refund_confirmation(PURCHASE_ID, "digital") == {"refund_confirmation_granted": True}
+    assert service.get_refund_confirmation(PURCHASE_ID, "digital") == {
+        "refund_confirmation_granted": True
+    }
     assert repo.called_methods == ["get_refund_confirmation"]
+
 
 def test_application_service_conflict_digital_preparation() -> None:
     repo = DummyRepository(raise_conflict=True)

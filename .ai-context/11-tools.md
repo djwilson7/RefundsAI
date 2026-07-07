@@ -19,6 +19,8 @@ Implementation source:
 * Response guards: `apps/api/src/refunds_ai_api/services/ai_chat/responses.py`
 * Trace formatting: `apps/api/src/refunds_ai_api/services/ai_chat/trace/`
 * Compatibility trace entrypoint: `apps/api/src/refunds_ai_api/services/ai_chat/trace_formatting.py`
+* Audit writer service: `apps/api/src/refunds_ai_api/services/audit.py`
+* Audit repository: `apps/api/src/refunds_ai_api/repositories/audit.py`
 
 ## Tool Design Principles
 
@@ -402,6 +404,16 @@ For physical return label and carrier steps, use "the return process".
 
 Chat logs should show the observable orchestration path without dumping full nested
 prompts, tool payloads, or response objects.
+
+Model audit persistence now has a Phase 1 writer boundary:
+
+| Component | Responsibility |
+| --- | --- |
+| `ModelAuditWriterService` | Starts sessions, appends ordered events, and completes or fails sessions. |
+| `ModelAuditEventKey` | Defines stable event keys backed by `model_audit_event_lookup`. |
+| `ModelAuditRepository` | Owns SQL writes for `model_audit_sessions` and `model_audit_events`. |
+
+Phase 2 will connect graph trace events to this writer.
 
 Trace events should cover:
 

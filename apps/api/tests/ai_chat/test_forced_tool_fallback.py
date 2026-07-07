@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from typing import Any
-import pytest
 
-from refunds_ai_api.services.ai_chat.forced_tool_fallback import apply_deterministic_forced_tool_fallback
+from refunds_ai_api.services.ai_chat.forced_tool_fallback import (
+    apply_deterministic_forced_tool_fallback,
+)
 from refunds_ai_api.services.ai_chat.workflows.context import EligibilityResolution
+
 from .fakes import (
     CUSTOMER_ID,
     PURCHASE_ID,
     FakeApplicationService,
     WorkflowRuntime,
 )
+
 
 def test_apply_deterministic_forced_tool_fallback_eligibility() -> None:
     runtime = WorkflowRuntime(FakeApplicationService())
@@ -37,6 +40,7 @@ def test_apply_deterministic_forced_tool_fallback_eligibility() -> None:
     assert results[0]["name"] == "get_refund_eligibility"
     assert intent is True
 
+
 def test_apply_deterministic_forced_tool_fallback_policy() -> None:
     runtime = WorkflowRuntime(FakeApplicationService())
     state = {
@@ -62,6 +66,7 @@ def test_apply_deterministic_forced_tool_fallback_policy() -> None:
     assert results[0]["name"] == "get_refund_policy"
     assert intent is False
 
+
 def test_apply_deterministic_forced_tool_fallback_threshold() -> None:
     runtime = WorkflowRuntime(FakeApplicationService())
     state = {
@@ -86,6 +91,7 @@ def test_apply_deterministic_forced_tool_fallback_threshold() -> None:
     assert len(results) == 1
     assert results[0]["name"] == "get_purchase_count_by_amount_threshold"
     assert intent is True
+
 
 def test_apply_deterministic_forced_tool_fallback_date_range() -> None:
     runtime = WorkflowRuntime(FakeApplicationService())
@@ -114,6 +120,7 @@ def test_apply_deterministic_forced_tool_fallback_date_range() -> None:
     assert results[0]["name"] == "get_purchase_history_by_date_range"
     assert intent is True
 
+
 def test_apply_deterministic_forced_tool_fallback_account_fact() -> None:
     runtime = WorkflowRuntime(FakeApplicationService())
     state = {
@@ -135,6 +142,7 @@ def test_apply_deterministic_forced_tool_fallback_account_fact() -> None:
     assert len(results) == 1
     assert results[0]["name"] == "get_customer_purchase_history"
     assert intent is True
+
 
 def test_apply_deterministic_forced_tool_fallback_resolved_context_purchase() -> None:
     runtime = WorkflowRuntime(FakeApplicationService())
@@ -160,6 +168,7 @@ def test_apply_deterministic_forced_tool_fallback_resolved_context_purchase() ->
     assert len(results) == 1
     assert results[0]["name"] == "get_customer_purchase_history"
     assert intent is True
+
 
 def test_apply_deterministic_forced_tool_fallback_off_domain() -> None:
     runtime = WorkflowRuntime(FakeApplicationService())

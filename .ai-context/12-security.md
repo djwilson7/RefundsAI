@@ -117,6 +117,9 @@ Tables with backend-only RLS policies:
 * `digital_purchase_details`
 * `physical_purchase_details`
 * `subscription_purchase_details`
+* `model_audit_sessions`
+* `model_audit_events`
+* `model_audit_event_lookup`
 
 `schema_migrations` is migration metadata and not business data.
 

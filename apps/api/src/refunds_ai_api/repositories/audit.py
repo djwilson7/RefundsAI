@@ -1,0 +1,208 @@
+"""Repository operations for model audit sessions and events."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Protocol
+from uuid import UUID
+
+import psycopg
+from psycopg import Connection
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+
+from refunds_ai_api.config import Settings
+from refunds_ai_api.repositories.application import (
+    RepositoryConfigurationError,
+    RepositoryConflictError,
+)
+
+
+class ConnectionProvider(Protocol):
+    """Opens backend-owned database connections for audit repository operations."""
+
+    @contextmanager
+    def open(self) -> Iterator[Connection]:
+        """Yield an open database connection."""
+        ...
+
+
+@dataclass(frozen=True)
+class PsycopgAuditConnectionProvider:
+    """Open psycopg connections using backend Supabase configuration."""
+
+    settings: Settings
+
+    @contextmanager
+    def open(self) -> Iterator[Connection]:
+        """Yield a configured psycopg connection."""
+        if not self.settings.supabase_db_url:
+            raise RepositoryConfigurationError("SUPABASE_DB_URL is not configured.")
+
+        with psycopg.connect(
+            self.settings.supabase_db_url,
+            connect_timeout=self.settings.database_connect_timeout_seconds,
+            row_factory=dict_row,
+        ) as connection:
+            yield connection
+
+
+@dataclass(frozen=True)
+class ModelAuditRepository:
+    """Persist model audit session headers and ordered event timeline rows."""
+
+    connection_provider: ConnectionProvider
+
+    def create_session(
+        self,
+        *,
+        session_id: UUID,
+        trace_id: UUID,
+        model_name: str,
+        status: str,
+        conversation_id: UUID | None = None,
+        customer_id: UUID | None = None,
+        request_id: str | None = None,
+        started_at: datetime | None = None,
+    ) -> None:
+        """Insert one parent audit session row."""
+        with self.connection_provider.open() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    insert into public.model_audit_sessions (
+                        id,
+                        trace_id,
+                        conversation_id,
+                        customer_id,
+                        request_id,
+                        model_name,
+                        status,
+                        started_at
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, coalesce(%s, now()))
+                    """,
+                    (
+                        session_id,
+                        trace_id,
+                        conversation_id,
+                        customer_id,
+                        request_id,
+                        model_name,
+                        status,
+                        started_at,
+                    ),
+                )
+
+    def append_event(
+        self,
+        *,
+        event_id: UUID,
+        session_id: UUID,
+        trace_id: UUID,
+        sequence_number: int,
+        event_key: str,
+        workflow_kind: str | None = None,
+        tool_name: str | None = None,
+        summary: str | None = None,
+        input_json: dict[str, Any] | None = None,
+        output_json: dict[str, Any] | None = None,
+        metadata_json: dict[str, Any] | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        """Insert one ordered audit event row."""
+        with self.connection_provider.open() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    insert into public.model_audit_events (
+                        id,
+                        session_id,
+                        trace_id,
+                        sequence_number,
+                        event_key,
+                        workflow_kind,
+                        tool_name,
+                        summary,
+                        input_json,
+                        output_json,
+                        metadata_json,
+                        created_at
+                    )
+                    values (
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        coalesce(%s, now())
+                    )
+                    """,
+                    (
+                        event_id,
+                        session_id,
+                        trace_id,
+                        sequence_number,
+                        event_key,
+                        workflow_kind,
+                        tool_name,
+                        summary,
+                        adapt_jsonb(input_json),
+                        adapt_jsonb(output_json),
+                        adapt_jsonb(metadata_json),
+                        created_at,
+                    ),
+                )
+
+    def complete_session(
+        self,
+        *,
+        session_id: UUID,
+        status: str,
+        completed_at: datetime,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        latency_ms: int | None = None,
+    ) -> None:
+        """Mark one audit session finished with token and latency metrics."""
+        with self.connection_provider.open() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    update public.model_audit_sessions
+                    set status = %s,
+                        prompt_tokens = %s,
+                        completion_tokens = %s,
+                        total_tokens = %s,
+                        completed_at = %s,
+                        latency_ms = %s,
+                        updated_at = now()
+                    where id = %s
+                    """,
+                    (
+                        status,
+                        prompt_tokens,
+                        completion_tokens,
+                        total_tokens,
+                        completed_at,
+                        latency_ms,
+                        session_id,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise RepositoryConflictError("Model audit session could not be completed.")
+
+
+def adapt_jsonb(value: dict[str, Any] | None) -> Jsonb | None:
+    """Adapt optional dictionaries for psycopg JSONB parameters."""
+    return Jsonb(value) if value is not None else None

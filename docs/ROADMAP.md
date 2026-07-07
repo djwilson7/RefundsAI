@@ -429,16 +429,42 @@ Provide administrators with operational visibility, AI auditability, and live mo
 
 ### Planned Deliverables
 
-* [ ] **Audit Session Overview**: Admin interface listing all support sessions in reverse-chronological order.
-* [ ] **Audit Session Details**: Live deep-dive view into a specific session showing:
-  * Customer prompt and assistant response
-  * Selected workflow kind and context resolution details
-  * Executed backend tool calls and validation results
-  * Undergoing mutation status and final outcomes
-  * Token usage metrics and round-trip latency
-* [ ] **Model Audit Session Database Modeling**: Schema migrations for `model_audit_sessions` and `model_audit_events` tables to record structured step events.
-* [ ] **Auditability Lookup Key definitions**: Stable database-to-frontend canonical event mapping keys (e.g. `MESSAGE_RECEIVED`, `TOOL_REQUESTED`, `MUTATION_STARTED`, etc.).
-* [ ] **Realtime Reasoning Stream**: Live WebSockets or SSE pipeline forwarding LangGraph execution events directly from backend to the admin UI.
+#### Phase 1: Audit Model Foundation
+
+* [x] Add `model_audit_sessions` as the parent request/session record.
+* [x] Add `model_audit_events` as the ordered per-session event timeline.
+* [x] Add `model_audit_event_lookup` as the normalized event-key mapping for UI labels, categories, ordering, descriptions, and active-state control.
+* [x] Add backend audit writer service.
+* [x] Validate lint, build, test, and strictly above-90% coverage before applying the migration.
+* [x] Apply the migration after validation passes.
+* [x] Update `docs/` and `.ai-context/` with concise implementation-grounded audit model documentation.
+
+#### Phase 2: Graph Instrumentation
+
+* [ ] Create an audit session at chat request start.
+* [ ] Persist each graph/log step as an audit event.
+* [ ] Capture workflow, context, tools, validation, mutation, response, and errors.
+* [ ] Store token usage and latency on the audit session.
+
+#### Phase 3: Read APIs
+
+* [ ] Add `GET /api/admin/audit/sessions`.
+* [ ] Add `GET /api/admin/audit/sessions/:id`.
+* [ ] Add `GET /api/admin/audit/sessions/:id/events`.
+
+#### Phase 4: Realtime Stream
+
+* [ ] Add an SSE or WebSocket endpoint for active audit events.
+* [ ] Support streaming by `session_id` or all active sessions.
+* [ ] Stream events to the Admin UI as graph execution progresses.
+
+#### Phase 5: Admin UI
+
+* [ ] Add audit session list.
+* [ ] Add session detail timeline.
+* [ ] Add event detail drawer or panel.
+* [ ] Add token and latency summary.
+* [ ] Add workflow, tool, and mutation badges.
 
 ### Validation
 

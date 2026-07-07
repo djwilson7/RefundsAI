@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict
 
-from openai import OpenAI
-
 from .parsing import parse_tool_arguments
 from .state import EMPTY_CONVERSATION_STATE
 
@@ -63,6 +61,8 @@ class OpenAIChatCompletionsModelClient:
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
         """Call OpenAI and normalize the response for the graph."""
+        from openai import OpenAI
+
         client = OpenAI(api_key=self.api_key)
         request: dict[str, Any] = {"model": self.model, "messages": messages}
         if tools:

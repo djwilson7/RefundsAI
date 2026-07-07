@@ -57,6 +57,9 @@ add_refund_issued_facts = importlib.import_module(
 add_refund_confirmation_state = importlib.import_module(
     "refunds_ai_api.database.migrations.013_add_refund_confirmation_state"
 )
+create_model_audit_tables = importlib.import_module(
+    "refunds_ai_api.database.migrations.014_create_model_audit_tables"
+)
 
 
 class StubCursor:
@@ -160,7 +163,7 @@ def test_discover_migrations_returns_ordered_modules() -> None:
     migration_ids = [migration.migration_id for migration in discover_migrations()]
 
     assert migration_ids == sorted(migration_ids)
-    assert migration_ids[:14] == [
+    assert migration_ids[:15] == [
         "000_schema_foundation",
         "001_create_users",
         "002_create_roles",
@@ -175,6 +178,7 @@ def test_discover_migrations_returns_ordered_modules() -> None:
         "011_add_refund_workflow_state",
         "012_add_refund_issued_facts",
         "013_add_refund_confirmation_state",
+        "014_create_model_audit_tables",
     ]
 
 
@@ -910,3 +914,71 @@ def test_add_refund_confirmation_state_adds_detail_confirmation_columns() -> Non
         assert f"{table_name}_refund_confirmation_customer_idx" in executed_sql
         assert f"{table_name}_refund_confirmation_purchase_idx" in executed_sql
         assert f"{table_name}_refund_confirmation_granted_idx" in executed_sql
+
+
+def test_create_model_audit_tables_creates_three_table_audit_foundation() -> None:
+    connection = StubConnection()
+
+    create_model_audit_tables.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    normalized_sql = " ".join(executed_sql.split())
+    assert "create table if not exists public.model_audit_sessions" in executed_sql
+    assert "trace_id uuid not null unique" in executed_sql
+    assert "conversation_id uuid null" in executed_sql
+    assert "customer_id uuid null references public.users(id) on delete set null" in normalized_sql
+    assert "request_id text null" in executed_sql
+    assert "model_name text not null" in executed_sql
+    assert "status text not null" in executed_sql
+    assert "prompt_tokens integer null" in executed_sql
+    assert "completion_tokens integer null" in executed_sql
+    assert "total_tokens integer null" in executed_sql
+    assert "completed_at timestamptz null" in executed_sql
+    assert "latency_ms integer null" in executed_sql
+    assert "model_audit_sessions_status_check" in executed_sql
+    assert "status in ('running', 'succeeded', 'failed')" in executed_sql
+
+    assert "create table if not exists public.model_audit_events" in executed_sql
+    assert "session_id uuid not null" in executed_sql
+    assert "references public.model_audit_sessions(id) on delete cascade" in normalized_sql
+    assert "sequence_number integer not null" in executed_sql
+    assert "event_key text not null" in executed_sql
+    assert "references public.model_audit_event_lookup(event_key)" in normalized_sql
+    assert "input_json jsonb null" in executed_sql
+    assert "output_json jsonb null" in executed_sql
+    assert "metadata_json jsonb null" in executed_sql
+    assert "unique (session_id, sequence_number)" in executed_sql
+
+    assert "create table if not exists public.model_audit_event_lookup" in executed_sql
+    assert "event_key text primary key" in executed_sql
+    assert "display_name text not null" in executed_sql
+    assert "category text not null" in executed_sql
+    assert "display_order integer not null" in executed_sql
+    assert "is_active boolean not null default true" in executed_sql
+    assert "'request'" in executed_sql
+    assert "'routing'" in executed_sql
+    assert "'tool'" in executed_sql
+    assert "'validation'" in executed_sql
+    assert "'mutation'" in executed_sql
+    assert "'response'" in executed_sql
+    assert "'error'" in executed_sql
+
+    assert "model_audit_sessions_customer_started_idx" in executed_sql
+    assert "model_audit_events_trace_sequence_idx" in executed_sql
+    assert "model_audit_event_lookup_category_order_idx" in executed_sql
+    assert "alter table public.model_audit_sessions enable row level security" in executed_sql
+    assert "alter table public.model_audit_events enable row level security" in executed_sql
+    assert "alter table public.model_audit_event_lookup enable row level security" in executed_sql
+    assert "create policy model_audit_sessions_service_role_all" in executed_sql
+    assert "create policy model_audit_events_service_role_all" in executed_sql
+    assert "create policy model_audit_event_lookup_service_role_all" in executed_sql
+
+    lookup_inserts = [
+        params
+        for statement, params in connection.executed
+        if "insert into public.model_audit_event_lookup" in statement.lower()
+    ]
+    assert len(lookup_inserts) == 14
+    assert lookup_inserts[0][0] == "REQUEST_RECEIVED"
+    assert lookup_inserts[-1][0] == "ERROR_RAISED"
+    assert "on conflict (event_key) do update" in executed_sql
