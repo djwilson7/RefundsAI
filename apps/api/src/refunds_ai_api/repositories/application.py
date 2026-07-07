@@ -39,6 +39,13 @@ class ConnectionProvider(Protocol):
         ...
 
 
+DETAIL_TABLE_BY_PURCHASE_TYPE = {
+    "digital": "digital_purchase_details",
+    "physical": "physical_purchase_details",
+    "subscription": "subscription_purchase_details",
+}
+
+
 @dataclass(frozen=True)
 class PsycopgConnectionProvider:
     """Open psycopg connections using backend Supabase configuration."""
@@ -282,6 +289,147 @@ class ApplicationRepository:
             )
         )
 
+    def record_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        received_message: str,
+        expected_command: str,
+        granted_at: Any,
+        matched: bool,
+        source: str,
+    ) -> dict[str, Any]:
+        """Persist deterministic customer confirmation for one purchase."""
+        table_name = self._detail_table_for_purchase_type(purchase_type)
+        with self.connection_provider.open() as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        update public.{table_name}
+                        set refund_confirmation_granted = true,
+                            refund_confirmation_message = %s,
+                            refund_confirmation_granted_at = %s,
+                            refund_confirmation_expected_command = %s,
+                            refund_confirmation_matched = %s,
+                            refund_confirmation_source = %s,
+                            refund_confirmation_customer_id = %s,
+                            refund_confirmation_purchase_id = %s,
+                            refund_confirmation_consumed_at = null,
+                            refund_confirmation_consumed_by_action = null,
+                            updated_at = now()
+                        where purchase_id = %s
+                            and exists (
+                                select 1
+                                from public.purchases
+                                where purchases.id = {table_name}.purchase_id
+                                    and purchases.user_id = %s
+                                    and purchases.purchase_type = %s
+                            )
+                        """,
+                        (
+                            received_message,
+                            granted_at,
+                            expected_command,
+                            matched,
+                            source,
+                            customer_id,
+                            purchase_id,
+                            purchase_id,
+                            customer_id,
+                            purchase_type,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise RepositoryConflictError(
+                            "Refund confirmation could not be persisted for the target purchase."
+                        )
+
+        return self.get_refund_confirmation(purchase_id, purchase_type)
+
+    def get_refund_confirmation(
+        self,
+        purchase_id: str,
+        purchase_type: str,
+    ) -> dict[str, Any]:
+        """Return persisted refund confirmation facts for one purchase detail row."""
+        table_name = self._detail_table_for_purchase_type(purchase_type)
+        return self._get_single_detail_row(
+            f"""
+            select
+                refund_confirmation_granted,
+                refund_confirmation_message,
+                refund_confirmation_granted_at,
+                refund_confirmation_expected_command,
+                refund_confirmation_matched,
+                refund_confirmation_source,
+                refund_confirmation_customer_id,
+                refund_confirmation_purchase_id,
+                refund_confirmation_consumed_at,
+                refund_confirmation_consumed_by_action
+            from public.{table_name}
+            where purchase_id = %s
+            """,
+            purchase_id,
+        )
+
+    def consume_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        expected_command: str,
+        consumed_at: Any,
+        consumed_by_action: str,
+    ) -> dict[str, Any]:
+        """Mark one persisted confirmation as consumed for its authorized workflow."""
+        table_name = self._detail_table_for_purchase_type(purchase_type)
+        with self.connection_provider.open() as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        update public.{table_name}
+                        set refund_confirmation_consumed_at = %s,
+                            refund_confirmation_consumed_by_action = %s,
+                            updated_at = now()
+                        where purchase_id = %s
+                            and refund_confirmation_granted = true
+                            and refund_confirmation_matched = true
+                            and refund_confirmation_customer_id = %s
+                            and refund_confirmation_purchase_id = %s
+                            and refund_confirmation_expected_command = %s
+                            and refund_confirmation_consumed_at is null
+                            and refund_confirmation_consumed_by_action is null
+                            and exists (
+                                select 1
+                                from public.purchases
+                                where purchases.id = {table_name}.purchase_id
+                                    and purchases.user_id = %s
+                                    and purchases.purchase_type = %s
+                            )
+                        """,
+                        (
+                            consumed_at,
+                            consumed_by_action,
+                            purchase_id,
+                            customer_id,
+                            purchase_id,
+                            expected_command,
+                            customer_id,
+                            purchase_type,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise RepositoryConflictError(
+                            "Refund confirmation could not be consumed for the target purchase."
+                        )
+
+        return self.get_refund_confirmation(purchase_id, purchase_type)
+
     def update_digital_code_redeemed(self, purchase_id: str, redeemed_at: Any) -> None:
         """Redeem an issued digital code."""
         self._run_in_transaction(
@@ -489,6 +637,14 @@ class ApplicationRepository:
             raise PurchaseDetailsNotFoundError("Purchase detail row was not found.")
 
         return dict(row)
+
+    def _detail_table_for_purchase_type(self, purchase_type: str) -> str:
+        try:
+            return DETAIL_TABLE_BY_PURCHASE_TYPE[purchase_type]
+        except KeyError as exc:
+            raise PurchaseDetailsNotFoundError(
+                f"Unsupported purchase type for detail lookup: {purchase_type}."
+            ) from exc
 
     def _run_in_transaction(self, *statements: tuple[str, tuple[Any, ...]]) -> None:
         with self.connection_provider.open() as connection:

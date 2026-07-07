@@ -39,6 +39,18 @@ class StubApplicationService:
         self.purchase_detail = purchase_detail
         self.refund_eligibility = refund_eligibility
         self.refund_workflow = refund_workflow or refund_eligibility
+        self.refund_confirmation: dict[str, Any] = {
+            "refund_confirmation_granted": False,
+            "refund_confirmation_message": None,
+            "refund_confirmation_granted_at": None,
+            "refund_confirmation_expected_command": None,
+            "refund_confirmation_matched": False,
+            "refund_confirmation_source": None,
+            "refund_confirmation_customer_id": None,
+            "refund_confirmation_purchase_id": PURCHASE_ID,
+            "refund_confirmation_consumed_at": None,
+            "refund_confirmation_consumed_by_action": None,
+        }
         self.error = error
 
     def list_mock_users(self) -> list[dict[str, Any]]:
@@ -84,6 +96,63 @@ class StubApplicationService:
 
     def issue_refund(self, purchase_id: str) -> dict[str, Any]:
         return self.get_refund_workflow(purchase_id)
+
+    def record_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        received_message: str,
+        expected_command: str,
+        granted_at: datetime,
+        matched: bool,
+        source: str,
+    ) -> dict[str, Any]:
+        self.refund_confirmation = {
+            "refund_confirmation_granted": True,
+            "refund_confirmation_message": received_message,
+            "refund_confirmation_granted_at": granted_at,
+            "refund_confirmation_expected_command": expected_command,
+            "refund_confirmation_matched": matched,
+            "refund_confirmation_source": source,
+            "refund_confirmation_customer_id": customer_id,
+            "refund_confirmation_purchase_id": purchase_id,
+            "refund_confirmation_consumed_at": None,
+            "refund_confirmation_consumed_by_action": None,
+        }
+        return dict(self.refund_confirmation)
+
+    def get_refund_confirmation(
+        self,
+        purchase_id: str,
+        purchase_type: str,
+    ) -> dict[str, Any]:
+        return dict(self.refund_confirmation)
+
+    def consume_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        expected_command: str,
+        consumed_at: datetime,
+        consumed_by_action: str,
+    ) -> dict[str, Any]:
+        if (
+            self.refund_confirmation["refund_confirmation_granted"] is not True
+            or self.refund_confirmation["refund_confirmation_customer_id"] != customer_id
+            or self.refund_confirmation["refund_confirmation_purchase_id"] != purchase_id
+            or self.refund_confirmation["refund_confirmation_expected_command"]
+            != expected_command
+        ):
+            raise RefundWorkflowError("Refund confirmation is not valid.")
+        self.refund_confirmation["refund_confirmation_consumed_at"] = consumed_at
+        self.refund_confirmation["refund_confirmation_consumed_by_action"] = (
+            consumed_by_action
+        )
+        return dict(self.refund_confirmation)
 
     def redeem_digital_code(self, purchase_id: str) -> dict[str, Any]:
         if self.error:
@@ -148,6 +217,36 @@ class StubCursor:
             self.result = []
         if normalized.startswith("update") and self.connection.force_conflict:
             self.rowcount = 0
+        elif normalized.startswith("update public.") and params is not None:
+            purchase_type = self.connection.detail_purchase_type_from_sql(normalized)
+            if (
+                purchase_type is not None
+                and "set refund_confirmation_granted = true" in normalized
+            ):
+                self.connection.detail_rows[purchase_type].update(
+                    {
+                        "refund_confirmation_granted": True,
+                        "refund_confirmation_message": params[0],
+                        "refund_confirmation_granted_at": params[1],
+                        "refund_confirmation_expected_command": params[2],
+                        "refund_confirmation_matched": params[3],
+                        "refund_confirmation_source": params[4],
+                        "refund_confirmation_customer_id": params[5],
+                        "refund_confirmation_purchase_id": params[6],
+                        "refund_confirmation_consumed_at": None,
+                        "refund_confirmation_consumed_by_action": None,
+                    }
+                )
+            elif (
+                purchase_type is not None
+                and "refund_confirmation_consumed_at = %s" in normalized
+            ):
+                self.connection.detail_rows[purchase_type].update(
+                    {
+                        "refund_confirmation_consumed_at": params[0],
+                        "refund_confirmation_consumed_by_action": params[1],
+                    }
+                )
 
     def fetchone(self) -> dict[str, Any] | None:
         return self.result[0] if self.result else None
@@ -171,8 +270,21 @@ class StubConnection:
             "refund_outcome": None,
         }
         self.force_conflict = False
+        self.refund_confirmation = {
+            "refund_confirmation_granted": False,
+            "refund_confirmation_message": None,
+            "refund_confirmation_granted_at": None,
+            "refund_confirmation_expected_command": None,
+            "refund_confirmation_matched": False,
+            "refund_confirmation_source": None,
+            "refund_confirmation_customer_id": None,
+            "refund_confirmation_purchase_id": PURCHASE_ID,
+            "refund_confirmation_consumed_at": None,
+            "refund_confirmation_consumed_by_action": None,
+        }
         self.detail_rows = {
             "digital": {
+                **self.refund_confirmation,
                 "issued_code": "DIG-RAI-10001",
                 "code_redeemed": False,
                 "code_redeemed_at": None,
@@ -182,6 +294,7 @@ class StubConnection:
                 "refund_lock_reason": None,
             },
             "physical": {
+                **self.refund_confirmation,
                 "scheduled_delivery_at": datetime(2026, 6, 3, 14, 0, tzinfo=UTC),
                 "delivered_at": None,
                 "return_status": "not_requested",
@@ -198,6 +311,7 @@ class StubConnection:
                 "refund_window_expires_at": datetime(2026, 7, 1, 14, 0, tzinfo=UTC),
             },
             "subscription": {
+                **self.refund_confirmation,
                 "period_start": datetime(2026, 6, 1, 14, 0, tzinfo=UTC),
                 "period_end": datetime(2026, 7, 1, 14, 0, tzinfo=UTC),
                 "cancelled_at": None,
@@ -214,6 +328,16 @@ class StubConnection:
 
     def transaction(self) -> "StubTransaction":
         return StubTransaction()
+
+    def detail_purchase_type_from_sql(self, normalized_statement: str) -> str | None:
+        for purchase_type, table_name in (
+            ("digital", "public.digital_purchase_details"),
+            ("physical", "public.physical_purchase_details"),
+            ("subscription", "public.subscription_purchase_details"),
+        ):
+            if table_name in normalized_statement:
+                return purchase_type
+        return None
 
 
 class StubConnectionProvider:
@@ -737,6 +861,66 @@ def test_repository_updates_digital_code_redemption_state() -> None:
     assert "status = 'redeemed'" in executed_sql
 
 
+def test_repository_records_and_consumes_refund_confirmation() -> None:
+    connection = StubConnection("digital")
+    repository = ApplicationRepository(StubConnectionProvider(connection))
+    granted_at = datetime(2026, 7, 3, 14, tzinfo=UTC)
+    consumed_at = datetime(2026, 7, 3, 15, tzinfo=UTC)
+
+    confirmation = repository.record_refund_confirmation(
+        customer_id=USER_ID,
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        received_message="Confirm invalidate code and issue refund.",
+        expected_command="Confirm invalidate code and issue refund",
+        granted_at=granted_at,
+        matched=True,
+        source="chat_confirmation_validator",
+    )
+    consumed_confirmation = repository.consume_refund_confirmation(
+        customer_id=USER_ID,
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        expected_command="Confirm invalidate code and issue refund",
+        consumed_at=consumed_at,
+        consumed_by_action="issue_refund",
+    )
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed)
+    assert "refund_confirmation_granted = true" in executed_sql
+    assert "refund_confirmation_consumed_at = %s" in executed_sql
+    assert "purchases.user_id = %s" in executed_sql
+    assert "purchases.purchase_type = %s" in executed_sql
+    assert confirmation["refund_confirmation_granted"] is True
+    assert confirmation["refund_confirmation_message"] == (
+        "Confirm invalidate code and issue refund."
+    )
+    assert confirmation["refund_confirmation_customer_id"] == USER_ID
+    assert confirmation["refund_confirmation_purchase_id"] == PURCHASE_ID
+    assert consumed_confirmation["refund_confirmation_consumed_at"] == consumed_at
+    assert consumed_confirmation["refund_confirmation_consumed_by_action"] == (
+        "issue_refund"
+    )
+
+
+def test_repository_raises_conflict_when_refund_confirmation_guard_fails() -> None:
+    connection = StubConnection("digital")
+    connection.force_conflict = True
+    repository = ApplicationRepository(StubConnectionProvider(connection))
+
+    with pytest.raises(RepositoryConflictError):
+        repository.record_refund_confirmation(
+            customer_id=USER_ID,
+            purchase_id=PURCHASE_ID,
+            purchase_type="digital",
+            received_message="Confirm invalidate code and issue refund.",
+            expected_command="Confirm invalidate code and issue refund",
+            granted_at=datetime(2026, 7, 3, 14, tzinfo=UTC),
+            matched=True,
+            source="chat_confirmation_validator",
+        )
+
+
 def test_application_service_prepares_digital_refund_and_issues_funds() -> None:
     repository = StatefulWorkflowRepository("digital")
     service = ApplicationService(repository)
@@ -876,6 +1060,18 @@ class StatefulWorkflowRepository:
             "refund_outcome": None,
         }
         self.detail = self.build_detail(purchase_type)
+        self.refund_confirmation: dict[str, Any] = {
+            "refund_confirmation_granted": False,
+            "refund_confirmation_message": None,
+            "refund_confirmation_granted_at": None,
+            "refund_confirmation_expected_command": None,
+            "refund_confirmation_matched": False,
+            "refund_confirmation_source": None,
+            "refund_confirmation_customer_id": None,
+            "refund_confirmation_purchase_id": PURCHASE_ID,
+            "refund_confirmation_consumed_at": None,
+            "refund_confirmation_consumed_by_action": None,
+        }
 
     def list_mock_users(self) -> list[dict[str, Any]]:
         return []
@@ -983,6 +1179,66 @@ class StatefulWorkflowRepository:
             raise RepositoryConflictError("Guarded mutation conflict.")
         self.detail["return_status"] = "accepted_by_carrier"
         self.detail["accepted_by_carrier_at"] = accepted_at
+
+    def record_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        received_message: str,
+        expected_command: str,
+        granted_at: datetime,
+        matched: bool,
+        source: str,
+    ) -> dict[str, Any]:
+        if purchase_id != self.purchase["id"] or purchase_type != self.purchase["purchase_type"]:
+            raise RepositoryConflictError("Guarded confirmation conflict.")
+        self.refund_confirmation = {
+            "refund_confirmation_granted": True,
+            "refund_confirmation_message": received_message,
+            "refund_confirmation_granted_at": granted_at,
+            "refund_confirmation_expected_command": expected_command,
+            "refund_confirmation_matched": matched,
+            "refund_confirmation_source": source,
+            "refund_confirmation_customer_id": customer_id,
+            "refund_confirmation_purchase_id": purchase_id,
+            "refund_confirmation_consumed_at": None,
+            "refund_confirmation_consumed_by_action": None,
+        }
+        return dict(self.refund_confirmation)
+
+    def get_refund_confirmation(
+        self,
+        purchase_id: str,
+        purchase_type: str,
+    ) -> dict[str, Any]:
+        return dict(self.refund_confirmation)
+
+    def consume_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        expected_command: str,
+        consumed_at: datetime,
+        consumed_by_action: str,
+    ) -> dict[str, Any]:
+        if (
+            self.refund_confirmation["refund_confirmation_granted"] is not True
+            or self.refund_confirmation["refund_confirmation_customer_id"] != customer_id
+            or self.refund_confirmation["refund_confirmation_purchase_id"] != purchase_id
+            or self.refund_confirmation["refund_confirmation_expected_command"]
+            != expected_command
+            or self.refund_confirmation["refund_confirmation_consumed_at"] is not None
+        ):
+            raise RepositoryConflictError("Guarded confirmation conflict.")
+        self.refund_confirmation["refund_confirmation_consumed_at"] = consumed_at
+        self.refund_confirmation["refund_confirmation_consumed_by_action"] = (
+            consumed_by_action
+        )
+        return dict(self.refund_confirmation)
 
     def build_detail(self, purchase_type: str) -> dict[str, Any]:
         if purchase_type == "physical":

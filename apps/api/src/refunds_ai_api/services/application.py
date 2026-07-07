@@ -75,6 +75,42 @@ class ApplicationRepositoryProtocol(Protocol):
         """Confirm carrier acceptance for a physical return."""
         ...
 
+    def record_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        received_message: str,
+        expected_command: str,
+        granted_at: datetime,
+        matched: bool,
+        source: str,
+    ) -> dict[str, Any]:
+        """Persist deterministic refund confirmation facts."""
+        ...
+
+    def get_refund_confirmation(
+        self,
+        purchase_id: str,
+        purchase_type: str,
+    ) -> dict[str, Any]:
+        """Return persisted refund confirmation facts."""
+        ...
+
+    def consume_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        expected_command: str,
+        consumed_at: datetime,
+        consumed_by_action: str,
+    ) -> dict[str, Any]:
+        """Mark persisted refund confirmation as consumed."""
+        ...
+
 
 @dataclass(frozen=True)
 class ApplicationService:
@@ -200,6 +236,68 @@ class ApplicationService:
                 "Refund issuance is not allowed: stale_or_duplicate_mutation."
             ) from exc
         return serialize_issued_workflow_decision(decision, effective_time)
+
+    def record_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        received_message: str,
+        expected_command: str,
+        granted_at: datetime,
+        matched: bool,
+        source: str,
+    ) -> dict[str, Any]:
+        """Persist deterministic refund confirmation facts for one purchase."""
+        try:
+            return self.repository.record_refund_confirmation(
+                customer_id=customer_id,
+                purchase_id=purchase_id,
+                purchase_type=purchase_type,
+                received_message=received_message,
+                expected_command=expected_command,
+                granted_at=granted_at,
+                matched=matched,
+                source=source,
+            )
+        except RepositoryConflictError as exc:
+            raise RefundWorkflowError(
+                "Refund confirmation could not be persisted for this purchase."
+            ) from exc
+
+    def get_refund_confirmation(
+        self,
+        purchase_id: str,
+        purchase_type: str,
+    ) -> dict[str, Any]:
+        """Return persisted refund confirmation facts for one purchase."""
+        return self.repository.get_refund_confirmation(purchase_id, purchase_type)
+
+    def consume_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        expected_command: str,
+        consumed_at: datetime,
+        consumed_by_action: str,
+    ) -> dict[str, Any]:
+        """Mark persisted refund confirmation as consumed for one purchase."""
+        try:
+            return self.repository.consume_refund_confirmation(
+                customer_id=customer_id,
+                purchase_id=purchase_id,
+                purchase_type=purchase_type,
+                expected_command=expected_command,
+                consumed_at=consumed_at,
+                consumed_by_action=consumed_by_action,
+            )
+        except RepositoryConflictError as exc:
+            raise RefundWorkflowError(
+                "Refund confirmation is not valid for this refund action."
+            ) from exc
 
     def redeem_digital_code(
         self,
