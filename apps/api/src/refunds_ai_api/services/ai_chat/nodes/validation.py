@@ -13,7 +13,10 @@ from refunds_ai_api.services.ai_chat.responses import (
     CUSTOMER_CONTEXT_REQUIRED_RESPONSE,
 )
 from refunds_ai_api.services.ai_chat.routing import has_refund_eligibility_intent
-from refunds_ai_api.services.ai_chat.workflow import parse_refund_workflow_mutation_intent
+from refunds_ai_api.services.ai_chat.workflow import (
+    is_refund_confirmation_boundary_reply,
+    parse_refund_workflow_mutation_intent,
+)
 
 
 def validate_context_node(runtime: Any, state: ChatGraphState) -> ChatGraphState:
@@ -39,12 +42,19 @@ def validate_context_node(runtime: Any, state: ChatGraphState) -> ChatGraphState
         conversation_state=state.get("conversation_state"),
     )
     blocked_intent = parse_refund_workflow_mutation_intent(state["message"])
+    conversation_state = state.get("conversation_state")
+    pending_confirmation_intent = (
+        isinstance(conversation_state, dict)
+        and isinstance(conversation_state.get("pending_refund_action"), dict)
+        and is_refund_confirmation_boundary_reply(state["message"])
+    )
 
     if (
         not state.get("customer_id")
         and policy_lookup_query is None
         and blocked_intent is None
         and not eligibility_intent
+        and not pending_confirmation_intent
     ):
         state = log_trace_step(
             state,

@@ -72,6 +72,16 @@ def resolve_operation(
             "refund_denial_explanation_phrase_matched",
         )
 
+    if _has_pending_refund_product_reference_follow_up(
+        normalized_message,
+        conversation_state,
+    ):
+        return OperationResolution(
+            WorkflowOperation.ELIGIBILITY,
+            "deterministic",
+            "pending_product_reference_follow_up",
+        )
+
     if _has_refund_eligibility_operation(normalized_message):
         return OperationResolution(
             WorkflowOperation.ELIGIBILITY,
@@ -196,6 +206,12 @@ def _has_refund_eligibility_operation(message: str) -> bool:
         r"\bcan\s+i\s+refund\b",
         r"\bcan\s+i\s+get\s+a\s+refund\s+for\b",
         r"\bcould\s+i\s+refund\b",
+        r"\bi(?:'d|d| would)\s+like\s+(?:to\s+)?get\s+a\s+refund\b",
+        r"\bi(?:'d|d| would)\s+like\s+a\s+refund\b",
+        r"\bare\s+we\s+able\s+to\s+refund\b",
+        r"\bare\s+we\s+able\s+to\s+get\s+a\s+refund\s+for\b",
+        r"\bcan\s+we\s+refund\b",
+        r"\bcan\s+we\s+get\s+a\s+refund\s+for\b",
         r"\bam\s+i\s+able\s+to\s+refund\b",
         r"\bam\s+i\s+able\s+to\s+get\s+a\s+refund\s+for\b",
         r"\bam\s+i\s+eligible\b",
@@ -211,6 +227,26 @@ def _has_refund_eligibility_operation(message: str) -> bool:
         r"\brefund\s+eligibility\b",
     )
     return any(re.search(pattern, message) for pattern in eligibility_patterns)
+
+
+def _has_pending_refund_product_reference_follow_up(
+    message: str,
+    conversation_state: Mapping[str, Any] | None,
+) -> bool:
+    if not isinstance(conversation_state, Mapping):
+        return False
+    pending_reference = conversation_state.get("pending_refund_product_reference")
+    if not isinstance(pending_reference, Mapping):
+        return False
+    product_reference = pending_reference.get("product_reference")
+    if not isinstance(product_reference, str) or not product_reference:
+        return False
+    candidate = message.strip().strip("?.! ")
+    if not candidate or len(candidate.split()) > 5:
+        return False
+    if _has_refund_policy_operation(message) or _has_list_operation(message):
+        return False
+    return not (_has_count_operation(message) or _has_explain_operation(message))
 
 
 def _has_refund_denial_explanation_operation(

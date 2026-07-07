@@ -148,6 +148,10 @@ def _log_forced_tool(
             "No supported tool was requested for a refund-eligibility query; "
             "forcing the deterministic refund-eligibility tool."
         ),
+        "validate_customer_account": (
+            "No supported tool was requested for an account-validation query; "
+            "forcing the read-only active-customer validation tool."
+        ),
     }
     return log_trace_step(
         state,
@@ -250,6 +254,8 @@ def _parse_model_arguments_for_tool(
         return parse_model_refund_eligibility_arguments(tool_call.arguments)
     if tool_call.name == "get_customer_purchase_history":
         return {} if not tool_call.arguments else tool_call.arguments
+    if tool_call.name == "validate_customer_account":
+        return {} if not tool_call.arguments else tool_call.arguments
     return None
 
 def _first_supported_tool_call(state: ChatGraphState) -> ModelToolCall | None:
@@ -260,6 +266,7 @@ def _first_supported_tool_call(state: ChatGraphState) -> ModelToolCall | None:
             "get_purchase_history_by_date_range",
             "get_refund_policy",
             "get_refund_eligibility",
+            "validate_customer_account",
         }:
             return tool_call
     return None

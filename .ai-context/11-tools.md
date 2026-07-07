@@ -34,6 +34,7 @@ Implementation source:
 | Category | Tool | Purpose | Mutates state |
 | --- | --- | --- | --- |
 | Purchases | `get_customer_purchase_history` | Read active-customer purchase rows and aggregates. | No |
+| Customers | `validate_customer_account` | Read active mock-customer metadata for the request customer id. | No |
 | Purchases | `get_purchase_history_by_date_range` | Read purchases for an inclusive local date range. | No |
 | Purchases | `get_purchase_count_by_amount_threshold` | Count purchases matching a cent-based threshold. | No |
 | Policies | `get_refund_policy` | Read deterministic policy catalog sections. | No |
@@ -189,6 +190,26 @@ Errors:
 * `CUSTOMER_NOT_FOUND`
 * `DATABASE_NOT_CONFIGURED`
 
+### `validate_customer_account`
+
+Purpose: Read the active mock customer account supplied by the request.
+
+Inputs:
+
+* none from the model; active request supplies `customer_id`
+
+Outputs:
+
+* `customer_id`
+* `valid`
+* display and role metadata
+
+Rules:
+
+* This is a read-only mock-auth helper.
+* The model must not provide, choose, or widen `customer_id`.
+* Refund ownership remains a backend/database check against active-customer purchase rows.
+
 ### `get_purchase_history_by_date_range`
 
 Purpose: Read purchase history for an inclusive local date range.
@@ -305,9 +326,13 @@ Refund process mutations execute only through backend services.
 Required conditions:
 
 * The resolver identifies exactly one purchase owned by the active customer.
-* Backend workflow state allows the requested action.
 * `active_refund_context` carries the expected command and mutation action.
-* The current user message matches the canonical command.
+* The backend confirmation validator deterministically matches the current user
+  message to the expected canonical command.
+* The validator persists exact consent facts before mutation execution.
+* The mutation executor loads persisted confirmation and verifies grant, match,
+  customer, purchase, expected command, unused scope, and current workflow state.
+* Backend workflow state allows the requested atomic action.
 
 Canonical commands:
 
@@ -326,10 +351,22 @@ that issuance path immediately after the preparation step verifies as persisted.
 physical purchases, the first confirmed command stops after return preparation because
 fund issuance is gated by carrier acceptance.
 
+For a single eligible physical purchase that requires a return label,
+`pending_refund_action` is returned in compact conversation state with purchase id,
+product name, purchase type, action, required action, and expected command. The
+confirmation route may use that pending action as the target, but it must still call
+the backend confirmation validator with the active request `customer_id` before any
+refund mutation execution.
+
 Generic replies such as `yes`, `proceed`, `go ahead`, `do it`, or `continue` do not
 mutate state at the canonical-command boundary.
 
 Declines and invalid commands do not mutate state.
+
+The model is only the conversational surface for this flow. It may present the
+canonical command and route the response, but it is not the consent authority.
+Only the backend validator may set `refund_confirmation_granted = true`, and
+refund mutation execution must not rely on raw chat text alone.
 
 ## Response Guards
 
@@ -378,9 +415,14 @@ Trace events should cover:
 * tool execution and results
 * response blocking
 * confirmation command generation and receipt
-* mutation attempts and outcomes
+* refund mutation lifecycle summaries
 * final response
 * route return
+
+Normal successful refund mutations should emit one grouped `workflow.refund_mutation_lifecycle`
+block with purchase, confirmation, transition, validation, and final-result fields.
+Error paths should still emit expanded diagnostics for authorization, policy, or
+persistence failures.
 
 Structured log records should retain event payloads for tests and future audit surfaces.
 Console summaries should remain concise and human-readable.

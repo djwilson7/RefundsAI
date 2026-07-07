@@ -31,6 +31,7 @@ def _pending_action_from_active_refund_context(
         "product_name": active_refund_context["product_name"],
         "purchase_type": active_refund_context["purchase_type"],
         "required_action": active_refund_context.get("next_action"),
+        "confirmation_expected_command": active_refund_context.get("confirmation_command"),
         "refundable_amount_cents": None,
         "refund_outcome": None,
     }

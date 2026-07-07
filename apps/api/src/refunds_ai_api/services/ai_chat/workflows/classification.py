@@ -17,6 +17,7 @@ from refunds_ai_api.services.ai_chat.routing import (
 )
 from refunds_ai_api.services.ai_chat.state import normalize_conversation_state
 from refunds_ai_api.services.ai_chat.workflow import (
+    is_generic_refund_confirmation_reply,
     is_refund_confirmation_boundary_reply,
     parse_refund_workflow_confirmation_intent,
     parse_refund_workflow_continuation_intent,
@@ -71,6 +72,18 @@ def classify_workflow(
     )
     workflow_kind = lookup_workflow_kind(conversation_object, operation.operation)
     active_refund_context = normalized_state.get("active_refund_context")
+    if (
+        normalized_state.get("pending_refund_action") is None
+        and normalized_state.get("last_completed_refund") is not None
+        and is_generic_refund_confirmation_reply(message)
+    ):
+        return WorkflowClassification(
+            WorkflowKind.REFUND_MUTATION,
+            "deterministic",
+            "ambiguous_affirmation_after_completed_refund",
+            conversation_object,
+            operation,
+        )
     if (
         isinstance(active_refund_context, dict)
         and active_refund_context.get("confirmation_command")

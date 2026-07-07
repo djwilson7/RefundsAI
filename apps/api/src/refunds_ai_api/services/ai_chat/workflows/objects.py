@@ -19,6 +19,7 @@ from refunds_ai_api.services.ai_chat.state import (
     normalize_conversation_state,
     normalize_page_context,
 )
+from refunds_ai_api.services.ai_chat.workflow import parse_refund_confirmation_command
 
 
 class ConversationObjectKind(StrEnum):
@@ -72,6 +73,14 @@ def resolve_conversation_object(
     )
     normalized_message = message.casefold()
 
+    if parse_refund_confirmation_command(message) is not None:
+        active_refund_object = _active_refund_context_object(normalized_state)
+        if active_refund_object is not None:
+            return active_refund_object
+        active_purchase_object = _active_purchase_object(normalized_state)
+        if active_purchase_object is not None:
+            return active_purchase_object
+
     if _has_policy_to_eligibility_follow_up(normalized_message, normalized_state):
         referenced_object = _referenced_conversation_object(
             normalized_state,
@@ -96,6 +105,13 @@ def resolve_conversation_object(
             product_reference=product_reference,
             source="message",
         )
+
+    pending_product_reference = _pending_refund_product_reference_object(
+        message,
+        normalized_state,
+    )
+    if pending_product_reference is not None:
+        return pending_product_reference
 
     purchase_type = parse_purchase_type_filter(message)
     if purchase_type is not None:
@@ -175,6 +191,34 @@ def _referenced_conversation_object(
     return _page_purchase_object(page_context)
 
 
+def _pending_refund_product_reference_object(
+    message: str,
+    conversation_state: Mapping[str, Any],
+) -> ConversationObject | None:
+    pending_reference = conversation_state.get("pending_refund_product_reference")
+    if not isinstance(pending_reference, Mapping):
+        return None
+    product_reference = pending_reference.get("product_reference")
+    if not isinstance(product_reference, str) or not product_reference:
+        return None
+    candidate = message.strip().strip("?.! ")
+    if not candidate:
+        return None
+    normalized_candidate = candidate.casefold()
+    if len(normalized_candidate.split()) > 5:
+        return None
+    if has_account_fact_intent(candidate):
+        return None
+    if parse_purchase_type_filter(candidate) is not None:
+        return None
+    return ConversationObject(
+        ConversationObjectKind.PRODUCT_REFERENCE,
+        label=candidate,
+        product_reference=candidate,
+        source="conversation_state",
+    )
+
+
 def _active_result_set_object(
     conversation_state: Mapping[str, Any],
 ) -> ConversationObject | None:
@@ -223,6 +267,28 @@ def _active_purchase_object(
         if purchase_type in {"digital", "physical", "subscription"}
         else None,
         source="active_purchase",
+    )
+
+
+def _active_refund_context_object(
+    conversation_state: Mapping[str, Any],
+) -> ConversationObject | None:
+    active_refund_context = conversation_state.get("active_refund_context")
+    if not isinstance(active_refund_context, Mapping):
+        return None
+    purchase_id = active_refund_context.get("purchase_id")
+    product_name = active_refund_context.get("product_name")
+    purchase_type = active_refund_context.get("purchase_type")
+    if not isinstance(purchase_id, str) or not isinstance(product_name, str):
+        return None
+    return ConversationObject(
+        ConversationObjectKind.ACTIVE_PURCHASE,
+        label=product_name,
+        purchase_ids=(purchase_id,),
+        purchase_type=purchase_type
+        if purchase_type in {"digital", "physical", "subscription"}
+        else None,
+        source="conversation_state",
     )
 
 

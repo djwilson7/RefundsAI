@@ -147,10 +147,16 @@ def humanize_event_type(event_type: str) -> str:
         "workflow.confirmation_command_invalid": "Confirmation command invalid",
         "workflow.confirmation_command_received": "Confirmation command received",
         "workflow.confirmation_command_verified": "Confirmation command verified",
+        "workflow.confirmation_context_incomplete": "Confirmation context incomplete",
+        "workflow.confirmation_pending_action_missing": "Confirmation action missing",
         "workflow.confirmation_requested": "Workflow confirmation requested",
+        "workflow.confirmation_target_resolution_failed": "Confirmation target missing",
+        "workflow.confirmation_validation_failed": "Confirmation validation failed",
+        "workflow.confirmation_validated": "Confirmation validated",
         "workflow.completed": "Workflow completed",
         "workflow.context_resolved": "Workflow context resolved",
         "workflow.refund_mutation_completed": "Refund mutation completed",
+        "workflow.refund_mutation_lifecycle": "Refund mutation lifecycle",
         "workflow.refund_mutation_started": "Refund mutation started",
         "workflow.executing": "Workflow executing",
         "workflow.mutation_completed": "Workflow mutation completed",
@@ -205,6 +211,24 @@ def trace_console_details(event_type: str, data: dict[str, Any]) -> str:
         "workflow.tool_overridden",
     }:
         return tool_trace_details(event_type, data)
+
+    if event_type == "workflow.refund_mutation_lifecycle":
+        purchase = data.get("purchase") if isinstance(data.get("purchase"), dict) else {}
+        result = data.get("result") if isinstance(data.get("result"), dict) else {}
+        transitions = data.get("transitions")
+        return join_trace_fields(
+            kind=data.get("kind"),
+            purchase=active_purchase_label(
+                {
+                    "purchase_id": purchase.get("purchase_id"),
+                    "product_name": purchase.get("product_name"),
+                    "purchase_type": purchase.get("purchase_type"),
+                }
+            ),
+            transitions=count_items(transitions),
+            final_stage=result.get("final_stage"),
+            required_action=result.get("required_action"),
+        )
 
     if event_type.startswith("workflow."):
         return join_trace_fields(

@@ -186,7 +186,7 @@ def summarize_workflow_confirmation(data: Mapping[str, Any]) -> dict[str, Any]:
 def summarize_workflow_confirmation_command(data: Mapping[str, Any]) -> dict[str, Any]:
     """Return canonical confirmation-command boundary details."""
     pending_action = _mapping_or_none(data.get("pending_action")) or {}
-    return {
+    summary = {
         "workflow": data.get("kind"),
         "purchase": {
             "purchase_id": _short_id(data.get("purchase_id")),
@@ -197,19 +197,25 @@ def summarize_workflow_confirmation_command(data: Mapping[str, Any]) -> dict[str
             "expected": data.get("expected_command"),
             "received": preview_text(data.get("received_command")),
             "matched": data.get("matched_command"),
+            "confirmed": data.get("confirmed"),
+            "confirmation_granted_at": data.get("confirmation_granted_at"),
         },
         "pending_action": {
             "action": pending_action.get("action"),
+            "product_name": pending_action.get("product_name"),
+            "purchase_id": _short_id(pending_action.get("purchase_id")),
+            "purchase_type": pending_action.get("purchase_type"),
             "required_action": pending_action.get("required_action"),
         }
         if pending_action
         else None,
     }
+    return summary
 
 def summarize_workflow_mutation(data: Mapping[str, Any]) -> dict[str, Any]:
     """Return mutation execution details without dumping full payloads."""
-    result = _mapping_or_none(data.get("result")) or {}
-    return {
+    result = _mapping_or_none(data.get("result"))
+    summary = {
         "workflow": data.get("kind"),
         "action": data.get("action"),
         "purchase_id": _short_id(data.get("purchase_id")),
@@ -220,8 +226,76 @@ def summarize_workflow_mutation(data: Mapping[str, Any]) -> dict[str, Any]:
         "matched_command": data.get("matched_command"),
         "product_name": data.get("product_name"),
         "reason": data.get("reason"),
-        "result": {
+        "expected_transition": data.get("expected_transition"),
+    }
+    if result is not None:
+        summary["result"] = {
             "refund_stage": result.get("refund_stage"),
+            "required_action": result.get("required_action"),
+            "refundable_amount_cents": result.get("refundable_amount_cents"),
+            "refund_outcome": result.get("refund_outcome"),
+        }
+    return summary
+
+def summarize_refund_mutation_lifecycle(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Return grouped refund mutation lifecycle details."""
+    purchase = _mapping_or_none(data.get("purchase")) or {}
+    confirmation = _mapping_or_none(data.get("confirmation")) or {}
+    result = _mapping_or_none(data.get("result")) or {}
+    transitions = data.get("transitions")
+    safe_transitions: list[dict[str, Any]] = []
+    if isinstance(transitions, list):
+        for transition in transitions:
+            transition_data = _mapping_or_none(transition) or {}
+            transition_result = _mapping_or_none(transition_data.get("result")) or {}
+            permission = _mapping_or_none(transition_data.get("permission")) or {}
+            safe_transitions.append(
+                {
+                    "action": transition_data.get("action"),
+                    "from_stage": transition_data.get("from_stage"),
+                    "expected_stage": transition_data.get("expected_stage"),
+                    "persisted_stage": transition_data.get("persisted_stage"),
+                    "validation": transition_data.get("validation"),
+                    "required_action_before": transition_data.get(
+                        "required_action_before"
+                    ),
+                    "required_action_after": transition_data.get(
+                        "required_action_after"
+                    ),
+                    "permission": {
+                        "can_prepare_refund": permission.get("can_prepare_refund"),
+                        "can_issue_funds": permission.get("can_issue_funds"),
+                        "validated": permission.get("validated"),
+                    },
+                    "result": {
+                        "refund_stage": transition_result.get("refund_stage"),
+                        "required_action": transition_result.get("required_action"),
+                        "refundable_amount_cents": transition_result.get(
+                            "refundable_amount_cents"
+                        ),
+                        "refund_outcome": transition_result.get("refund_outcome"),
+                    },
+                }
+            )
+
+    return {
+        "purchase": {
+            "purchase_id": _short_id(purchase.get("purchase_id")),
+            "product_name": purchase.get("product_name"),
+            "purchase_type": purchase.get("purchase_type"),
+        },
+        "confirmation": {
+            "expected": confirmation.get("expected"),
+            "received": preview_text(confirmation.get("received")),
+            "persisted_granted": confirmation.get("persisted_granted"),
+            "matched": confirmation.get("matched"),
+            "granted_at": confirmation.get("granted_at"),
+            "consumed_at": confirmation.get("consumed_at"),
+            "consumed_by_action": confirmation.get("consumed_by_action"),
+        },
+        "transitions": safe_transitions,
+        "result": {
+            "final_stage": result.get("final_stage"),
             "required_action": result.get("required_action"),
             "refundable_amount_cents": result.get("refundable_amount_cents"),
             "refund_outcome": result.get("refund_outcome"),

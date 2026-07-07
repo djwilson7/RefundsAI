@@ -172,6 +172,18 @@ def block_invalid_workflow_transition(
             },
             level=logging.WARNING,
         )
+        next_state = update_conversation_state_for_page_reference(
+            {
+                **normalized_state,
+                "pending_refund_product_reference": {
+                    "product_reference": context.unresolved_product_reference,
+                    "reason": unresolved_reason,
+                },
+                "pending_refund_action": None,
+                "active_refund_context": None,
+            },
+            context.page_reference,
+        )
         return {
             **state,
             "tool_results": [],
@@ -179,10 +191,7 @@ def block_invalid_workflow_transition(
                 context.unresolved_product_reference
             ),
             "blocked_intent": "product_reference_unresolved",
-            "conversation_state": update_conversation_state_for_page_reference(
-                state.get("conversation_state"),
-                context.page_reference,
-            ),
+            "conversation_state": next_state,
             "page_reference": context.page_reference,
         }
 

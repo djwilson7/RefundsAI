@@ -16,6 +16,8 @@ from refunds_ai_api.services.ai_chat import (
     parse_refund_policy_query,
     parse_tool_arguments,
     should_force_purchase_history_tool,
+    validate_customer_account,
+    validate_customer_account_tool_schema,
 )
 from refunds_ai_api.services.dates import (
     build_inclusive_date_range,
@@ -105,6 +107,46 @@ def test_refund_eligibility_tool_schema_and_argument_validation() -> None:
     ) == {"purchase_ids": [PURCHASE_ID], "context": "model_requested"}
     assert parse_model_refund_eligibility_arguments({"purchase_ids": []}) is None
     assert parse_model_refund_eligibility_arguments({"purchase_ids": [1]}) is None
+
+def test_validate_customer_account_tool_uses_active_customer_context() -> None:
+    schema = validate_customer_account_tool_schema()
+
+    assert schema["name"] == "validate_customer_account"
+    assert schema["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
+
+    result = validate_customer_account(FakeApplicationService(), CUSTOMER_ID)
+
+    assert result == {
+        "customer_id": CUSTOMER_ID,
+        "valid": True,
+        "display_name": "Avery Customer",
+        "first_name": "Avery",
+        "last_name": "Customer",
+        "roles": [{"key": "customer", "name": "Customer"}],
+    }
+
+def test_validate_customer_account_tool_returns_invalid_for_unknown_customer() -> None:
+    class UnknownCustomerApplicationService(FakeApplicationService):
+        def get_user(self, user_id: str) -> dict[str, object]:
+            raise LookupError(user_id)
+
+    result = validate_customer_account(
+        UnknownCustomerApplicationService(),
+        "20000000-0000-4000-8000-000000009999",
+    )
+
+    assert result == {
+        "customer_id": "20000000-0000-4000-8000-000000009999",
+        "valid": False,
+        "display_name": None,
+        "first_name": None,
+        "last_name": None,
+        "roles": [],
+    }
 
 def test_chat_graph_forces_threshold_tool_after_malformed_pseudo_tool_output(caplog) -> None:
     application_service = FakeApplicationService()

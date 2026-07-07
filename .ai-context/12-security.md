@@ -168,8 +168,15 @@ The model must not:
 * mutate refund state through tool arguments
 * claim a refund was prepared or issued unless backend execution confirms it
 
-Refund process mutations require deterministic backend context, current workflow
-permission, and an exact canonical confirmation command from the customer.
+Refund process mutations require deterministic backend context, a backend-validated
+canonical confirmation command, persisted confirmation authorization, and current
+workflow permission.
+
+The model is not the authority for refund consent. The backend confirmation validator
+must persist exact consent facts before any refund mutation can execute. Mutation
+execution must reload those facts and verify that confirmation is granted, matched,
+scoped to the active customer and purchase, tied to the current expected command,
+unused, and allowed by the current workflow stage.
 
 Generic confirmations such as `yes`, `proceed`, `do it`, and `continue` are not valid
 write approval at the canonical-command boundary.

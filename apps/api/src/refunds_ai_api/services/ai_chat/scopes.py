@@ -89,6 +89,7 @@ def update_conversation_state(
     if resolved_purchase is not None:
         active_refund_context = next_state.get("active_refund_context")
         selected_purchase_ids = next_state.get("selected_purchase_ids") or []
+        next_state["pending_refund_product_reference"] = None
         next_state["selected_purchase_id"] = resolved_purchase["id"]
         next_state["selected_product"] = resolved_purchase["product_name"]
         next_state["selected_purchase_type"] = resolved_purchase["purchase_type"]
@@ -114,6 +115,7 @@ def update_conversation_state(
             next_state["selected_purchase_type"] = policy_lookup_query["purchase_type"]
 
     if eligibility_resolution is not None and eligibility_resolution.purchase_ids:
+        next_state["pending_refund_product_reference"] = None
         next_state["selected_refund_purchase_ids"] = eligibility_resolution.purchase_ids
         next_state["selected_refund_context"] = eligibility_resolution.context
         next_state["selected_purchase_ids"] = eligibility_resolution.purchase_ids
@@ -176,6 +178,11 @@ def update_conversation_state(
                 result
             )
             next_state["active_refund_context"] = active_refund_context
+            next_state["pending_refund_action"] = (
+                build_pending_refund_action_from_eligibility_result(result)
+            )
+            if active_refund_context is not None:
+                next_state["pending_refund_product_reference"] = None
 
     return next_state
 
@@ -299,6 +306,45 @@ def build_active_refund_context_from_eligibility_result(
             }
         )
     return active_refund_context
+
+
+def build_pending_refund_action_from_eligibility_result(
+    result: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build an awaiting-confirmation refund action from one eligible physical result."""
+    purchases = result.get("purchases")
+    if not isinstance(purchases, list) or len(purchases) != 1:
+        return None
+
+    purchase = purchases[0]
+    if not isinstance(purchase, dict):
+        return None
+
+    purchase_id = purchase.get("id")
+    product_name = purchase.get("product_name")
+    purchase_type = purchase.get("purchase_type")
+    required_action = purchase.get("required_action")
+    if (
+        not isinstance(purchase_id, str)
+        or not isinstance(product_name, str)
+        or purchase_type != "physical"
+        or required_action != "generate_return_label"
+        or purchase.get("can_prepare_refund") is not True
+    ):
+        return None
+
+    command_config = refund_confirmation_command_for_purchase_type(purchase_type)
+    if command_config is None:
+        return None
+
+    return {
+        "purchase_id": purchase_id,
+        "product_name": product_name,
+        "purchase_type": purchase_type,
+        "action": command_config["mutation_action"],
+        "required_action": required_action,
+        "confirmation_expected_command": command_config["command"],
+    }
 
 
 def update_conversation_state_for_page_reference(

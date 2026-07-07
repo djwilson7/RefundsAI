@@ -5,6 +5,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from refunds_ai_api.services.refund_confirmation import (
+    normalize_refund_confirmation_command as normalize_refund_confirmation_command,
+)
+from refunds_ai_api.services.refund_confirmation import (
+    parse_refund_confirmation_command,
+    refund_confirmation_command_for_purchase_type,
+)
+
 REFUND_CONTEXT_STAGES = {
     "eligibility_confirmed",
     "ineligible",
@@ -25,39 +33,6 @@ REFUND_CONFIRMATION_REQUIRED_SUFFIX = (
     "Reply with the exact confirmation command to continue. "
     "I will not change anything until you confirm."
 )
-
-REFUND_CONFIRMATION_COMMANDS: dict[str, dict[str, Any]] = {
-    "subscription": {
-        "command": "Confirm cancel and issue refund",
-        "backend_action": "cancel_subscription",
-        "mutation_action": "request_refund",
-        "steps": (
-            "cancel the subscription",
-            "calculate the final refund",
-            "issue the refund",
-        ),
-    },
-    "digital": {
-        "command": "Confirm invalidate code and issue refund",
-        "backend_action": "invalidate_code",
-        "mutation_action": "request_refund",
-        "steps": (
-            "invalidate the issued code",
-            "calculate the final refund",
-            "issue the refund",
-        ),
-    },
-    "physical": {
-        "command": "Confirm start return and issue label",
-        "backend_action": "generate_return_label",
-        "mutation_action": "request_refund",
-        "steps": (
-            "start the return",
-            "generate the return label",
-        ),
-    },
-}
-
 
 def parse_refund_workflow_mutation_intent(message: str) -> str | None:
     """Return a blocked future-phase refund workflow mutation intent, if present."""
@@ -134,27 +109,6 @@ def parse_refund_workflow_confirmation_intent(message: str) -> bool:
     return any(re.search(pattern, normalized_message) for pattern in confirmation_patterns)
 
 
-def refund_confirmation_command_for_purchase_type(
-    purchase_type: str | None,
-) -> dict[str, Any] | None:
-    """Return deterministic confirmation-command config for one purchase type."""
-    if purchase_type not in REFUND_CONFIRMATION_COMMANDS:
-        return None
-    return REFUND_CONFIRMATION_COMMANDS[purchase_type]
-
-
-def parse_refund_confirmation_command(message: str) -> str | None:
-    """Return the purchase type whose canonical command was received."""
-    normalized_message = normalize_refund_confirmation_command(message)
-    if not normalized_message:
-        return None
-    for purchase_type, command_config in REFUND_CONFIRMATION_COMMANDS.items():
-        command = command_config["command"]
-        if normalized_message == normalize_refund_confirmation_command(command):
-            return purchase_type
-    return None
-
-
 def is_refund_confirmation_boundary_reply(message: str) -> bool:
     """Return whether text is a command or generic reply at the mutation boundary."""
     return (
@@ -182,13 +136,6 @@ def is_generic_refund_confirmation_reply(message: str) -> bool:
         r"^continue[.!]?$",
     )
     return any(re.search(pattern, normalized_message) for pattern in generic_patterns)
-
-
-def normalize_refund_confirmation_command(message: str) -> str:
-    """Normalize command text so formatting changes do not affect parsing."""
-    normalized_message = message.casefold().replace("&", " and ")
-    normalized_message = re.sub(r"[^a-z0-9]+", " ", normalized_message)
-    return " ".join(normalized_message.split())
 
 
 def build_refund_confirmation_command_guidance(

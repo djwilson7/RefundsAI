@@ -15,6 +15,7 @@ from refunds_ai_api.services.ai_chat import (
     ModelToolCall,
     ModelTurn,
 )
+from refunds_ai_api.services.refund_policy import RefundWorkflowError
 
 CUSTOMER_ID = "20000000-0000-4000-8000-000000000001"
 PURCHASE_ID = "40000000-0000-4000-8000-000000000001"
@@ -57,6 +58,7 @@ class FakeApplicationService:
         self.purchase_requests: list[str] = []
         self.refund_workflow_called = False
         self.refund_workflow_requests: list[str] = []
+        self.refund_confirmations: dict[str, dict[str, Any]] = {}
 
     def list_user_purchases(self, user_id: str) -> list[dict[str, Any]]:
         self.purchase_requests.append(user_id)
@@ -106,6 +108,16 @@ class FakeApplicationService:
                 "details_url": "/api/purchases/40000000-0000-4000-8000-000000000004/details",
             },
         ]
+
+    def get_user(self, user_id: str) -> dict[str, Any]:
+        return {
+            "id": user_id,
+            "first_name": "Avery",
+            "last_name": "Customer",
+            "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+            "display_name": "Avery Customer",
+            "roles": [{"key": "customer", "name": "Customer"}],
+        }
 
     def get_refund_workflow(self, purchase_id: str) -> dict[str, Any]:
         self.refund_workflow_called = True
@@ -193,6 +205,97 @@ class FakeApplicationService:
             },
         }
         return workflows[purchase_id]
+
+    def record_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        received_message: str,
+        expected_command: str,
+        granted_at: datetime,
+        matched: bool,
+        source: str,
+    ) -> dict[str, Any]:
+        owned_purchase = next(
+            (
+                purchase
+                for purchase in self.list_user_purchases(customer_id)
+                if str(purchase["id"]) == purchase_id
+                and purchase["purchase_type"] == purchase_type
+            ),
+            None,
+        )
+        if owned_purchase is None:
+            raise RefundWorkflowError("Refund confirmation purchase ownership mismatch.")
+
+        self.refund_confirmations[purchase_id] = {
+            "refund_confirmation_granted": True,
+            "refund_confirmation_message": received_message,
+            "refund_confirmation_granted_at": granted_at,
+            "refund_confirmation_expected_command": expected_command,
+            "refund_confirmation_matched": matched,
+            "refund_confirmation_source": source,
+            "refund_confirmation_customer_id": customer_id,
+            "refund_confirmation_purchase_id": purchase_id,
+            "refund_confirmation_consumed_at": None,
+            "refund_confirmation_consumed_by_action": None,
+        }
+        return self.get_refund_confirmation(purchase_id, purchase_type)
+
+    def get_refund_confirmation(
+        self,
+        purchase_id: str,
+        purchase_type: str,
+    ) -> dict[str, Any]:
+        confirmation = self.refund_confirmations.get(purchase_id)
+        if confirmation is None:
+            return {
+                "refund_confirmation_granted": False,
+                "refund_confirmation_message": None,
+                "refund_confirmation_granted_at": None,
+                "refund_confirmation_expected_command": None,
+                "refund_confirmation_matched": False,
+                "refund_confirmation_source": None,
+                "refund_confirmation_customer_id": None,
+                "refund_confirmation_purchase_id": purchase_id,
+                "refund_confirmation_consumed_at": None,
+                "refund_confirmation_consumed_by_action": None,
+            }
+        return dict(confirmation)
+
+    def consume_refund_confirmation(
+        self,
+        *,
+        customer_id: str,
+        purchase_id: str,
+        purchase_type: str,
+        expected_command: str,
+        consumed_at: datetime,
+        consumed_by_action: str,
+    ) -> dict[str, Any]:
+        confirmation = self.refund_confirmations.get(purchase_id)
+        if (
+            confirmation is None
+            or confirmation.get("refund_confirmation_granted") is not True
+            or confirmation.get("refund_confirmation_matched") is not True
+            or confirmation.get("refund_confirmation_customer_id") != customer_id
+            or confirmation.get("refund_confirmation_purchase_id") != purchase_id
+            or confirmation.get("refund_confirmation_expected_command")
+            != expected_command
+            or confirmation.get("refund_confirmation_consumed_at") is not None
+            or confirmation.get("refund_confirmation_consumed_by_action") is not None
+        ):
+            raise RefundWorkflowError("Refund confirmation is not valid for this refund action.")
+
+        confirmation.update(
+            {
+                "refund_confirmation_consumed_at": consumed_at,
+                "refund_confirmation_consumed_by_action": consumed_by_action,
+            }
+        )
+        return self.get_refund_confirmation(purchase_id, purchase_type)
 
     def request_refund(self, purchase_id: str) -> dict[str, Any]:
         raise AssertionError("Refund mutations must not be called by chat graph.")

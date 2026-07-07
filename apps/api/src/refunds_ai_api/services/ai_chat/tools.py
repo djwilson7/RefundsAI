@@ -157,6 +157,58 @@ def get_customer_purchase_history_tool_schema() -> dict[str, Any]:
     }
 
 
+def validate_customer_account_tool_schema() -> dict[str, Any]:
+    """Return the OpenAI tool schema for the active mock customer reader."""
+    return {
+        "name": "validate_customer_account",
+        "description": (
+            "Read the active mock customer account from backend data. The active "
+            "request supplies the customer id; the model must not provide or choose it."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    }
+
+
+def validate_customer_account(
+    application_service: ApplicationService,
+    customer_id: str,
+) -> dict[str, Any]:
+    """Return sanitized active mock customer metadata."""
+    try:
+        user = application_service.get_user(customer_id)
+    except Exception:
+        return {
+            "customer_id": customer_id,
+            "valid": False,
+            "display_name": None,
+            "first_name": None,
+            "last_name": None,
+            "roles": [],
+        }
+    roles = user.get("roles")
+    if not isinstance(roles, list):
+        roles = []
+    return {
+        "customer_id": str(user.get("id", customer_id)),
+        "valid": True,
+        "display_name": user.get("display_name"),
+        "first_name": user.get("first_name"),
+        "last_name": user.get("last_name"),
+        "roles": [
+            {
+                "key": role.get("key"),
+                "name": role.get("name"),
+            }
+            for role in roles
+            if isinstance(role, dict)
+        ],
+    }
+
+
 def get_customer_purchase_history(
     application_service: ApplicationService,
     customer_id: str,

@@ -25,6 +25,10 @@ def summarize_conversation_state(state: Mapping[str, Any] | None) -> dict[str, A
         "pending_refund_action": summarize_pending_refund_action(
             state.get("pending_refund_action")
         ),
+        "refund_context_status": state.get("refund_context_status"),
+        "last_completed_refund": summarize_last_completed_refund(
+            state.get("last_completed_refund")
+        ),
     }
 
 def summarize_active_workflow(value: Any) -> dict[str, Any] | None:
@@ -69,6 +73,29 @@ def summarize_pending_refund_action(value: Any) -> dict[str, Any] | None:
         return None
     return {
         "action": pending_action.get("action"),
+        "purchase_id": pending_action.get("purchase_id"),
         "product_name": pending_action.get("product_name"),
         "purchase_type": pending_action.get("purchase_type"),
+        "required_action": pending_action.get("required_action"),
+        "confirmation_expected_command": pending_action.get(
+            "confirmation_expected_command"
+        ),
+        "refundable_amount_cents": pending_action.get("refundable_amount_cents"),
+        "refund_outcome": pending_action.get("refund_outcome"),
+        "generated_at": pending_action.get("generated_at"),
+        "expires_at": pending_action.get("expires_at"),
+    }
+
+def summarize_last_completed_refund(value: Any) -> dict[str, Any] | None:
+    """Return completed refund workflow summary."""
+    completed_refund = _mapping_or_none(value)
+    if completed_refund is None:
+        return None
+    return {
+        "purchase_id": completed_refund.get("purchase_id"),
+        "product_name": completed_refund.get("product_name"),
+        "purchase_type": completed_refund.get("purchase_type"),
+        "action": completed_refund.get("action"),
+        "final_stage": completed_refund.get("final_stage"),
+        "required_action": completed_refund.get("required_action"),
     }

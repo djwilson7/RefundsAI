@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from refunds_ai_api.services.ai_chat import (
     ACCOUNT_DATA_REQUIRED_RESPONSE,
     CHAT_UNAVAILABLE_RESPONSE,
@@ -27,6 +29,57 @@ from .fakes import (
     ToolCallingModelClient,
     WindowsLicenseApplicationService,
 )
+
+GAMING_MOUSE_PURCHASE_ID = "40000000-0000-4000-8000-000000000010"
+LAPTOP_STAND_PURCHASE_ID = "40000000-0000-4000-8000-000000000011"
+
+
+class GamingMouseApplicationService(FakeApplicationService):
+    def list_user_purchases(self, user_id: str) -> list[dict[str, Any]]:
+        purchases = super().list_user_purchases(user_id)
+        physical_purchase = purchases[2]
+        return [
+            {
+                **physical_purchase,
+                "id": GAMING_MOUSE_PURCHASE_ID,
+                "order_number": "RAI-10010",
+                "product_name": "Gaming Mouse",
+                "sku": "PHY-GAMING-MOUSE",
+                "details_url": f"/api/purchases/{GAMING_MOUSE_PURCHASE_ID}/details",
+            },
+            {
+                **physical_purchase,
+                "id": LAPTOP_STAND_PURCHASE_ID,
+                "order_number": "RAI-10011",
+                "product_name": "Laptop Stand",
+                "sku": "PHY-LAPTOP-STAND",
+                "details_url": f"/api/purchases/{LAPTOP_STAND_PURCHASE_ID}/details",
+            },
+            *purchases,
+        ]
+
+    def get_refund_workflow(self, purchase_id: str) -> dict[str, Any]:
+        if purchase_id in {GAMING_MOUSE_PURCHASE_ID, LAPTOP_STAND_PURCHASE_ID}:
+            self.refund_workflow_called = True
+            self.refund_workflow_requests.append(purchase_id)
+            workflow = {
+                "purchase_id": purchase_id,
+                "purchase_type": "physical",
+                "can_enter_refund_workflow": True,
+                "can_prepare_refund": True,
+                "can_issue_funds": False,
+                "refund_stage": "eligible",
+                "required_action": "generate_return_label",
+                "refundable_amount_cents": 12500,
+                "refund_outcome": "full",
+                "reasons": [],
+                "policy_facts": {
+                    "purchase_status": "completed",
+                    "carrier_accepted_at": None,
+                },
+            }
+            return workflow
+        return super().get_refund_workflow(purchase_id)
 
 
 def test_chat_graph_get_refund_phrase_routes_to_eligibility_not_policy(
@@ -1478,6 +1531,172 @@ def test_chat_graph_explicit_product_eligibility_escapes_selected_set(caplog) ->
         "40000000-0000-4000-8000-000000000005"
     ]
     assert result.conversation_state["selected_scope_label"] is None
+
+def test_chat_graph_refund_phrase_with_typo_resolves_customer_purchase(caplog) -> None:
+    application_service = GamingMouseApplicationService()
+    model_client = NoToolModelClient("Gaming Mouse is eligible for a return label.")
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=model_client,
+        ).create_response(
+            message=(
+                "Id like to get a refund for the gamining mouse i purchased "
+                "back in june."
+            ),
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state={
+                "active_purchase": {
+                    "purchase_id": LAPTOP_STAND_PURCHASE_ID,
+                    "product_name": "Laptop Stand",
+                    "purchase_type": "physical",
+                }
+            },
+        )
+
+    assert result.conversation_state["selected_purchase_id"] == GAMING_MOUSE_PURCHASE_ID
+    assert result.conversation_state["selected_product"] == "Gaming Mouse"
+    assert result.conversation_state["pending_refund_product_reference"] is None
+    assert application_service.refund_workflow_requests == [GAMING_MOUSE_PURCHASE_ID]
+    classified_event = next(
+        record.event for record in caplog.records if record.event["type"] == "workflow.classified"
+    )
+    assert classified_event["data"]["kind"] == "refund_eligibility"
+    assert classified_event["data"]["object_label"] == "gamining mouse"
+
+def test_chat_graph_pending_product_reference_follow_up_continues_refund_lookup() -> None:
+    application_service = GamingMouseApplicationService()
+    first_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("This response should not be used."),
+    ).create_response(
+        message="Can I refund the Studio Monitor?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    assert first_result.conversation_state["pending_refund_product_reference"] == {
+        "product_reference": "Studio Monitor",
+        "reason": "product_reference_unresolved",
+    }
+    application_service.refund_workflow_requests.clear()
+
+    result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Gaming Mouse is eligible for a return label."),
+    ).create_response(
+        message="the gaming mouse",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state=first_result.conversation_state,
+    )
+
+    assert result.conversation_state["selected_purchase_id"] == GAMING_MOUSE_PURCHASE_ID
+    assert result.conversation_state["pending_refund_product_reference"] is None
+    assert application_service.refund_workflow_requests == [GAMING_MOUSE_PURCHASE_ID]
+
+def test_chat_graph_model_account_validation_request_does_not_override_refund_lookup(
+    caplog,
+) -> None:
+    application_service = GamingMouseApplicationService()
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-account-validation",
+            name="validate_customer_account",
+            arguments={},
+        ),
+        "Gaming Mouse is eligible for a return label.",
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = AIChatService(
+            application_service=application_service,
+            model="gpt-5.4-mini",
+            model_client=model_client,
+        ).create_response(
+            message=(
+                "Id like to get a refund for the gamining mouse i purchased "
+                "back in june."
+            ),
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+        )
+
+    assert result.conversation_state["selected_purchase_id"] == GAMING_MOUSE_PURCHASE_ID
+    assert application_service.refund_workflow_requests == [GAMING_MOUSE_PURCHASE_ID]
+    assert not any(
+        record.event["type"] == "tool_call.completed"
+        and record.event["data"]["tool_name"] == "validate_customer_account"
+        for record in caplog.records
+    )
+
+def test_chat_graph_explicit_music_collection_switches_from_completed_physical_refund() -> None:
+    application_service = MusicCollectionApplicationService()
+
+    result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Music Collection is eligible."),
+    ).create_response(
+        message="Can we refund the Music Collection?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+        conversation_state={
+            "selected_purchase_type": "physical",
+            "selected_scope_label": "your physical purchases",
+            "selected_purchase_ids": ["40000000-0000-4000-8000-000000000003"],
+            "active_result_set": {
+                "type": "purchase_history",
+                "purchase_ids": ["40000000-0000-4000-8000-000000000003"],
+                "label": "your physical purchases",
+            },
+            "active_purchase": {
+                "purchase_id": "40000000-0000-4000-8000-000000000003",
+                "product_name": "Gaming Mouse",
+                "purchase_type": "physical",
+            },
+            "active_refund_context": {
+                "purchase_id": "40000000-0000-4000-8000-000000000003",
+                "product_name": "Gaming Mouse",
+                "purchase_type": "physical",
+                "eligible": True,
+                "stage": "prepared",
+                "next_action": "await_carrier_acceptance",
+                "reason_codes": [],
+                "confirmation_closed": True,
+            },
+            "refund_context_status": "completed",
+            "last_completed_refund": {
+                "purchase_id": "40000000-0000-4000-8000-000000000003",
+                "product_name": "Gaming Mouse",
+                "purchase_type": "physical",
+                "action": "request_refund",
+                "final_stage": "prepared",
+                "required_action": "await_carrier_acceptance",
+            },
+        },
+    )
+
+    assert result.conversation_state["selected_purchase_id"] == (
+        MusicCollectionApplicationService.music_collection_id
+    )
+    assert result.conversation_state["selected_product"] == "Music Collection"
+    assert result.conversation_state["selected_purchase_type"] == "digital"
+    assert result.conversation_state["selected_scope_label"] is None
+    assert result.conversation_state["active_result_set"] is None
+    assert result.conversation_state["active_purchase"] == {
+        "purchase_id": MusicCollectionApplicationService.music_collection_id,
+        "product_name": "Music Collection",
+        "purchase_type": "digital",
+    }
+    assert application_service.refund_workflow_requests == [
+        MusicCollectionApplicationService.music_collection_id
+    ]
 
 def test_chat_graph_missing_customer_blocks_eligibility_lookup() -> None:
     model_client = NoToolModelClient("This response should not be used.")

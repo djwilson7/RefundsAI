@@ -49,6 +49,11 @@ def resolve_refund_eligibility_query(
         return EligibilityResolution([], "customer_context_required")
 
     product_reference = extract_product_reference(message)
+    if product_reference is None:
+        product_reference = _pending_product_reference_follow_up(
+            message,
+            normalized_state,
+        )
     if product_reference is not None:
         resolved_purchase, unresolved_reference = resolve_purchase_reference_for_state(
             application_service,
@@ -179,6 +184,21 @@ def resolve_refund_eligibility_query(
         if isinstance(purchase.get("id"), str)
     ]
     return EligibilityResolution(purchase_ids, "all_purchases")
+
+def _pending_product_reference_follow_up(
+    message: str,
+    conversation_state: dict[str, Any],
+) -> str | None:
+    pending_reference = conversation_state.get("pending_refund_product_reference")
+    if not isinstance(pending_reference, dict):
+        return None
+    product_reference = pending_reference.get("product_reference")
+    if not isinstance(product_reference, str) or not product_reference:
+        return None
+    candidate = message.strip().strip("?.! ")
+    if not candidate or len(candidate.split()) > 5:
+        return None
+    return candidate
 
 def resolve_policy_follow_up_eligibility(
     application_service: ApplicationService | None,

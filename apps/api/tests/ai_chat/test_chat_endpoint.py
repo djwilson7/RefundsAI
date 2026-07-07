@@ -6,6 +6,7 @@ from refunds_ai_api.services.ai_chat import (
     EMPTY_CONVERSATION_STATE,
     AIChatResult,
     AIChatService,
+    ModelToolCall,
 )
 
 from .fakes import (
@@ -15,6 +16,7 @@ from .fakes import (
     FakeModelClient,
     NoToolModelClient,
     StaticChatService,
+    ToolCallingModelClient,
     UnknownToolModelClient,
     build_client,
 )
@@ -107,6 +109,7 @@ def test_chat_graph_calls_purchase_history_tool_and_returns_model_response() -> 
     assert model_client.calls[1]["tools"] == []
     tool_schemas = model_client.calls[0]["tools"]
     assert [tool_schema["name"] for tool_schema in tool_schemas] == [
+        "validate_customer_account",
         "get_customer_purchase_history",
         "get_purchase_count_by_amount_threshold",
         "get_purchase_history_by_date_range",
@@ -118,14 +121,88 @@ def test_chat_graph_calls_purchase_history_tool_and_returns_model_response() -> 
         "properties": {},
         "additionalProperties": False,
     }
-    assert tool_schemas[1]["parameters"]["required"] == ["threshold_cents", "comparison"]
-    assert tool_schemas[2]["parameters"]["required"] == [
+    assert tool_schemas[1]["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
+    assert tool_schemas[2]["parameters"]["required"] == ["threshold_cents", "comparison"]
+    assert tool_schemas[3]["parameters"]["required"] == [
         "start_date",
         "end_date",
         "timezone",
     ]
-    assert tool_schemas[3]["parameters"]["required"] == ["scope"]
-    assert tool_schemas[4]["parameters"]["required"] == ["purchase_ids"]
+    assert tool_schemas[4]["parameters"]["required"] == ["scope"]
+    assert tool_schemas[5]["parameters"]["required"] == ["purchase_ids"]
+
+def test_chat_graph_executes_validate_customer_account_tool() -> None:
+    application_service = FakeApplicationService()
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-validate-customer",
+            name="validate_customer_account",
+            arguments={},
+        ),
+        "You are signed in as Avery Customer.",
+    )
+    chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    result = chat_service.create_response(
+        message="Who am I signed in as?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    assert result.content == "You are signed in as Avery Customer."
+    assert model_client.calls[1]["tools"] == []
+    tool_message = next(
+        message
+        for message in model_client.calls[1]["messages"]
+        if message["content"].startswith("Read-only account tool result:")
+    )
+    assert "validate_customer_account" in tool_message["content"]
+    assert "Avery Customer" in tool_message["content"]
+
+def test_chat_graph_overrides_customer_validation_for_purchase_history_count() -> None:
+    application_service = FakeApplicationService()
+    model_client = ToolCallingModelClient(
+        ModelToolCall(
+            id="tool-call-validate-customer",
+            name="validate_customer_account",
+            arguments={},
+        ),
+        "You have 2 digital purchases.",
+    )
+    chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    result = chat_service.create_response(
+        message="How many digital products have i purchsed?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    assert result.content == "You have 2 digital purchases."
+    assert application_service.purchase_requests == [CUSTOMER_ID]
+    assert result.conversation_state["selected_purchase_type"] == "digital"
+    assert result.conversation_state["selected_purchase_ids"] == [
+        PURCHASE_ID,
+        "40000000-0000-4000-8000-000000000002",
+    ]
+    tool_message = next(
+        message
+        for message in model_client.calls[1]["messages"]
+        if message["content"].startswith("Read-only account tool result:")
+    )
+    assert "get_customer_purchase_history" in tool_message["content"]
+    assert "validate_customer_account" not in tool_message["content"]
 
 def test_chat_graph_asks_for_customer_context_without_customer_id() -> None:
     chat_service = AIChatService(

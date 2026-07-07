@@ -25,6 +25,9 @@ EMPTY_CONVERSATION_STATE = {
     "active_result_set": None,
     "active_purchase": None,
     "pending_refund_action": None,
+    "pending_refund_product_reference": None,
+    "refund_context_status": None,
+    "last_completed_refund": None,
 }
 
 def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]:
@@ -80,6 +83,15 @@ def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]
     pending_refund_action = normalize_pending_refund_action(
         state.get("pending_refund_action")
     )
+    pending_refund_product_reference = normalize_pending_refund_product_reference(
+        state.get("pending_refund_product_reference")
+    )
+    last_completed_refund = normalize_last_completed_refund(
+        state.get("last_completed_refund")
+    )
+    refund_context_status = state.get("refund_context_status")
+    if refund_context_status not in {"completed"}:
+        refund_context_status = None
 
     return {
         **EMPTY_CONVERSATION_STATE,
@@ -112,6 +124,9 @@ def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]
         "active_result_set": active_result_set,
         "active_purchase": active_purchase,
         "pending_refund_action": pending_refund_action,
+        "pending_refund_product_reference": pending_refund_product_reference,
+        "refund_context_status": refund_context_status,
+        "last_completed_refund": last_completed_refund,
     }
 
 
@@ -131,6 +146,7 @@ def normalize_active_refund_context(value: Any) -> dict[str, Any] | None:
     confirmation_backend_action = value.get("confirmation_backend_action")
     confirmation_mutation_action = value.get("confirmation_mutation_action")
     confirmation_steps = value.get("confirmation_steps")
+    confirmation_closed = value.get("confirmation_closed") is True
 
     if not isinstance(purchase_id, str) or not purchase_id:
         return None
@@ -147,11 +163,10 @@ def normalize_active_refund_context(value: Any) -> dict[str, Any] | None:
     if not isinstance(reason_codes, list):
         reason_codes = []
     command_config = refund_confirmation_command_for_purchase_type(purchase_type)
-    if eligible and command_config is not None and stage in {
-        "eligibility_confirmed",
-        "awaiting_return_label",
-        "prepared",
-    }:
+    command_ready_stage = stage in {"eligibility_confirmed", "awaiting_return_label"} or (
+        stage == "prepared" and next_action == "issue_funds"
+    )
+    if eligible and command_config is not None and command_ready_stage and not confirmation_closed:
         if not isinstance(confirmation_command, str) or not confirmation_command:
             confirmation_command = command_config["command"]
         if stage == "prepared" and next_action == "issue_funds":
@@ -176,7 +191,7 @@ def normalize_active_refund_context(value: Any) -> dict[str, Any] | None:
         confirmation_mutation_action = None
         confirmation_steps = []
 
-    return {
+    active_refund_context = {
         "purchase_id": purchase_id,
         "product_name": product_name,
         "purchase_type": purchase_type,
@@ -193,6 +208,9 @@ def normalize_active_refund_context(value: Any) -> dict[str, Any] | None:
             step for step in confirmation_steps if isinstance(step, str)
         ],
     }
+    if confirmation_closed:
+        active_refund_context["confirmation_closed"] = True
+    return active_refund_context
 
 
 def normalize_active_workflow(value: Any) -> dict[str, Any] | None:
@@ -237,6 +255,7 @@ def normalize_pending_refund_action(value: Any) -> dict[str, Any] | None:
     product_name = value.get("product_name")
     purchase_type = value.get("purchase_type")
     required_action = value.get("required_action")
+    confirmation_expected_command = value.get("confirmation_expected_command")
     refundable_amount_cents = value.get("refundable_amount_cents")
     refund_outcome = value.get("refund_outcome")
     if action not in {"request_refund", "issue_refund"}:
@@ -249,6 +268,8 @@ def normalize_pending_refund_action(value: Any) -> dict[str, Any] | None:
         return None
     if required_action is not None and not isinstance(required_action, str):
         required_action = None
+    if not isinstance(confirmation_expected_command, str) or not confirmation_expected_command:
+        confirmation_expected_command = None
     if not isinstance(refundable_amount_cents, int):
         refundable_amount_cents = None
     if refund_outcome not in {"none", "full", "prorated"}:
@@ -259,8 +280,52 @@ def normalize_pending_refund_action(value: Any) -> dict[str, Any] | None:
         "product_name": product_name,
         "purchase_type": purchase_type,
         "required_action": required_action,
+        "confirmation_expected_command": confirmation_expected_command,
         "refundable_amount_cents": refundable_amount_cents,
         "refund_outcome": refund_outcome,
+    }
+
+
+def normalize_pending_refund_product_reference(value: Any) -> dict[str, Any] | None:
+    """Return a pending unresolved refund/product lookup reference."""
+    if not isinstance(value, dict):
+        return None
+    product_reference = value.get("product_reference")
+    if not isinstance(product_reference, str) or not product_reference.strip():
+        return None
+    return {
+        "product_reference": " ".join(product_reference.split()),
+        "reason": value.get("reason") if isinstance(value.get("reason"), str) else None,
+    }
+
+
+def normalize_last_completed_refund(value: Any) -> dict[str, Any] | None:
+    """Return bounded metadata for the most recently completed refund mutation."""
+    if not isinstance(value, dict):
+        return None
+    purchase_id = value.get("purchase_id")
+    product_name = value.get("product_name")
+    purchase_type = value.get("purchase_type")
+    action = value.get("action")
+    final_stage = value.get("final_stage")
+    required_action = value.get("required_action")
+    if not isinstance(purchase_id, str) or not purchase_id:
+        return None
+    if not isinstance(product_name, str) or not product_name:
+        return None
+    if purchase_type not in {"physical", "digital", "subscription"}:
+        return None
+    if action not in {"request_refund", "issue_refund"}:
+        return None
+    if not isinstance(final_stage, str) or not final_stage:
+        return None
+    return {
+        "purchase_id": purchase_id,
+        "product_name": product_name,
+        "purchase_type": purchase_type,
+        "action": action,
+        "final_stage": final_stage,
+        "required_action": required_action if isinstance(required_action, str) else None,
     }
 
 

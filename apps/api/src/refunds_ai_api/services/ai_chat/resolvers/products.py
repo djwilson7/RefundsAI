@@ -17,6 +17,12 @@ def extract_product_reference(message: str) -> str | None:
         return None
 
     patterns = (
+        r"\bi(?:'d|d| would)\s+like\s+to\s+get\s+a\s+refund\s+for\s+(?:my\s+|the\s+)?(.+)$",
+        r"\bi(?:'d|d| would)\s+like\s+a\s+refund\s+for\s+(?:my\s+|the\s+)?(.+)$",
+        r"\bare\s+we\s+able\s+to\s+refund\s+(?:my\s+|the\s+)?(.+)$",
+        r"\bare\s+we\s+able\s+to\s+get\s+a\s+refund\s+for\s+(?:my\s+|the\s+)?(.+)$",
+        r"\bcan\s+we\s+refund\s+(?:my\s+|the\s+)?(.+)$",
+        r"\bcan\s+we\s+get\s+a\s+refund\s+for\s+(?:my\s+|the\s+)?(.+)$",
         r"\bcan\s+i\s+refund\s+(?:my\s+|the\s+)?(.+)$",
         r"\bcan\s+i\s+get\s+a\s+refund\s+for\s+(?:my\s+|the\s+)?(.+)$",
         r"\bam\s+i\s+able\s+to\s+get\s+a\s+refund\s+for\s+(?:my\s+|the\s+)?(.+)$",
@@ -48,6 +54,24 @@ def clean_product_reference(value: str) -> str:
     candidate = value.strip().strip("?.! ")
     candidate = re.sub(
         r"\b(refund|return)\s+(policy|rules?|requirements?|window)\b",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(
+        r"\bi\s+purchased\b.*$",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(
+        r"\bpurchased\s+back\s+in\s+\w+\b.*$",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(
+        r"\bback\s+in\s+\w+\b.*$",
         "",
         candidate,
         flags=re.IGNORECASE,

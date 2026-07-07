@@ -62,6 +62,7 @@ def execute_tools_node(runtime: Any, state: ChatGraphState) -> ChatGraphState:
         event_type="workflow.context_resolved",
         data={
             "kind": context.kind.value,
+            "customer_id": context.customer_id,
             "threshold_query": context.threshold_query,
             "date_range_query": context.date_range_query,
             "policy_lookup_query": context.policy_lookup_query,

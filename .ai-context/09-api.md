@@ -417,6 +417,7 @@ refreshing backend data.
 
 The endpoint may use these OpenAI-facing read-only tools:
 
+* `validate_customer_account`
 * `get_customer_purchase_history`
 * `get_purchase_history_by_date_range`
 * `get_purchase_count_by_amount_threshold`
@@ -426,9 +427,19 @@ The endpoint may use these OpenAI-facing read-only tools:
 Refund process mutations are not OpenAI-facing tools. They execute only when:
 
 * Backend resolution identifies exactly one purchase.
-* Current backend workflow state allows the action.
 * Prior state contains an active refund context with the expected canonical command.
-* The current customer message matches that command after deterministic normalization.
+* The backend confirmation validator matches the current customer message to that
+  command after deterministic normalization.
+* The validator persists confirmation consent for the active customer, purchase,
+  purchase type, expected command, exact received message, and grant timestamp.
+* Mutation execution reloads persisted confirmation and verifies grant, match,
+  customer, purchase, expected command, unused scope, and current workflow state.
+* Current backend workflow state allows the requested atomic action.
+
+Mock authentication remains intentionally simple: the request supplies the active
+`customer_id`, and backend ownership checks verify that the target purchase appears in
+that customer's purchase rows. The model may read active mock-customer metadata through
+`validate_customer_account`, but it does not choose identity or authorize refund actions.
 
 Canonical commands:
 
@@ -438,10 +449,17 @@ Canonical commands:
 | Physical | `Confirm start return and issue label` |
 | Subscription | `Confirm cancel and issue refund` |
 
-For digital and subscription purchases, a matching canonical command runs preparation,
-checks that preparation persisted, issues the refund, and checks that issuance
-persisted before reporting completion. For physical purchases, the canonical command
-prepares the return process only; fund issuance still requires carrier acceptance.
+For digital and subscription purchases, valid persisted confirmation may orchestrate
+preparation and issuance in one conversational turn. The backend still executes them
+as separate atomic transitions: request, verify prepared state, issue, verify issued
+state. For physical purchases, the canonical command prepares the return process only;
+fund issuance still requires carrier acceptance.
+
+After a single eligible physical purchase is evaluated and the next action is return
+label generation, `conversation_state.pending_refund_action` carries the backend-
+resolved purchase id, product name, purchase type, action, required action, and expected
+canonical command. This state is not authorization; the matching command must still
+pass backend confirmation validation with the active request `customer_id`.
 
 Generic replies such as `yes`, `proceed`, `do it`, or `continue` must not mutate state
 at the command boundary.

@@ -139,7 +139,9 @@ The AI assistant may:
 * Retrieve backend-evaluated refund workflow decisions.
 * Explain backend decisions.
 * Ask for exact canonical confirmation commands.
-* Execute confirmed refund process actions through backend services.
+* Validate the exact command through the backend confirmation validator.
+* Execute refund process actions through backend services only after persisted
+  confirmation authorization is granted.
 * For digital and subscription purchases, execute confirmed refund handling as:
   prepare, verify prepared state, issue funds, verify issued state.
 * For physical purchases, prepare the return process first; fund issuance remains gated
@@ -149,8 +151,22 @@ The AI assistant may not:
 
 * Calculate eligibility itself.
 * Use generic confirmations such as "yes" or "do it" as write approval after a canonical command is required.
+* Treat raw message matching or model state as the authority for refund consent.
 * Change refund state through an OpenAI-facing write tool.
 * Expose internal terms such as graph, resolver, tool, selected state, `issue_funds`, or mutation in customer-facing content.
+
+Refund confirmation consent is backend-owned. The deterministic validator compares
+the user message to the expected canonical command, verifies customer ownership,
+purchase type, current workflow stage, and required action, then persists exact
+consent facts on the purchase detail row. Refund mutations must load that persisted
+confirmation and verify it is granted, matched, scoped to the same customer and
+purchase, uses the current expected command, and has not already been consumed.
+
+Refund mutations are atomic backend transitions. `request_refund` may only move an
+eligible workflow to prepared; `issue_refund` may only move a prepared workflow to
+issued. Digital and subscription orchestration may run both transitions after one
+valid confirmation, but each transition still gets its own permission check and
+persistence validation.
 
 ## Frontend Display Rules
 

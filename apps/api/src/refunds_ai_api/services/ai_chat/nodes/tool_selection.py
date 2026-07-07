@@ -23,6 +23,7 @@ from refunds_ai_api.services.ai_chat.tools import (
     get_purchase_history_by_date_range_tool_schema,
     get_refund_eligibility_tool_schema,
     get_refund_policy_tool_schema,
+    validate_customer_account_tool_schema,
 )
 
 
@@ -36,6 +37,7 @@ def request_tool_call_node(runtime: Any, state: ChatGraphState) -> ChatGraphStat
     if compact_context_message is not None:
         messages.append(compact_context_message)
     tools = [
+        validate_customer_account_tool_schema(),
         get_customer_purchase_history_tool_schema(),
         get_purchase_count_by_amount_threshold_tool_schema(),
         get_purchase_history_by_date_range_tool_schema(),

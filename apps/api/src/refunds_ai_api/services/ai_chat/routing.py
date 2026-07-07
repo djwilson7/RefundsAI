@@ -109,6 +109,12 @@ def has_refund_eligibility_intent(
         r"\bcan\s+i\s+refund\b",
         r"\bcan\s+i\s+get\s+a\s+refund\s+for\b",
         r"\bcould\s+i\s+refund\b",
+        r"\bi(?:'d|d| would)\s+like\s+(?:to\s+)?get\s+a\s+refund\b",
+        r"\bi(?:'d|d| would)\s+like\s+a\s+refund\b",
+        r"\bare\s+we\s+able\s+to\s+refund\b",
+        r"\bare\s+we\s+able\s+to\s+get\s+a\s+refund\s+for\b",
+        r"\bcan\s+we\s+refund\b",
+        r"\bcan\s+we\s+get\s+a\s+refund\s+for\b",
         r"\bam\s+i\s+able\s+to\s+refund\b",
         r"\bam\s+i\s+able\s+to\s+get\s+a\s+refund\s+for\b",
         r"\bcan\s+i\s+get\s+my\s+money\s+back\b",
@@ -128,6 +134,14 @@ def has_refund_eligibility_intent(
 
     if _has_policy_to_eligibility_follow_up(normalized_message, normalized_state):
         return True
+
+    pending_reference = normalized_state.get("pending_refund_product_reference")
+    if isinstance(pending_reference, dict):
+        product_reference = pending_reference.get("product_reference")
+        if isinstance(product_reference, str) and product_reference:
+            candidate = normalized_message.strip().strip("?.! ")
+            if candidate and len(candidate.split()) <= 5:
+                return True
 
     has_prior_refund_context = bool(
         normalized_state.get("selected_refund_purchase_ids")

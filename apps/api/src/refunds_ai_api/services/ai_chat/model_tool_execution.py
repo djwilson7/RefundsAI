@@ -17,6 +17,7 @@ from refunds_ai_api.services.ai_chat.tools import (
     get_purchase_count_by_amount_threshold,
     get_purchase_history_by_date_range,
     get_refund_eligibility,
+    validate_customer_account,
 )
 from refunds_ai_api.services.refund_policy_catalog import get_refund_policy
 
@@ -34,6 +35,50 @@ def execute_model_requested_tool_calls(
     eligibility_resolution = context["eligibility_resolution"]
     resolved_context_purchase = context["resolved_context_purchase"]
     for tool_call in state.get("tool_calls", []):
+        if tool_call.name == "validate_customer_account":
+            if tool_call.arguments:
+                state = log_trace_step(
+                    state,
+                    message="Ignoring invalid customer-validation tool arguments.",
+                    event_type="tool_call.ignored",
+                    data={"tool_name": tool_call.name, "arguments": tool_call.arguments},
+                )
+                continue
+
+            state = log_trace_step(
+                state,
+                message="Executing backend active-customer validation tool.",
+                event_type="tool_call.executing",
+                data={
+                    "tool_call_id": tool_call.id,
+                    "tool_name": tool_call.name,
+                    "model_arguments": tool_call.arguments,
+                    "effective_customer_id": customer_id,
+                },
+            )
+            result = validate_customer_account(
+                runtime.application_service,
+                customer_id,
+            )
+            tool_results.append(
+                {
+                    "tool_call_id": tool_call.id,
+                    "name": tool_call.name,
+                    "result": result,
+                }
+            )
+            state = log_trace_step(
+                state,
+                message="Backend active-customer validation tool completed.",
+                event_type="tool_call.completed",
+                data={
+                    "tool_name": tool_call.name,
+                    "customer_id": customer_id,
+                    "result": result,
+                },
+            )
+            continue
+
         if tool_call.name == "get_customer_purchase_history":
             if eligibility_resolution is not None:
                 state = log_trace_step(

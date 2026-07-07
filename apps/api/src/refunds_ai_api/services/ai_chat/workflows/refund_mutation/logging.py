@@ -132,6 +132,8 @@ def _log_confirmation_command_event(
     matched_command: str | None = None,
     pending_action: dict[str, Any] | None = None,
     workflow: dict[str, Any] | None = None,
+    confirmed: bool | None = None,
+    confirmation_granted_at: str | None = None,
     level: int,
 ) -> ChatGraphState:
     """Log canonical refund confirmation-command boundary events."""
@@ -155,6 +157,44 @@ def _log_confirmation_command_event(
             "matched_command": matched_command,
             "pending_action": pending_action,
             "workflow": workflow,
+            "confirmed": confirmed,
+            "confirmation_granted_at": confirmation_granted_at,
+        },
+        level=level,
+    )
+
+def _log_refund_mutation_started_event(
+    state: ChatGraphState,
+    context: WorkflowContext,
+    *,
+    active_refund_context: dict[str, Any],
+    expected_command: str,
+    received_command: str,
+    matched_command: str | None,
+    pending_action: dict[str, Any],
+    expected_transition: dict[str, Any],
+    level: int,
+) -> ChatGraphState:
+    """Log the pre-mutation payload with deterministic workflow context."""
+    return log_trace_step(
+        state,
+        message="Starting refund mutation after canonical command verification.",
+        event_type="workflow.refund_mutation_started",
+        data={
+            "kind": context.kind.value,
+            "customer_id": context.customer_id,
+            "reason": "confirmation_validated",
+            "purchase_id": pending_action.get("purchase_id"),
+            "product_name": pending_action.get("product_name"),
+            "purchase_type": pending_action.get("purchase_type"),
+            "action": pending_action.get("action"),
+            "required_action": pending_action.get("required_action"),
+            "active_refund_stage": active_refund_context.get("stage"),
+            "expected_command": expected_command,
+            "received_command": received_command,
+            "matched_command": matched_command,
+            "pending_action": pending_action,
+            "expected_transition": expected_transition,
         },
         level=level,
     )

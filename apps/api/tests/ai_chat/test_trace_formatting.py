@@ -231,6 +231,79 @@ def test_trace_formatting_formats_blocked_workflow_with_non_null_reason() -> Non
     assert "reason: refund_mutation_not_ready" in block
     assert "operation: start_refund" in block
 
+def test_trace_formatting_formats_refund_mutation_lifecycle_block() -> None:
+    block = format_trace_detail_block(
+        "workflow.refund_mutation_lifecycle",
+        {
+            "kind": "refund_mutation",
+            "purchase": {
+                "purchase_id": PURCHASE_ID,
+                "product_name": "Design Template Pack",
+                "purchase_type": "digital",
+            },
+            "confirmation": {
+                "expected": "Confirm invalidate code and issue refund",
+                "received": "Confirm invalidate code and issue refund.",
+                "persisted_granted": True,
+                "matched": True,
+                "granted_at": "2026-07-03T14:30:00Z",
+                "consumed_at": "2026-07-03T14:31:00Z",
+                "consumed_by_action": "issue_refund",
+            },
+            "transitions": [
+                {
+                    "action": "request_refund",
+                    "from_stage": "eligible",
+                    "expected_stage": "prepared",
+                    "persisted_stage": "prepared",
+                    "validation": "succeeded",
+                    "permission": {
+                        "can_prepare_refund": True,
+                        "can_issue_funds": False,
+                        "validated": True,
+                    },
+                    "result": {
+                        "refund_stage": "prepared",
+                        "required_action": "issue_funds",
+                        "refundable_amount_cents": 4500,
+                        "refund_outcome": "full",
+                    },
+                },
+                {
+                    "action": "issue_refund",
+                    "from_stage": "prepared",
+                    "expected_stage": "issued",
+                    "persisted_stage": "issued",
+                    "validation": "succeeded",
+                    "permission": {
+                        "can_prepare_refund": False,
+                        "can_issue_funds": True,
+                        "validated": True,
+                    },
+                    "result": {
+                        "refund_stage": "issued",
+                        "required_action": "none",
+                        "refundable_amount_cents": 4500,
+                        "refund_outcome": "full",
+                    },
+                },
+            ],
+            "result": {
+                "final_stage": "issued",
+                "required_action": "none",
+                "refundable_amount_cents": 4500,
+                "refund_outcome": "full",
+            },
+        },
+    )
+
+    assert "--- Refund Mutation Lifecycle ---" in block
+    assert "product_name: Design Template Pack" in block
+    assert "persisted_granted: True" in block
+    assert "action: request_refund" in block
+    assert "action: issue_refund" in block
+    assert "final_stage: issued" in block
+
 def test_chat_graph_console_logs_include_structured_workflow_sections(caplog) -> None:
     application_service = DeveloperToolkitApplicationService()
 

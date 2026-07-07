@@ -12,6 +12,7 @@ from .summaries import (
     summarize_blocked_workflow,
     summarize_incoming_message,
     summarize_model_request,
+    summarize_refund_mutation_lifecycle,
     summarize_state_update,
     summarize_tool_execution,
     summarize_tool_result_event,
@@ -48,6 +49,11 @@ def format_trace_detail_block(event_type: str, data: Mapping[str, Any]) -> str |
         "workflow.confirmation_command_received",
         "workflow.confirmation_command_invalid",
         "workflow.confirmation_command_verified",
+        "workflow.confirmation_context_incomplete",
+        "workflow.confirmation_pending_action_missing",
+        "workflow.confirmation_target_resolution_failed",
+        "workflow.confirmation_validation_failed",
+        "workflow.confirmation_validated",
     }:
         return format_debug_block(
             "Workflow Confirmation Command",
@@ -65,6 +71,11 @@ def format_trace_detail_block(event_type: str, data: Mapping[str, Any]) -> str |
         return format_debug_block(
             "Workflow Mutation",
             summarize_workflow_mutation(data),
+        )
+    if event_type == "workflow.refund_mutation_lifecycle":
+        return format_debug_block(
+            "Refund Mutation Lifecycle",
+            summarize_refund_mutation_lifecycle(data),
         )
     if event_type == "workflow.executing":
         return format_debug_block("Workflow Execution", summarize_workflow_execution(data))
