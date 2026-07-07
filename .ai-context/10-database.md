@@ -175,6 +175,31 @@ Each purchase should have exactly one detail row matching `purchases.purchase_ty
 For v1.0, this is validated by seed tests and backend service logic rather than a
 cross-table exclusivity trigger.
 
+### Shared Refund Confirmation Fields
+
+Migration `013_add_refund_confirmation_state.py` adds backend-owned confirmation
+authorization facts to all purchase detail tables:
+
+* `refund_confirmation_granted`
+* `refund_confirmation_message`
+* `refund_confirmation_granted_at`
+* `refund_confirmation_expected_command`
+* `refund_confirmation_matched`
+* `refund_confirmation_source`
+* `refund_confirmation_customer_id`
+* `refund_confirmation_purchase_id`
+* `refund_confirmation_consumed_at`
+* `refund_confirmation_consumed_by_action`
+
+These fields preserve the exact user message, grant timestamp, expected command,
+target customer, target purchase, deterministic match result, and optional consumption
+facts for the active refund workflow. They belong on detail rows because this project
+does not model refunds as a separate aggregate table.
+
+Only the backend confirmation validator may set `refund_confirmation_granted = true`.
+Mutation execution must treat these fields as authorization facts, not presentation
+state.
+
 ### `digital_purchase_details`
 
 Purpose: Digital entitlement lifecycle and refund-blocking facts.
@@ -309,6 +334,9 @@ Examples:
 * Subscription refund preparation checks active subscription state with no cancellation or proration mode.
 * Issuance checks `purchases.status = 'refund_pending'`.
 * Carrier acceptance checks requested physical return and no prior acceptance timestamp.
+* Refund confirmation persistence checks purchase ownership, purchase type, and detail-row target.
+* Refund confirmation consumption checks the same customer, purchase, expected command,
+  granted/matched state, and unused consumption fields.
 
 If any expected state check fails, the transaction rolls back through
 `RepositoryConflictError`.
@@ -387,6 +415,7 @@ Refund workflow reads:
 | `010_add_refund_deadline_triggers` | Database-managed refund deadlines/defaults. |
 | `011_add_refund_workflow_state` | `refund_pending` status and physical label/barcode fields. |
 | `012_add_refund_issued_facts` | Purchase-level refund request and issued refund facts. |
+| `013_add_refund_confirmation_state` | Detail-level refund confirmation authorization and consumption facts. |
 
 ## Migration Commands
 

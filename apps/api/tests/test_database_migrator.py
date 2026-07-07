@@ -54,6 +54,9 @@ add_refund_workflow_state = importlib.import_module(
 add_refund_issued_facts = importlib.import_module(
     "refunds_ai_api.database.migrations.012_add_refund_issued_facts"
 )
+add_refund_confirmation_state = importlib.import_module(
+    "refunds_ai_api.database.migrations.013_add_refund_confirmation_state"
+)
 
 
 class StubCursor:
@@ -157,7 +160,7 @@ def test_discover_migrations_returns_ordered_modules() -> None:
     migration_ids = [migration.migration_id for migration in discover_migrations()]
 
     assert migration_ids == sorted(migration_ids)
-    assert migration_ids[:12] == [
+    assert migration_ids[:14] == [
         "000_schema_foundation",
         "001_create_users",
         "002_create_roles",
@@ -170,6 +173,8 @@ def test_discover_migrations_returns_ordered_modules() -> None:
         "009_expand_purchase_details_for_refund_state",
         "010_add_refund_deadline_triggers",
         "011_add_refund_workflow_state",
+        "012_add_refund_issued_facts",
+        "013_add_refund_confirmation_state",
     ]
 
 
@@ -868,3 +873,40 @@ def test_add_refund_issued_facts_adds_purchase_refund_fact_columns() -> None:
     assert "refund_outcome is null or refund_outcome in ('full', 'prorated')" in executed_sql
     assert "purchases_refund_requested_at_idx" in executed_sql
     assert "purchases_refunded_at_idx" in executed_sql
+
+
+def test_add_refund_confirmation_state_adds_detail_confirmation_columns() -> None:
+    connection = StubConnection()
+
+    add_refund_confirmation_state.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    normalized_sql = " ".join(executed_sql.split())
+    for table_name in (
+        "digital_purchase_details",
+        "physical_purchase_details",
+        "subscription_purchase_details",
+    ):
+        assert f"alter table public.{table_name}" in executed_sql
+        assert "refund_confirmation_granted boolean not null default false" in executed_sql
+        assert "refund_confirmation_message text null" in executed_sql
+        assert "refund_confirmation_granted_at timestamptz null" in executed_sql
+        assert "refund_confirmation_expected_command text null" in executed_sql
+        assert "refund_confirmation_matched boolean not null default false" in executed_sql
+        assert "refund_confirmation_source text null" in executed_sql
+        assert (
+            "refund_confirmation_customer_id uuid null references public.users(id)"
+            in normalized_sql
+        )
+        assert (
+            "refund_confirmation_purchase_id uuid null references public.purchases(id)"
+            in normalized_sql
+        )
+        assert "refund_confirmation_consumed_at timestamptz null" in executed_sql
+        assert "refund_confirmation_consumed_by_action text null" in executed_sql
+        assert f"{table_name}_refund_confirmation_granted_check" in executed_sql
+        assert f"{table_name}_refund_confirmation_consumed_check" in executed_sql
+        assert f"{table_name}_refund_confirmation_consumed_action_check" in executed_sql
+        assert f"{table_name}_refund_confirmation_customer_idx" in executed_sql
+        assert f"{table_name}_refund_confirmation_purchase_idx" in executed_sql
+        assert f"{table_name}_refund_confirmation_granted_idx" in executed_sql
