@@ -261,10 +261,11 @@ It does not send full rendered page content or replay the full transcript.
 ### Model Audit Logging & Observability Stream
 
 The audit foundation exists in `services/audit.py`, `repositories/audit.py`,
-and migration `014_create_model_audit_tables.py`. `/api/chat` starts an audit
-session for each valid chat request and carries the session through graph state.
+and migrations `014_create_model_audit_tables.py` and
+`015_broadcast_model_audit_events.py`. `/api/chat` starts an audit session for
+each valid chat request and carries the session through graph state.
 `log_trace_step` persists each graph trace as an ordered audit event when a writer
-is present.
+is present. PostgreSQL broadcasts inserted audit events through `pg_notify`.
 
 Current persistence flow:
 
@@ -279,8 +280,10 @@ Customer Message
        - Tool Request / Completion
        - Mutation Start / Complete
   -> Persist Audit Event to Database
+  -> Database broadcasts audit event notification
+  -> /api/admin/audit/events/stream relays SSE event
   -> Route Response Returned
   -> Complete or Fail Model Audit Session
 ```
 
-Realtime stream delivery and admin timeline rendering remain later v0.6.0 phases.
+Admin UI timeline rendering remains a later v0.6.0 phase.

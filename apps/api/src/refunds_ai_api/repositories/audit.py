@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ from refunds_ai_api.repositories.application import (
     RepositoryConfigurationError,
     RepositoryConflictError,
 )
+
+MODEL_AUDIT_EVENTS_CHANNEL = "model_audit_events"
 
 
 class ConnectionProvider(Protocol):
@@ -302,6 +305,30 @@ class ModelAuditRepository:
                     (session_id,),
                 )
                 return list(cursor.fetchall())
+
+    def listen_events(
+        self,
+        *,
+        session_id: UUID | None = None,
+        timeout_seconds: int = 15,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield database-broadcast audit events from the PostgreSQL notify channel."""
+        with self.connection_provider.open() as connection:
+            connection.autocommit = True
+            with connection.cursor() as cursor:
+                cursor.execute(f"listen {MODEL_AUDIT_EVENTS_CHANNEL}")
+
+            while True:
+                received_notification = False
+                for notification in connection.notifies(timeout=timeout_seconds):
+                    received_notification = True
+                    event = json.loads(notification.payload)
+                    if session_id is not None and event.get("session_id") != str(session_id):
+                        continue
+                    yield event
+
+                if not received_notification:
+                    yield {"type": "keepalive"}
 
 
 class AuditSessionNotFoundError(EntityNotFoundError):

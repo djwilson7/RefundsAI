@@ -7,6 +7,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
 
 from refunds_ai_api.config import get_settings
 from refunds_ai_api.repositories.application import RepositoryConfigurationError
@@ -102,6 +103,23 @@ def list_audit_session_events(
         data={"events": events},
         error=None,
         meta=response_meta(),
+    )
+
+
+@router.get("/events/stream")
+def stream_audit_events(
+    service: Annotated[ModelAuditReadService, Depends(get_model_audit_service)],
+    session_id: UUID | None = None,
+) -> StreamingResponse:
+    """Stream database-broadcast model audit events as SSE frames."""
+    return StreamingResponse(
+        service.stream_events(session_id=session_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

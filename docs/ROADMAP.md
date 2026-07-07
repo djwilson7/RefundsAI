@@ -454,8 +454,9 @@ Provide administrators with operational visibility, AI auditability, and live mo
 
 #### Phase 4: Realtime Stream
 
-* [ ] Add an SSE or WebSocket endpoint for active audit events.
-* [ ] Support streaming by `session_id` or all active sessions.
+* [x] Add an SSE endpoint for active audit events.
+* [x] Support streaming by `session_id` or all active sessions.
+* [x] Broadcast audit events from the database when event rows are inserted.
 * [ ] Stream events to the Admin UI as graph execution progresses.
 
 #### Phase 5: Admin UI
@@ -469,7 +470,8 @@ Provide administrators with operational visibility, AI auditability, and live mo
 ### Validation
 
 * [x] Graph execution events successfully persisted as structured audit events.
-* [ ] Live timeline replayed and streamed immediately in the Admin UI without page refreshes.
+* [x] Backend SSE stream exposes database-broadcast audit events.
+* [ ] Live timeline replayed in the Admin UI without page refreshes.
 * [x] Historical sessions accessible through backend read APIs with token usage and latency fields.
 * [ ] Admin UI correctly resolves stable event keys to user-friendly labels and icons.
 

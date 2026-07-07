@@ -11,6 +11,7 @@ from refunds_ai_api.repositories.application import RepositoryConfigurationError
 from refunds_ai_api.repositories.audit import AuditSessionNotFoundError
 from refunds_ai_api.routes.admin_audit import get_model_audit_service
 from refunds_ai_api.services.audit import ModelAuditEventKey
+from refunds_ai_api.services.model_audit import format_sse_event
 
 SESSION_ID = UUID("70000000-0000-4000-8000-000000000001")
 TRACE_ID = UUID("71000000-0000-4000-8000-000000000001")
@@ -86,6 +87,17 @@ class StubModelAuditService:
         self.event_requests.append(session_id)
         return [event_row()]
 
+    def stream_events(self, *, session_id: UUID | None = None):
+        yield format_sse_event(
+            {
+                "id": str(event_row()["id"]),
+                "session_id": str(session_id or SESSION_ID),
+                "trace_id": str(TRACE_ID),
+                "sequence_number": 1,
+                "event_key": ModelAuditEventKey.REQUEST_RECEIVED,
+            }
+        )
+
 
 def build_client(service: StubModelAuditService) -> TestClient:
     app = create_app()
@@ -136,6 +148,22 @@ def test_list_audit_session_events_returns_ordered_events() -> None:
     assert event["display_name"] == "Request received"
     assert event["category"] == "request"
     assert event["input_json"] == {"message_length": 19}
+
+
+def test_stream_audit_events_returns_sse_frames() -> None:
+    client = build_client(StubModelAuditService())
+
+    response = client.get(f"/api/admin/audit/events/stream?session_id={SESSION_ID}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: model_audit_event" in response.text
+    assert f'"session_id": "{SESSION_ID}"' in response.text
+    assert '"event_key": "REQUEST_RECEIVED"' in response.text
+
+
+def test_format_sse_event_returns_keepalive_comment() -> None:
+    assert format_sse_event({"type": "keepalive"}) == ": keepalive\n\n"
 
 
 def test_get_audit_session_returns_not_found() -> None:

@@ -319,6 +319,7 @@ Rules:
 * Lookup categories are `request`, `routing`, `tool`, `validation`, `mutation`, `response`, or `error`.
 * Backend code writes through `repositories/audit.py` and `services/audit.py`.
 * `/api/chat` creates a session for each valid request, persists ordered graph trace events, and completes or fails the session with token and latency metrics.
+* Migration `015_broadcast_model_audit_events.py` adds an after-insert trigger on `model_audit_events` that publishes event payloads through PostgreSQL `pg_notify`.
 
 ## Database-Managed Refund Fields
 
@@ -424,6 +425,12 @@ Model audit admin reads:
 3. Join `model_audit_events` to `model_audit_event_lookup` for event labels, categories, descriptions, and display order.
 4. Order event timelines by `sequence_number`.
 
+Model audit stream reads:
+
+1. Listen on the `model_audit_events` PostgreSQL notification channel.
+2. Relay notifications through `/api/admin/audit/events/stream` as SSE frames.
+3. Optionally filter relayed notifications by `session_id`.
+
 ## Migration List
 
 | Migration | Purpose |
@@ -443,6 +450,7 @@ Model audit admin reads:
 | `012_add_refund_issued_facts` | Purchase-level refund request and issued refund facts. |
 | `013_add_refund_confirmation_state` | Detail-level refund confirmation authorization and consumption facts. |
 | `014_create_model_audit_tables` | Model audit session, event timeline, and event lookup tables for v0.6.0. |
+| `015_broadcast_model_audit_events` | PostgreSQL notification trigger for realtime model audit event streams. |
 
 ## Migration Commands
 

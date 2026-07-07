@@ -60,6 +60,9 @@ add_refund_confirmation_state = importlib.import_module(
 create_model_audit_tables = importlib.import_module(
     "refunds_ai_api.database.migrations.014_create_model_audit_tables"
 )
+broadcast_model_audit_events = importlib.import_module(
+    "refunds_ai_api.database.migrations.015_broadcast_model_audit_events"
+)
 
 
 class StubCursor:
@@ -163,7 +166,7 @@ def test_discover_migrations_returns_ordered_modules() -> None:
     migration_ids = [migration.migration_id for migration in discover_migrations()]
 
     assert migration_ids == sorted(migration_ids)
-    assert migration_ids[:15] == [
+    assert migration_ids[:16] == [
         "000_schema_foundation",
         "001_create_users",
         "002_create_roles",
@@ -179,6 +182,7 @@ def test_discover_migrations_returns_ordered_modules() -> None:
         "012_add_refund_issued_facts",
         "013_add_refund_confirmation_state",
         "014_create_model_audit_tables",
+        "015_broadcast_model_audit_events",
     ]
 
 
@@ -982,3 +986,26 @@ def test_create_model_audit_tables_creates_three_table_audit_foundation() -> Non
     assert lookup_inserts[0][0] == "REQUEST_RECEIVED"
     assert lookup_inserts[-1][0] == "ERROR_RAISED"
     assert "on conflict (event_key) do update" in executed_sql
+
+
+def test_broadcast_model_audit_events_installs_notify_trigger() -> None:
+    connection = StubConnection()
+
+    broadcast_model_audit_events.upgrade(connection)
+
+    executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
+    normalized_sql = " ".join(executed_sql.split())
+    assert "create or replace function public.broadcast_model_audit_event()" in executed_sql
+    assert "returns trigger" in executed_sql
+    assert "security definer" in executed_sql
+    assert "jsonb_build_object" in executed_sql
+    assert "'session_id', new.session_id" in executed_sql
+    assert "'display_name', lookup_row.display_name" in executed_sql
+    assert "perform pg_notify('model_audit_events', payload::text)" in executed_sql
+    assert (
+        "drop trigger if exists model_audit_events_broadcast_after_insert "
+        "on public.model_audit_events"
+    ) in normalized_sql
+    assert "create trigger model_audit_events_broadcast_after_insert" in executed_sql
+    assert "after insert on public.model_audit_events" in executed_sql
+    assert "execute function public.broadcast_model_audit_event()" in executed_sql

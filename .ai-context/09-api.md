@@ -73,20 +73,21 @@ Failure:
 | `GET` | `/api/admin/audit/sessions` | `ModelAuditReadService.list_sessions` | List recent model audit sessions. |
 | `GET` | `/api/admin/audit/sessions/{session_id}` | `ModelAuditReadService.get_session` | Read one model audit session summary. |
 | `GET` | `/api/admin/audit/sessions/{session_id}/events` | `ModelAuditReadService.list_events` | Read ordered events for one audit session. |
+| `GET` | `/api/admin/audit/events/stream` | `ModelAuditReadService.stream_events` | SSE stream for database-broadcast audit events. |
 
 Authentication is currently mocked. These endpoints do not implement production auth.
 
 ## Admin Audit Endpoints
 
-The audit schema, writer, graph instrumentation, and HTTP read APIs are implemented.
-Realtime stream contracts are planned for Phase 4.
+The audit schema, writer, graph instrumentation, HTTP read APIs, and backend SSE
+stream are implemented. Frontend stream consumption is planned for the admin UI phase.
 
 | Method | Route | Status | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/admin/audit/sessions` | Implemented | List historical and active audit sessions. |
 | `GET` | `/api/admin/audit/sessions/{session_id}` | Implemented | Read one audit session summary. |
 | `GET` | `/api/admin/audit/sessions/{session_id}/events` | Implemented | Read ordered audit events for a session. |
-| `GET` | `/api/admin/audit/events/stream` | Planned Phase 4 | SSE or WebSocket stream for active audit events. |
+| `GET` | `/api/admin/audit/events/stream` | Implemented | SSE stream for active audit events. |
 
 ## Health Endpoints
 
@@ -551,3 +552,21 @@ Returns ordered `events[]` for one session. Event rows include:
 
 Event labels and categories come from `model_audit_event_lookup`; frontend code should
 not duplicate that mapping.
+
+### `GET /api/admin/audit/events/stream`
+
+Streams database-broadcast audit events as Server-Sent Events.
+
+Query:
+
+* `session_id`: optional. When supplied, only events for that audit session are relayed.
+
+Stream behavior:
+
+* PostgreSQL broadcasts inserted `model_audit_events` rows through the
+  `model_audit_events` notification channel.
+* SSE event name is `model_audit_event`.
+* SSE `data` contains the same event fields returned by the session events read API.
+* Keepalive comments may be emitted as `: keepalive`.
+
+The frontend admin panel is not wired to this stream yet.

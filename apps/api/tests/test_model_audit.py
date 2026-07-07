@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -59,9 +60,21 @@ class StubCursor:
 class StubConnection:
     def __init__(self) -> None:
         self.executed: list[tuple[str, tuple[Any, ...] | None]] = []
+        self.autocommit = False
         self.force_conflict = False
         self.force_missing = False
         self.result: list[dict[str, Any]] = []
+        self.notifications = [
+            SimpleNamespace(
+                payload=(
+                    '{"id":"73000000-0000-4000-8000-000000000001",'
+                    f'"session_id":"{SESSION_ID}",'
+                    f'"trace_id":"{TRACE_ID}",'
+                    '"sequence_number":1,'
+                    '"event_key":"REQUEST_RECEIVED"}'
+                )
+            )
+        ]
         self.session_row = {
             "id": SESSION_ID,
             "trace_id": TRACE_ID,
@@ -103,6 +116,11 @@ class StubConnection:
 
     def cursor(self) -> StubCursor:
         return StubCursor(self)
+
+    def notifies(self, *, timeout: int) -> list[SimpleNamespace]:
+        notifications = self.notifications
+        self.notifications = []
+        return notifications
 
 
 class StubConnectionProvider:
@@ -377,3 +395,22 @@ def test_model_audit_repository_lists_session_events_with_lookup_metadata() -> N
     assert "order by e.sequence_number asc" in query_sql.lower()
     assert query_params == (SESSION_ID,)
     assert events == connection.event_rows
+
+
+def test_model_audit_repository_listens_for_broadcast_events() -> None:
+    connection = StubConnection()
+    repository = ModelAuditRepository(StubConnectionProvider(connection))
+
+    event = next(repository.listen_events(session_id=SESSION_ID, timeout_seconds=1))
+
+    listen_sql, listen_params = connection.executed[0]
+    assert connection.autocommit is True
+    assert listen_sql == "listen model_audit_events"
+    assert listen_params is None
+    assert event == {
+        "id": "73000000-0000-4000-8000-000000000001",
+        "session_id": str(SESSION_ID),
+        "trace_id": str(TRACE_ID),
+        "sequence_number": 1,
+        "event_key": ModelAuditEventKey.REQUEST_RECEIVED,
+    }
