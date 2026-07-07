@@ -106,6 +106,44 @@ type ApiRefundWorkflow = Readonly<{
   policy_facts: Record<string, unknown>;
 }>;
 
+type ApiModelAuditSession = Readonly<{
+  id: string;
+  trace_id: string;
+  conversation_id: string | null;
+  customer_id: string | null;
+  request_id: string | null;
+  model_name: string;
+  status: string;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  started_at: string;
+  completed_at: string | null;
+  latency_ms: number | null;
+  event_count: number;
+  created_at: string;
+  updated_at: string;
+}>;
+
+type ApiModelAuditEvent = Readonly<{
+  id: string;
+  session_id: string;
+  trace_id: string;
+  sequence_number: number;
+  event_key: string;
+  display_name: string;
+  category: string;
+  description: string | null;
+  display_order: number;
+  workflow_kind: string | null;
+  tool_name: string | null;
+  summary: string | null;
+  input_json: Record<string, unknown> | null;
+  output_json: Record<string, unknown> | null;
+  metadata_json: Record<string, unknown> | null;
+  created_at: string;
+}>;
+
 export type CustomerProfile = Readonly<{
   id: string;
   firstName: string;
@@ -197,6 +235,50 @@ export type RefundWorkflow = Readonly<{
   refundOutcome: "none" | "full" | "prorated";
   reasons: readonly string[];
   policyFacts: Record<string, unknown>;
+}>;
+
+export type ModelAuditInvocation = Readonly<{
+  id: string;
+  title: string;
+  lastActive: string;
+  description: string;
+  status: string;
+  eventCount: number;
+  toolCount: number;
+  failureCount: number;
+  totalTokens: number;
+  latency: string;
+  timeToResponse: string;
+}>;
+
+export type ModelAuditToolCall = Readonly<{
+  id: string;
+  sequenceNumber: number;
+  title: string;
+  toolName: string;
+  summary: string;
+  occurredAt: string;
+  status: "completed" | "started" | "requested" | "failed";
+}>;
+
+export type ModelAuditTimelineEvent = Readonly<{
+  id: string;
+  sequenceNumber: number;
+  title: string;
+  category: string;
+  summary: string;
+  occurredAt: string;
+}>;
+
+export type ModelAuditSessionDetail = Readonly<{
+  invocation: ModelAuditInvocation;
+  modelName: string;
+  traceId: string;
+  requestId: string;
+  prompt: string;
+  finalResponse: string;
+  toolCalls: readonly ModelAuditToolCall[];
+  timelineEvents: readonly ModelAuditTimelineEvent[];
 }>;
 
 function getApiBaseUrl() {
@@ -294,6 +376,112 @@ export async function getRefundWorkflow(purchaseId: string) {
     }
 
     return mapApiRefundWorkflowToRefundWorkflow(body.data);
+  } catch {
+    return null;
+  }
+}
+
+export async function getModelAuditInvocations(limit = 4) {
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/admin/audit/sessions?limit=${limit}`,
+      {
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const body = (await response.json()) as ApiResponse<{
+      sessions: ApiModelAuditSession[];
+    }>;
+
+    if (!body.success || !body.data) {
+      return null;
+    }
+
+    const invocations = await Promise.all(
+      body.data.sessions.map(async (session) => {
+        const events = await getModelAuditSessionEvents(session.id);
+
+        return mapApiModelAuditSessionToInvocation(session, events ?? []);
+      }),
+    );
+
+    return invocations;
+  } catch {
+    return null;
+  }
+}
+
+export async function getModelAuditSessionDetail(sessionId: string) {
+  try {
+    const [session, events] = await Promise.all([
+      getModelAuditSession(sessionId),
+      getModelAuditSessionEvents(sessionId),
+    ]);
+
+    if (!session || !events) {
+      return null;
+    }
+
+    return mapApiModelAuditSessionToDetail(session, events);
+  } catch {
+    return null;
+  }
+}
+
+async function getModelAuditSession(sessionId: string) {
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/admin/audit/sessions/${sessionId}`,
+      {
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const body = (await response.json()) as ApiResponse<{
+      session: ApiModelAuditSession;
+    }>;
+
+    if (!body.success || !body.data) {
+      return null;
+    }
+
+    return body.data.session;
+  } catch {
+    return null;
+  }
+}
+
+async function getModelAuditSessionEvents(sessionId: string) {
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/admin/audit/sessions/${sessionId}/events`,
+      {
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const body = (await response.json()) as ApiResponse<{
+      events: ApiModelAuditEvent[];
+    }>;
+
+    if (!body.success || !body.data) {
+      return null;
+    }
+
+    return body.data.events;
   } catch {
     return null;
   }
@@ -397,6 +585,322 @@ export function mapApiRefundWorkflowToRefundWorkflow(
     reasons: workflow.reasons,
     policyFacts: workflow.policy_facts,
   };
+}
+
+export function mapApiModelAuditSessionToInvocation(
+  session: ApiModelAuditSession,
+  events: readonly ApiModelAuditEvent[],
+): ModelAuditInvocation {
+  return {
+    id: session.id,
+    title: formatAuditDate(session.started_at),
+    lastActive: formatAuditLastActive(session.completed_at ?? session.updated_at),
+    description: getOriginalPrompt(events),
+    status: session.status,
+    eventCount: session.event_count,
+    toolCount: countToolInvocations(events),
+    failureCount: countFailures(events),
+    totalTokens: session.total_tokens ?? 0,
+    latency: formatDuration(session.latency_ms),
+    timeToResponse: formatTimeToResponse(session.started_at, events, session.latency_ms),
+  };
+}
+
+export function mapApiModelAuditSessionToDetail(
+  session: ApiModelAuditSession,
+  events: readonly ApiModelAuditEvent[],
+): ModelAuditSessionDetail {
+  return {
+    invocation: mapApiModelAuditSessionToInvocation(session, events),
+    modelName: session.model_name,
+    traceId: session.trace_id,
+    requestId: session.request_id ?? "Unavailable",
+    prompt: getOriginalPrompt(events),
+    finalResponse: getFinalResponse(events),
+    toolCalls: getToolCalls(events),
+    timelineEvents: events.map(mapApiModelAuditEventToTimelineEvent),
+  };
+}
+
+function getFinalResponse(events: readonly ApiModelAuditEvent[]) {
+  const responseEvent =
+    events.find((event) => event.event_key === "RESPONSE_GENERATED") ??
+    events.find((event) => event.event_key === "RESPONSE_RETURNED");
+  const response = responseEvent?.output_json?.response;
+
+  if (typeof response === "string" && response.trim()) {
+    return response;
+  }
+
+  if (isRecord(response)) {
+    const message = response.message;
+
+    if (isRecord(message) && typeof message.content === "string") {
+      return message.content;
+    }
+  }
+
+  return responseEvent?.summary ?? "Final response unavailable";
+}
+
+function getToolCalls(events: readonly ApiModelAuditEvent[]) {
+  const toolEvents = events.filter((event) => getEventToolName(event));
+  const callsByTool = new Map<string, ModelAuditToolCall>();
+
+  for (const event of toolEvents) {
+    const toolName = getEventToolName(event);
+
+    if (!toolName) {
+      continue;
+    }
+
+    const currentCall = callsByTool.get(toolName);
+    const nextCall = mapApiModelAuditEventToToolCall(event, toolName);
+
+    if (
+      currentCall === undefined ||
+      toolStatusRank(nextCall.status) >= toolStatusRank(currentCall.status)
+    ) {
+      callsByTool.set(toolName, nextCall);
+    }
+  }
+
+  return [...callsByTool.values()].sort(
+    (first, second) => first.sequenceNumber - second.sequenceNumber,
+  );
+}
+
+function mapApiModelAuditEventToToolCall(
+  event: ApiModelAuditEvent,
+  toolName: string,
+): ModelAuditToolCall {
+  return {
+    id: event.id,
+    sequenceNumber: event.sequence_number,
+    title: event.display_name,
+    toolName,
+    summary: event.summary ?? event.description ?? "Tool event recorded.",
+    occurredAt: formatAuditTime(event.created_at),
+    status: getToolStatus(event),
+  };
+}
+
+function getToolStatus(event: ApiModelAuditEvent): ModelAuditToolCall["status"] {
+  if (event.event_key === "TOOL_COMPLETED" || event.event_key === "MUTATION_COMPLETED") {
+    return "completed";
+  }
+
+  if (event.event_key === "TOOL_STARTED" || event.event_key === "MUTATION_STARTED") {
+    return "started";
+  }
+
+  if (event.event_key === "ERROR_RAISED" || event.category === "error") {
+    return "failed";
+  }
+
+  return "requested";
+}
+
+function toolStatusRank(status: ModelAuditToolCall["status"]) {
+  return {
+    failed: 4,
+    completed: 3,
+    started: 2,
+    requested: 1,
+  }[status];
+}
+
+function mapApiModelAuditEventToTimelineEvent(
+  event: ApiModelAuditEvent,
+): ModelAuditTimelineEvent {
+  return {
+    id: event.id,
+    sequenceNumber: event.sequence_number,
+    title: event.display_name,
+    category: event.category,
+    summary: event.summary ?? event.description ?? "Audit event recorded.",
+    occurredAt: formatAuditTime(event.created_at),
+  };
+}
+
+function getOriginalPrompt(events: readonly ApiModelAuditEvent[]) {
+  const requestEvent = events.find((event) => event.event_key === "REQUEST_RECEIVED");
+  const message = requestEvent?.input_json?.message;
+
+  return typeof message === "string" && message.trim()
+    ? message
+    : "Original prompt unavailable";
+}
+
+function countToolInvocations(events: readonly ApiModelAuditEvent[]) {
+  const completedToolNames = getDistinctToolNames(
+    events.filter((event) => event.event_key === "TOOL_COMPLETED"),
+  );
+
+  if (completedToolNames.size > 0) {
+    return completedToolNames.size;
+  }
+
+  const toolEventNames = getDistinctToolNames(
+    events.filter((event) =>
+      [
+        "TOOL_COMPLETED",
+        "TOOL_STARTED",
+        "TOOL_REQUESTED",
+        "MUTATION_COMPLETED",
+        "MUTATION_STARTED",
+      ].includes(event.event_key),
+    ),
+  );
+
+  if (toolEventNames.size > 0) {
+    return toolEventNames.size;
+  }
+
+  return getDistinctToolNames(events).size;
+}
+
+function getDistinctToolNames(events: readonly ApiModelAuditEvent[]) {
+  const toolNames = new Set<string>();
+
+  for (const event of events) {
+    const toolName = getEventToolName(event);
+
+    if (toolName) {
+      toolNames.add(toolName);
+    }
+  }
+
+  return toolNames;
+}
+
+function getEventToolName(event: ApiModelAuditEvent) {
+  if (event.tool_name) {
+    return event.tool_name;
+  }
+
+  const metadataData = event.metadata_json?.data;
+  if (isRecord(metadataData)) {
+    for (const key of ["tool_name", "requested_tool_name"]) {
+      const value = metadataData[key];
+
+      if (typeof value === "string" && value) {
+        return value;
+      }
+    }
+  }
+
+  for (const payload of [event.input_json, event.output_json]) {
+    if (!payload) {
+      continue;
+    }
+
+    const value = payload.tool_name;
+
+    if (typeof value === "string" && value) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function countFailures(events: readonly ApiModelAuditEvent[]) {
+  return events.filter(
+    (event) => event.event_key === "ERROR_RAISED" || event.category === "error",
+  ).length;
+}
+
+function formatTimeToResponse(
+  startedAt: string,
+  events: readonly ApiModelAuditEvent[],
+  fallbackLatencyMs: number | null,
+) {
+  const responseGeneratedEvent = events.find(
+    (event) => event.event_key === "RESPONSE_GENERATED",
+  );
+
+  if (!responseGeneratedEvent) {
+    return formatDuration(fallbackLatencyMs);
+  }
+
+  const started = new Date(startedAt);
+  const responseGenerated = new Date(responseGeneratedEvent.created_at);
+
+  if (
+    Number.isNaN(started.getTime()) ||
+    Number.isNaN(responseGenerated.getTime())
+  ) {
+    return formatDuration(fallbackLatencyMs);
+  }
+
+  const responseDurationMs = responseGenerated.getTime() - started.getTime();
+  const displayedDurationMs =
+    fallbackLatencyMs !== null
+      ? Math.min(responseDurationMs, fallbackLatencyMs)
+      : responseDurationMs;
+
+  return formatDuration(displayedDurationMs);
+}
+
+function formatAuditDate(value: string) {
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Date unavailable";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(parsedDate);
+}
+
+function formatAuditLastActive(value: string) {
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Last active unavailable";
+  }
+
+  return `Last active ${new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+  }).format(parsedDate)}`;
+}
+
+function formatAuditTime(value: string) {
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Time unavailable";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "UTC",
+  }).format(parsedDate);
+}
+
+function formatDuration(durationMs: number | null) {
+  if (durationMs === null || !Number.isFinite(durationMs) || durationMs < 0) {
+    return "unknown";
+  }
+
+  if (durationMs < 1000) {
+    return `${durationMs}ms`;
+  }
+
+  return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
 export function formatCentsAsDollars(amountCents: number) {

@@ -1,0 +1,212 @@
+.sessionOverview {
+  display: grid;
+  gap: 14px;
+}
+
+.sectionHeader {
+  display: grid;
+  gap: 4px;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.sessionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.emptyState {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: #40505f;
+  padding: 20px;
+  box-shadow: 0 12px 30px rgb(23 32 42 / 6%);
+}
+
+.sessionCard {
+  display: grid;
+  gap: 16px;
+  min-height: 164px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 20px;
+  box-shadow: 0 12px 30px rgb(23 32 42 / 6%);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.sessionCard:hover,
+.sessionCard:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 16px 34px rgb(23 32 42 / 10%);
+}
+
+.sessionCard:focus-visible {
+  outline: 3px solid rgb(11 107 203 / 16%);
+  outline-offset: 2px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cardTitle {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.actionSlot {
+  position: relative;
+  display: inline-grid;
+  align-items: center;
+  min-width: 144px;
+  justify-items: end;
+}
+
+.lastActive {
+  display: inline-flex;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: #40505f;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 9px;
+  white-space: nowrap;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.viewSession {
+  position: absolute;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  transform: translateX(12px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+  white-space: nowrap;
+}
+
+.sessionCard:hover .lastActive,
+.sessionCard:focus-within .lastActive {
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+.sessionCard:hover .viewSession,
+.sessionCard:focus-within .viewSession {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.description {
+  margin: 0;
+  color: #40505f;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.metaRows {
+  display: grid;
+  gap: 10px;
+}
+
+.metaRow {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 8px;
+  margin: 0;
+  color: #6a7988;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.metaRow span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  padding: 7px 10px;
+  text-align: center;
+}
+
+.metaRow .statusSucceeded {
+  background: #e8f4ee;
+  color: #246b45;
+}
+
+.metaRow .statusFailed {
+  background: #f7ecec;
+  color: #9a342f;
+}
+
+.metaRow .statusRunning {
+  background: #e8f1fb;
+  color: #1f5f9f;
+}
+
+@media (max-width: 760px) {
+  .sessionGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .cardHeader {
+    grid-template-columns: 1fr;
+  }
+
+  .cardHeader {
+    display: grid;
+  }
+
+  .actionSlot {
+    justify-items: start;
+  }
+
+  .lastActive {
+    width: fit-content;
+  }
+
+  .viewSession {
+    left: 0;
+    right: auto;
+  }
+
+  .metaRow {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
