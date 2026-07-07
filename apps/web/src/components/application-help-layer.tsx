@@ -64,7 +64,17 @@ type ConversationState = Readonly<{
   selected_refund_purchase_ids?: string[];
   selected_refund_context?: string | null;
   active_refund_context?: Record<string, unknown> | null;
+  active_result_set?: Record<string, unknown> | null;
+  active_workflow?: Record<string, unknown> | null;
+  pending_refund_action?: Record<string, unknown> | null;
   current_page?: Record<string, unknown> | null;
+}>;
+
+type ChatSideEffect = Readonly<{
+  type?: string;
+  customer_id?: string;
+  purchase_ids?: string[];
+  reason?: string;
 }>;
 
 type PageContext = Readonly<{
@@ -89,6 +99,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   const [chatMessages, setChatMessages] =
     useState<ChatMessage[]>(initialChatMessages);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const chatMessageIdCounterRef = useRef(0);
   const [conversationState, setConversationState] =
     useState<ConversationState>({});
   const [chatState, setChatState] = useState<"idle" | "sending" | "error">(
@@ -280,7 +291,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     }
 
     const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: nextChatMessageId("user", chatMessageIdCounterRef),
       role: "user",
       content: message,
     };
@@ -301,24 +312,56 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
       setChatMessages((messages) => [
         ...messages,
         {
-          id: `assistant-${Date.now()}`,
+          id: nextChatMessageId("assistant", chatMessageIdCounterRef),
           role: "assistant",
           content: chatResponse.message,
         },
       ]);
       setConversationState(chatResponse.conversationState);
+      await refreshPurchaseDataAfterChatSideEffects(chatResponse.sideEffects);
       setChatState("idle");
     } catch {
       setChatMessages((messages) => [
         ...messages,
         {
-          id: `assistant-error-${Date.now()}`,
+          id: nextChatMessageId("assistant-error", chatMessageIdCounterRef),
           role: "assistant",
           content: "I could not reach the AI chat service. Please try again.",
         },
       ]);
       setChatState("error");
     }
+  }
+
+  async function refreshPurchaseDataAfterChatSideEffects(
+    sideEffects: readonly ChatSideEffect[],
+  ) {
+    const purchaseDataChanged = sideEffects.some(
+      (sideEffect) => sideEffect.type === "purchase_data_changed",
+    );
+
+    if (!purchaseDataChanged) {
+      return;
+    }
+
+    if (purchaseId) {
+      try {
+        const nextWorkflow = await loadRefundWorkflow(purchaseId);
+        setWorkflowLoad({
+          purchaseId,
+          state: "ready",
+          workflow: nextWorkflow,
+        });
+      } catch {
+        setWorkflowLoad({
+          purchaseId,
+          state: "error",
+          workflow: null,
+        });
+      }
+    }
+
+    router.refresh();
   }
 
   async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
@@ -479,6 +522,14 @@ function getPurchaseIdFromPathname(pathname: string | null) {
   return pathname.slice(detailRoutePrefix.length).split("/")[0] || null;
 }
 
+function nextChatMessageId(
+  prefix: string,
+  counterRef: { current: number },
+) {
+  counterRef.current += 1;
+  return `${prefix}-${counterRef.current}`;
+}
+
 async function loadRefundWorkflow(purchaseId: string) {
   const response = await fetch(
     `/api/purchases/${purchaseId}/refund/eligibility`,
@@ -546,6 +597,7 @@ async function sendChatMessage(
         content?: string;
       };
       conversation_state?: ConversationState;
+      side_effects?: ChatSideEffect[];
     } | null;
   };
 
@@ -556,6 +608,7 @@ async function sendChatMessage(
   return {
     message: body.data.message.content,
     conversationState: body.data.conversation_state ?? {},
+    sideEffects: body.data.side_effects ?? [],
   };
 }
 

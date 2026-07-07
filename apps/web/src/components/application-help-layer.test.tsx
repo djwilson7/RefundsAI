@@ -148,6 +148,89 @@ describe("ApplicationHelpLayer", () => {
     expect(
       await screen.findByText("The AI workflow infrastructure is connected."),
     ).toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("refreshes purchase data after a chat purchase-data side effect", async () => {
+    mockedPathname = "/purchase-details/40000000-0000-4000-8000-000000000001";
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              can_issue_funds: false,
+              can_prepare_refund: true,
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              message: {
+                content: "I have started the refund workflow.",
+              },
+              conversation_state: {
+                active_refund_context: {
+                  purchase_id: "40000000-0000-4000-8000-000000000001",
+                },
+              },
+              side_effects: [
+                {
+                  type: "purchase_data_changed",
+                  customer_id: "20000000-0000-4000-8000-000000000001",
+                  purchase_ids: ["40000000-0000-4000-8000-000000000001"],
+                  reason: "refund_mutation_completed",
+                },
+              ],
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              can_issue_funds: true,
+              can_prepare_refund: false,
+            },
+          }),
+      });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      <ApplicationHelpLayer>
+        <main>Purchase details</main>
+        <HelpTriggerButton />
+      </ApplicationHelpLayer>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open help chat" }));
+    fireEvent.change(screen.getByLabelText("Message the AI assistant"), {
+      target: { value: "Confirm invalidate code and issue refund" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(
+      await screen.findByText("I have started the refund workflow."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Confirm invalidate code and issue refund"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      "/api/purchases/40000000-0000-4000-8000-000000000001/refund/eligibility",
+      { cache: "no-store" },
+    );
+    expect(screen.getByRole("button", { name: "Prep Refund" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Issue Refund" })).toBeEnabled();
   });
 
   it("scrolls the chat transcript as turns are added", async () => {
