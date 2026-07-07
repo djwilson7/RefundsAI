@@ -1,10 +1,13 @@
 # Roadmap
 
-This roadmap defines the planned implementation sequence for RefundsAI. Each milestone establishes a stable foundation for the next, allowing the project to evolve incrementally while maintaining architectural integrity, testing quality, and documentation throughout development.
+This roadmap defines the planned implementation sequence for RefundsAI.
+
+Each milestone establishes a stable foundation for the next. The goal is incremental
+delivery without losing architecture, test quality, or documentation alignment.
 
 ---
 
-# v0.0.0 — Project Foundation
+# v0.0.0 - Project Foundation
 
 **Status:** Complete
 
@@ -28,13 +31,16 @@ Establish the architectural and engineering foundation before implementation beg
 
 ---
 
-# v0.1.0 — Development Foundation
+# v0.1.0 - Development Foundation
 
 **Status:** Complete
 
 ## Objective
 
-Establish a reproducible local development foundation and validate that the frontend, backend, database, testing, linting, build, and documentation workflows are functional before application features are implemented.
+Establish a reproducible local development foundation.
+
+The milestone validates that frontend, backend, database connectivity, testing, linting,
+build, and documentation workflows are functional before feature work begins.
 
 This milestone proves the project can be developed safely and consistently.
 
@@ -134,7 +140,7 @@ Successfully verify:
 
 ---
 
-# v0.2.0 — Database Schema Integration
+# v0.2.0 - Database Schema Integration
 
 **Status:** Complete
 
@@ -142,7 +148,10 @@ Successfully verify:
 
 Build the database schema, migration flow, seed data, and database-owned lifecycle state needed by future backend services, frontend experiences, and AI orchestration.
 
-This milestone is focused on durable data structures and realistic mock data. Backend business services and API contracts are intentionally deferred to v0.3.0. LangGraph orchestration is deferred to v0.5.0.
+This milestone is focused on durable data structures and realistic mock data.
+
+Backend business services and API contracts are intentionally deferred to v0.3.0.
+LangGraph orchestration is deferred to v0.5.0.
 
 ### Planned Deliverables
 
@@ -205,7 +214,7 @@ This milestone is focused on durable data structures and realistic mock data. Ba
 
 ---
 
-# v0.3.0 — Backend Business Logic Foundation
+# v0.3.0 - Backend Business Logic Foundation
 
 **Status:** Complete
 
@@ -213,11 +222,26 @@ This milestone is focused on durable data structures and realistic mock data. Ba
 
 Build the backend service layer on top of the v0.2.0 database schema.
 
-This milestone is primarily focused on making business logic sound, testable, and accessible through clear API contracts. The frontend does not need to be connected yet, but the backend should expose stable endpoints and response models that the frontend can call in v0.4.0.
+This milestone is primarily focused on making business logic sound, testable, and
+accessible through clear API contracts.
 
-The backend services should read from the concrete tables introduced in v0.2.0, including `users`, `roles`, `user_roles`, `products`, `purchases`, `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details`.
+The frontend does not need to be connected yet, but the backend should expose stable
+endpoints and response models that the frontend can call in v0.4.0.
 
-This milestone also prepares deterministic services for later AI orchestration. LangGraph nodes and AI tools should call backend services rather than reaching into database logic directly.
+Backend services should read from the concrete tables introduced in v0.2.0:
+
+* `users`
+* `roles`
+* `user_roles`
+* `products`
+* `purchases`
+* `digital_purchase_details`
+* `physical_purchase_details`
+* `subscription_purchase_details`
+
+This milestone also prepares deterministic services for later AI orchestration.
+LangGraph nodes and AI tools should call backend services rather than reaching into
+database logic directly.
 
 ### Planned Deliverables
 
@@ -270,7 +294,7 @@ This milestone also prepares deterministic services for later AI orchestration. 
 
 ---
 
-# v0.4.0 — Customer Experience
+# v0.4.0 - Customer Experience
 
 **Status:** Complete
 
@@ -300,7 +324,9 @@ Build the customer-facing experience on top of the backend API contracts from v0
 * [x] Add subscription billing-cycle display and cancellation/refund summary rows under subscription detail sections.
 * [x] Keep purchase detail metadata focused on refund workflow facts after moving product-type lifecycle facts into dedicated sections.
 * [x] Add persistent help-panel command surface that can manually trigger backend refund preparation and issuance while AI orchestration is pending.
-* [x] Add rich prepared and issued refund displays for digital code invalidation, physical return preparation/carrier acceptance, and subscription cancellation/refund summary state.
+* [x] Add rich prepared and issued refund displays for digital code invalidation,
+  physical return preparation/carrier acceptance, and subscription cancellation/refund
+  summary state.
 * [x] Document that the manual `Prep Refund` and `Issue Refund` commands are temporary and should be removed or demoted once the agent owns refund workflow execution.
 
 ### Validation
@@ -312,13 +338,22 @@ Build the customer-facing experience on top of the backend API contracts from v0
 
 ---
 
-# v0.5.0 — AI Agent Integration
+# v0.5.0 - AI Agent Integration
+
+**Status:** Complete
 
 ## Objective
 
-Implement the AI agent layer incrementally and complete the technical exercise scope through purchase intelligence, deterministic refund policy lookup, backend-evaluated refund eligibility, and confirmation-gated refund workflow execution.
+Implement the AI agent layer incrementally and complete the technical exercise scope
+through purchase intelligence, deterministic refund policy lookup, backend-evaluated
+refund eligibility, and confirmation-gated refund workflow execution.
 
-The agent uses `gpt-5.4-mini` for the current OpenAI integration. The completed milestone proves the model can retrieve account facts, call deterministic tools, preserve compact conversation context, explain backend-owned refund policy, and communicate backend-evaluated refund eligibility without mutating refund workflows.
+The agent uses `gpt-5.4-mini` for the current OpenAI integration.
+
+The completed milestone proves the model can retrieve account facts, call deterministic
+tools, preserve compact conversation context, explain backend-owned refund policy,
+communicate backend-evaluated eligibility, and execute confirmed backend-approved
+refund workflow actions without making the model the business authority.
 
 ### Planned Deliverables
 
@@ -380,11 +415,13 @@ Example customer question: "Start a refund for the eligible one."
 * [x] Agent correctly explains backend-evaluated refund eligibility without mutating refund workflow state.
 * [x] Agent creates pending refund actions before mutation and executes refund preparation or issuance only after direct confirmation.
 * [x] LangGraph nodes call backend services through stable contracts.
-* [x] Structured logs capture intent, workflow lookup, tool execution, aggregate calculations, policy lookup, eligibility lookup, active-result-set previews, confirmation gates, mutation outcomes, and final responses.
+* [x] Structured logs capture intent, workflow lookup, tool execution, aggregate
+  calculations, policy lookup, eligibility lookup, active-result-set previews,
+  confirmation gates, mutation outcomes, and final responses.
 
 ---
 
-# v0.6.0 — Administrative Experience
+# v0.6.0 - Administrative Experience
 
 ## Objective
 
@@ -409,7 +446,7 @@ Provide administrators with operational visibility into customer interactions an
 
 ---
 
-# v0.7.0 — Voice Support
+# v0.7.0 - Voice Support
 
 ## Objective
 
@@ -431,11 +468,15 @@ Extend the existing AI orchestration pipeline to support voice interactions.
 
 ---
 
-# v0.8.0 — Deferred Implementation Points
+# v0.8.0 - Deferred Implementation Points
 
 ## Objective
 
-Track useful but non-core implementation points that are intentionally deferred unless time allows. These items may improve production realism, polish, or platform completeness, but they are not required for the primary technical challenge path.
+Track useful but non-core implementation points that are intentionally deferred unless
+time allows.
+
+These items may improve production realism, polish, or platform completeness, but they
+are not required for the primary technical challenge path.
 
 ### Planned Deliverables
 
@@ -458,7 +499,7 @@ Track useful but non-core implementation points that are intentionally deferred 
 
 ---
 
-# v1.0.0 — Technical Challenge Submission
+# v1.0.0 - Technical Challenge Submission
 
 ## Objective
 

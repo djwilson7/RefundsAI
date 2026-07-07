@@ -2,240 +2,256 @@
 
 # System Architecture
 
-## Overview
+## Layer Model
 
-The platform follows a layered architecture that separates presentation, backend services, AI orchestration, business logic, and persistent storage into independent layers.
-
-Each layer has a single responsibility and communicates only through well-defined interfaces.
+RefundsAI separates presentation, application services, AI orchestration,
+deterministic business policy, and persistent state.
 
 ```text
 Customer / Administrator
-           │
-           ▼
-    Next.js Frontend
-           │
-           ▼
-     FastAPI Backend
-           │
-           ▼
-    OpenAI Model Layer
-           │
-           ▼
-     Backend Tool Layer
-           │
-           ▼
- Deterministic Business Services
-           │
-           ▼
-  Supabase PostgreSQL
+  -> Next.js frontend
+  -> FastAPI routes
+  -> Application services
+  -> Repositories and AI chat graph
+  -> Deterministic policy helpers
+  -> Supabase PostgreSQL
 ```
 
----
+The important boundary is authority: frontend and model output can request or explain
+workflow actions, but backend policy and database state decide what is allowed.
 
-## Frontend
+## Frontend Surface
 
-**Technology**
+Implementation source:
 
-* Next.js
-* TypeScript
-* Tailwind CSS
+* `apps/web/src/app/layout.tsx`
+* `apps/web/src/app/page.tsx`
+* `apps/web/src/app/user-home/page.tsx`
+* `apps/web/src/app/purchase-details/[purchaseId]/page.tsx`
+* `apps/web/src/components/application-help-layer.tsx`
+* `apps/web/src/components/purchase-details-placeholder.tsx`
+* `apps/web/src/lib/application-api.ts`
 
-**Primary Interfaces**
+Routes:
 
-* Customer Portal
-* Admin Operations Dashboard
-* Persistent Chat Interface
-* Voice Interface
+| Route | Current behavior |
+| --- | --- |
+| `/` | Mock authentication landing page. |
+| `/user-home?customerId=...` | Server-loads customer profile and purchase history. |
+| `/admin-home` | Admin placeholder surface. |
+| `/purchase-details/[purchaseId]` | Server-loads purchase detail data and refund workflow state. |
 
-**Current Frontend Routes**
+The root layout wraps every page in `ApplicationHelpLayer`. The help layer is only
+available on `/user-home` and purchase detail routes.
 
-* `/` renders the mock authentication landing page.
-* `/user-home` renders the customer home screen from a `customerId` query parameter.
-* `/admin-home` renders the administrator home placeholder.
-* `/purchase-details/[purchaseId]` renders a server-loaded purchase detail page from `GET /api/purchases/{purchase_id}/details`.
+The customer home screen renders purchase cards from backend data. Before navigating,
+each card stores a small session-storage header summary for purchase detail continuity.
+The detail route still loads authoritative detail data from FastAPI.
 
-The mock landing page derives local-only credentials from seeded identities, animates those credentials into read-only form fields, and then navigates to the appropriate home route. Customer home rendering uses the route query parameter rather than browser-only state so server-rendered and hydrated output match on refresh.
+## Purchase Detail Rendering
 
-Purchase detail rendering uses one stable route and one stable backend detail endpoint. The frontend passes purchase summary data from the purchase history card for header continuity, then loads the authoritative purchase detail payload from the API. The detail page renders product-type-specific sections:
+One backend endpoint, `GET /api/purchases/{purchase_id}/details`, returns the correct
+detail row based on `purchases.purchase_type`.
 
-* Digital purchases show purchase/code issuance steps and issued-code redemption state under `Code Details`. Once the code is invalidated during refund preparation, the code section remains visible but muted and a `Return Details` section displays the invalidated-code state and invalidation timestamp. Digital metadata is not duplicated in a generic metadata section.
-* Physical purchases show delivery steps and delivery tracking data. Once a physical return is requested, the delivery and tracking context remains visible but muted, and a return workflow row becomes the active context with return-requested, label-created, and courier-acceptance fields.
-* Subscription purchases show billing-cycle progress under `Billing Cycle Details`. Prepared or issued subscription refunds add `Return Details` rows beneath the billing cycle instead of using a header badge.
+Frontend components then render type-specific sections:
 
-Prepared subscription refund state is visualized in the subscription billing-cycle section and a dedicated return summary. When `service_ended_at` is present, the cycle marker changes from `Today` to `Cancelled`, displays the service-ended date, and renders the remaining cycle track in red. Once backend refund workflow state reports the subscription is prepared, the return summary shows auto-renewal off, days used in the billing cycle, and `Subscription Cancelled`. Once the refund is issued, a second return row shows cancel date, refund amount, and the expected 3-10 business day refund window. Subscription metadata should avoid duplicating this lifecycle display; cancellation, service end, proration, and refund window deadline fields are not shown as standalone metadata cards.
+| Purchase type | Detail display |
+| --- | --- |
+| Digital | Code issuance, redemption, invalidation, and issued refund summary. |
+| Physical | Delivery timeline, tracking, return workflow, carrier acceptance, and issued refund summary. |
+| Subscription | Billing cycle progress, cancellation state, auto-renew state, days used, and issued refund summary. |
 
-The customer purchase summary page and purchase detail pages expose a fixed bottom-right help trigger. The root application shell owns the persistent help layer so the panel state can survive navigation between those purchase surfaces. Opening the trigger shifts the main application content left, slides in a full-height right-side help panel, and moves the trigger with the content edge. The trigger shows a chat icon when closed and a collapse-panel icon when open.
+The detail page displays backend state. It must not calculate eligibility, cancellation,
+fund issuance, or refund outcome independently.
 
-The help panel now includes one consistent chat surface across the customer purchase summary page and purchase detail pages. The shared surface renders a transcript area, a bottom text composer, a disabled microphone affordance for future voice support, and a send control. Submitted chat messages are forwarded through the same-origin frontend chat proxy to the FastAPI `POST /api/chat` endpoint. The endpoint validates non-empty text, runs a LangGraph workflow, lets the configured OpenAI model request read-only tools, and returns a model-generated plain-text assistant response without Markdown formatting. Supported OpenAI-facing tools include purchase-history retrieval, deterministic amount-threshold purchase counts, deterministic date-range purchase history, deterministic refund policy lookup, and backend-evaluated read-only refund eligibility lookup. The chat request includes compact page context, either the purchase-history surface or a purchase-detail surface plus purchase id. The chat response also returns compact conversation state, including selected purchase type, product, purchase id, selected purchase ids, selected scope label, policy scope, date range, selected refund purchase ids, selected refund context, active refund context, active result set, active workflow, pending refund action, and a backend-resolved current-page reference. The graph injects a compact model-visible context message into both tool-selection and final-response phases when selected state, current purchase detail context, tool data, or blocked-action context is relevant; it does not replay the full transcript or full rendered page content. The frontend sends that state on the next message so follow-up policy, eligibility, and workflow questions can resolve references like "those purchases" or "that one" without replaying the full transcript. Before honoring any model-requested tool or refund workflow request, the graph resolves authoritative context in this order: page purchase references, active refund workflow context, explicit product/SKU/order/purchase-id references, selected single purchase, scoped selected purchase set, global purchase history, and clarification when unresolved or ambiguous. After a single-purchase eligibility result, active refund context stores the evaluated purchase and next workflow action so continuation phrases such as "generate the return label" resolve to that purchase only. Refund mutation requests first store `pending_refund_action` and ask for direct confirmation; only a later direct confirmation executes the backend `request_refund` or `issue_refund` service method. Aggregate and list results, including purchase-type groups, amount-threshold groups, and date ranges, become the active scoped purchase set for ranked follow-ups and store a customer-facing scope label. Scoped ranking follow-ups using "one", "that one", "those", "last one", "first one", "latest", "most recent", "newest", "oldest", "earliest", "cheapest", or "most expensive" resolve inside the selected purchase id set first; the graph only falls back to global ranked purchase history when no selected set exists. Ranking-only follow-ups are account-fact questions and must not call refund policy or refund eligibility tools unless the user explicitly asks about policy, cancellation rules, refundability, eligibility, approval, or the refund process. If exactly one concrete purchase is resolved by the backend, the graph updates selected purchase id, product, and purchase type from that purchase row. If the model requests no supported tool, the backend executes the narrowest deterministic read-only tool for supported account, policy, or eligibility intent and skips account tools for off-topic customer messages. If the model requests broad purchase history for a resolvable date-bounded, policy, or eligibility question, the backend overrides that selection with the narrower tool before querying account data. Explicit product-name follow-ups escape any narrowed selected set, resolve through exact, normalized, partial, fuzzy, SKU, or order-number matching against the active customer's full backend purchase rows, then use the resolved purchase for policy or eligibility lookup. Named product references must resolve unambiguously to an actual purchase before product-specific policy or eligibility lookup; unresolved or ambiguous products return a clarification and do not fall back to inferred product-type, global policy, or model-calculated eligibility answers. Purchase-detail page follow-ups may resolve "this product", "this item", "this purchase", or "this order" from the current page purchase id into only purchase id, product name, sku, order number, and purchase type; full rendered page content is not sent to the model. Factual account responses are blocked unless authoritative tool data exists. Policy explanations are allowed only from backend policy catalog tool results and must stay scoped to the customer request. Eligibility explanations are allowed only from the backend refund workflow decision returned by `get_refund_eligibility`; the model must not infer, override, or calculate eligibility independently. Customer-facing answers must not expose routing or backend implementation terms. The graph is limited to account, purchase-history, order, account-activity, refund-policy, and refund-flow topics. It must not capture voice input or persist conversation logs.
+## Frontend Proxy Routes
 
-The current chat orchestration keeps `AIChatService` as a thin graph entrypoint and compatibility wrapper around focused graph-node modules for validation, tool selection, tool execution, and final response generation. Deterministic workflow routing is implemented as an object-operation lookup layer: the backend resolves what the customer is referring to, resolves the requested operation, and then maps that pair to the narrowest workflow. The compact `conversation_state.active_result_set` stores only selected purchase ids plus metadata such as type, sort, and customer-facing label. When a follow-up final response should answer from that active result set, the final-response request hydrates those ids into safe display fields for the model and marks the active result set as the primary answer source so raw full-history tool output does not broaden the answer. Structured trace formatting renders the same graph events as readable console blocks while preserving full structured event payloads for tests and future audit views.
+Implementation source:
 
-The help panel is a command surface, not the refund state display. On purchase detail routes it reads backend refund workflow eligibility and renders `Prep Refund` and `Issue Refund` commands. Those commands are disabled by default and become enabled only when FastAPI reports `can_prepare_refund` or `can_issue_funds`. `Prep Refund` calls the same-origin frontend proxy route for `POST /api/purchases/{purchase_id}/refund/request`; `Issue Refund` calls `POST /api/purchases/{purchase_id}/refund/issue`. After successful mutations, the help layer refreshes the current route and lets the purchase detail page visualize updated lifecycle state. Backend services remain responsible for deciding whether refund actions are allowed.
+* `apps/web/src/app/api/chat/route.ts`
+* `apps/web/src/app/api/purchases/[purchaseId]/refund/eligibility/route.ts`
+* `apps/web/src/app/api/purchases/[purchaseId]/refund/request/route.ts`
+* `apps/web/src/app/api/purchases/[purchaseId]/refund/issue/route.ts`
+* `apps/web/src/app/api/purchases/[purchaseId]/physical/confirm-carrier-acceptance/route.ts`
 
-Physical returns also include a detail-page `Given to Carrier` control in the active return workflow row. It calls the carrier-acceptance endpoint, refreshes refund eligibility, and enables fund issuance only after the backend confirms the state change.
+These handlers keep browser calls same-origin during local development. They forward
+requests to FastAPI using `REFUNDS_AI_API_BASE_URL` or `http://localhost:8000`.
+They must not evaluate policy, call OpenAI, inspect purchase data, or mutate workflow
+state independently.
 
-The manual help-panel refund commands are temporary frontend controls used to validate layout, backend workflow wiring, and pending/issued-state presentation. Now that AI chat can execute confirmation-gated refund workflow actions, these explicit manual buttons should be removed or demoted in a future UX pass so the agent owns refund initiation and issuance while the detail page continues to own state visualization.
+## Backend Surface
 
-Phase 1 AI Agent Integration establishes dependencies, configuration, the shared chat UI, same-origin chat proxying, a FastAPI chat endpoint, LangGraph orchestration, OpenAI model calls, backend-owned read-only purchase intelligence tools, deterministic account-fact guards, structured trace events, and concise console-visible graph step summaries. Phase 2 adds deterministic read-only refund policy lookup from the backend policy catalog. Phase 3 adds read-only account-specific refund eligibility explanation backed by backend refund workflow decisions. Phase 4 adds confirmation-gated refund preparation and issuance through deterministic backend workflow services. Voice capture and persisted AI logs remain future phases.
+Implementation source:
 
----
+* `apps/api/src/refunds_ai_api/main.py`
+* `apps/api/src/refunds_ai_api/routes/health.py`
+* `apps/api/src/refunds_ai_api/routes/application.py`
+* `apps/api/src/refunds_ai_api/routes/chat.py`
+* `apps/api/src/refunds_ai_api/schemas/`
 
-## Backend
+FastAPI routes are thin. They validate path/body inputs, call services, map known
+exceptions to the standard response envelope, and set HTTP status codes.
 
-**Technology**
+`ApplicationService` in `apps/api/src/refunds_ai_api/services/application.py` owns the
+frontend-ready application behavior:
 
-* FastAPI
-* Python
+* Mock user reads.
+* Purchase history reads.
+* Type-specific purchase detail reads.
+* Refund workflow evaluation.
+* Guarded refund preparation and issuance.
+* Digital code redemption.
+* Physical carrier acceptance.
 
-**Primary Responsibilities**
+`ApplicationRepository` in `apps/api/src/refunds_ai_api/repositories/application.py`
+owns SQL access and guarded writes.
 
-* API endpoints
-* Session management
-* AI request orchestration
-* Tool execution
-* Business service coordination
-* Audit logging
+## Refund Workflow Architecture
 
----
+Implementation source:
 
-## Database
+* `apps/api/src/refunds_ai_api/services/refund_policy.py`
+* `apps/api/src/refunds_ai_api/services/application.py`
+* `apps/api/src/refunds_ai_api/repositories/application.py`
 
-**Technology**
-
-* Supabase PostgreSQL
-
-**Primary Data**
-
-* Customers
-* Purchases
-* Purchase detail records with refund lifecycle state
-* Policies
-* Support Sessions
-* AI Events
-* Voice Transcripts
-
-Refund state is not stored in a standalone `refunds` table. Refund eligibility is computed from persisted purchase and purchase-detail state. Each purchase type owns the fields required by its own refund policy:
-
-* `digital_purchase_details`
-* `physical_purchase_details`
-* `subscription_purchase_details`
-
-The backend policy layer reads those records, evaluates the product-specific policy, and persists approved lifecycle changes back to the owning detail table.
-
----
-
-## Model Layer
-
-**Technology**
-
-* OpenAI APIs
-* Function Calling
-* Voice Transcription
-
-**Purpose**
-
-* Intent recognition
-* Context gathering
-* Response generation
-* Backend tool orchestration
-* Customer and administrator communication
-
----
-
-## Tool Layer
-
-The model interacts with backend functionality exclusively through structured tools.
-
-Tool categories include:
-
-* Customer
-* Purchases
-* Refund workflows backed by purchase detail state
-* Policies
-* Support History
-* Administration
-* Audit
-
----
-
-## AI Refund Workflow Mutation
-
-AI chat can begin or close out a refund only through deterministic backend workflow execution.
-
-The OpenAI-facing chat tool surface remains read-only for purchase history, refund policy, and refund eligibility. Mutation intents are resolved by backend workflow classification, validated against `ApplicationService.get_refund_workflow`, and stored as `conversation_state.pending_refund_action` before any write occurs. A later direct customer confirmation is required before the backend calls `ApplicationService.request_refund` or `ApplicationService.issue_refund`.
-
-The model may explain backend-evaluated workflow state and relay deterministic confirmation prompts, but it does not decide whether a refund may be prepared or issued.
-
----
-
-## Voice Flow
-
-Voice interactions follow the same architecture as text conversations.
+Workflow stages:
 
 ```text
-Voice Input
-      │
-      ▼
-Speech Transcription
-      │
-      ▼
-Model Orchestration
-      │
-      ▼
-Backend Tools
-      │
-      ▼
-Business Services
-      │
-      ▼
-Response
+eligibility -> preparation -> issuance
 ```
 
----
+Decision fields returned by the backend:
 
-## High-Level Request Flow
+* `can_enter_refund_workflow`
+* `can_prepare_refund`
+* `can_issue_funds`
+* `refund_stage`
+* `required_action`
+* `refundable_amount_cents`
+* `refund_outcome`
+* `reasons`
+* `policy_facts`
 
-Every interaction follows the same system path.
+Preparation is product-specific:
+
+* Digital: invalidate the issued code.
+* Physical: request the return and generate simulated label/barcode state.
+* Subscription: cancel service access, disable auto-renew, and persist full/prorated mode.
+
+Issuance is shared at the `purchases` level and requires prepared state. It persists
+`status = 'refunded'`, `refunded_at`, `refund_amount_cents`, and `refund_outcome`.
+
+Repository mutations are strict. If a guarded SQL update does not affect exactly one
+row, the transaction rolls back and the route returns a workflow-specific `409`.
+
+## AI Chat Architecture
+
+Implementation source:
+
+* `apps/api/src/refunds_ai_api/services/ai_chat/service.py`
+* `apps/api/src/refunds_ai_api/services/ai_chat/graph.py`
+* `apps/api/src/refunds_ai_api/services/ai_chat/nodes/`
+* `apps/api/src/refunds_ai_api/services/ai_chat/workflows/`
+* `apps/api/src/refunds_ai_api/services/ai_chat/resolvers/`
+* `apps/api/src/refunds_ai_api/services/ai_chat/trace/`
+* `apps/api/src/refunds_ai_api/services/ai_chat/workflows/refund_mutation/`
+* `apps/api/src/refunds_ai_api/services/ai_chat/tools.py`
+* `apps/api/src/refunds_ai_api/services/ai_chat/prompts.py`
+* `apps/api/src/refunds_ai_api/services/ai_chat/state.py`
+
+The graph shape is intentionally small:
 
 ```text
-User
-→ Frontend
-→ Backend
-→ Model
-→ Tool Calls
-→ Business Services
-→ Database
-→ Business Services
-→ Model Response
-→ Frontend
+validate_context
+  -> request_tool_call
+  -> execute_tools
+  -> generate_final_response
 ```
 
-The architecture intentionally separates user interaction, AI orchestration, business operations, and persistent data into independent layers to maintain modularity, auditability, and clear system ownership.
+The heavy lifting happens before tool execution:
 
-## Refund Evaluation Flow
+1. Normalize compact page and conversation state.
+2. Resolve the conversation object, such as page purchase, named product, active result set, date range, or amount threshold.
+3. Resolve the requested operation, such as count, list, policy, eligibility, or refund start.
+4. Use the object-operation lookup table to select a workflow family.
+5. Resolve backend context and execute the narrowest read tool or confirmation-gated mutation path.
 
-Refund requests follow a database-backed deterministic path:
+OpenAI-facing tools are read-only. Refund mutations are not model-selected write tools;
+they run only after deterministic backend eligibility and an exact canonical customer
+confirmation command.
+
+## Database Architecture
+
+Implementation source:
+
+* `apps/api/src/refunds_ai_api/database/migrator.py`
+* `apps/api/src/refunds_ai_api/database/migrations/`
+* `apps/api/src/refunds_ai_api/database/seeds.py`
+* `apps/api/mockdata/identity_seed.json`
+* `apps/api/mockdata/purchase_seed.json`
+
+Schema layers:
+
+| Layer | Tables |
+| --- | --- |
+| Migration metadata | `schema_migrations` |
+| Identity | `users`, `roles`, `user_roles` |
+| Catalog and history | `products`, `purchases` |
+| Detail extensions | `digital_purchase_details`, `physical_purchase_details`, `subscription_purchase_details` |
+
+PostgreSQL triggers derive refund deadlines and selected defaults:
+
+* Digital: 15-day refund window, code delivery timestamp, redeemed-code lock reason.
+* Physical: 30-day refund window.
+* Subscription: 48-hour full-refund window, period-end refund window, cancellation defaults.
+
+## Current Request Flows
+
+### Customer Home
 
 ```text
-User requests refund
-        |
-        v
-Backend loads purchase
-        |
-        v
-Backend loads matching purchase detail record
-        |
-        v
-Backend verifies refund window
-        |
-        v
-Backend evaluates product-specific policy
-        |
-        v
-Backend executes refund strategy
-        |
-        v
-Backend persists updated detail-table refund state
+/user-home?customerId=...
+  -> getUserProfile()
+  -> GET /api/users/{user_id}
+  -> getUserPurchases()
+  -> GET /api/users/{user_id}/purchases
 ```
 
-The AI agent may explain outcomes and orchestrate tools, but it does not infer refund eligibility independently.
+### Purchase Detail
+
+```text
+/purchase-details/[purchaseId]
+  -> GET /api/purchases/{purchase_id}/details
+  -> GET /api/purchases/{purchase_id}/refund/eligibility
+  -> type-specific detail components
+```
+
+### Manual Refund Commands
+
+```text
+help panel command
+  -> Next.js same-origin proxy
+  -> FastAPI refund endpoint
+  -> ApplicationService
+  -> refund policy evaluation
+  -> guarded repository mutation
+  -> route refresh
+```
+
+Manual `Prep Refund` and `Issue Refund` buttons are temporary validation controls.
+The target product behavior is for chat to own refund initiation and issuance while
+detail pages visualize state.
+
+### Chat
+
+```text
+help panel message
+  -> Next.js /api/chat proxy
+  -> FastAPI POST /api/chat
+  -> AIChatService graph
+  -> read-only tools or confirmation-gated backend workflow
+  -> compact conversation_state returned to frontend
+```
+
+The chat request includes compact `page_context` and previous `conversation_state`.
+It does not send full rendered page content or replay the full transcript.

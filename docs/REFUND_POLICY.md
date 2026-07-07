@@ -2,78 +2,75 @@
 
 **Effective Date:** July 3, 2026
 
-## Overview
+## Purpose
 
-Our goal is to provide a fair and transparent refund process for all purchases. Refund eligibility is determined by the type of product purchased and the conditions outlined below.
+This policy is the customer-facing source for refund policy explanations.
 
-RefundsAI support surfaces, including the AI chat assistant, should use this policy as the source of truth for customer-facing refund policy explanations. When a customer asks about a scoped set of purchases, the explanation should stay within that product type or active result-set scope instead of broadening to unrelated purchase categories.
+Backend implementation source:
 
----
+* `apps/api/src/refunds_ai_api/services/refund_policy_catalog.py`
+* `apps/api/src/refunds_ai_api/services/refund_policy.py`
 
-# Physical Products
+The AI assistant may explain this policy, but backend workflow services decide
+account-specific eligibility from persisted purchase and purchase-detail state.
 
-Physical products may be returned within **30 calendar days** of the original purchase date.
+## Physical Products
 
-To qualify for a refund:
+Physical products may be returned within 30 calendar days of the original purchase date.
 
-* The refund request must be submitted before the 31st calendar day following the original purchase.
-* Once the request has been approved, the product must be returned using the designated shipping carrier.
-* The return package must be accepted by the carrier for shipment back to our facility before the refund will begin processing.
+To qualify:
 
-Once the carrier has accepted the return package, the refund will be processed using the original payment method.
+* The refund request must be submitted before the 31st calendar day after purchase.
+* The product must be returned using the designated shipping carrier after approval.
+* The return package must be accepted by the carrier before refund processing begins.
 
 Requests submitted after the 30-day return window are not eligible for refund.
 
----
+## Digital Products
 
-# Digital Products
+Digital products may be refunded within 15 calendar days of the original purchase date.
 
-Digital products may be refunded within **15 calendar days** of the original purchase.
-
-To qualify for a refund:
+To qualify:
 
 * The refund request must be submitted within 15 calendar days of purchase.
 * The issued activation code, license, or digital entitlement must not have been redeemed.
 
-Once a refund has been approved, the associated digital entitlement will be permanently invalidated before the refund is processed.
+Approved digital refunds permanently invalidate the associated digital entitlement before
+the refund is processed.
 
 Digital products that have already been redeemed are not eligible for refund.
 
----
-
-# Subscription Products
+## Subscription Products
 
 Subscription purchases may be cancelled at any time.
 
-### Refund Eligibility
+Refund eligibility:
 
-Customers may request a full refund within **48 hours** of the original purchase, provided the subscription remains active.
+* A full refund may be available within 48 hours of the original purchase if the subscription remains active.
+* After 48 hours, eligible refunds are prorated from the unused portion of the current active billing period.
+* Refunds are limited to the current active billing period.
+* Refund requests cannot be applied retroactively to previous billing cycles.
+* Subscriptions that have expired without an active billing period are not eligible for refund.
 
-After the initial 48-hour period, eligible refunds are calculated using the unused portion of the current active billing period. Refund amounts are prorated based on the remaining time left in the active subscription period at the time the request is evaluated.
+Approved subscription refunds cancel the subscription, terminate service access according
+to the effective refund date, and disable auto-renewal.
 
-Refunds are limited to the current active billing period. Once a billing period has ended, it is considered complete and is no longer eligible for refund. Refund requests cannot be applied retroactively to previous billing cycles.
+Customer-facing subscription detail screens should show prepared cancellations and issued
+refunds in `Return Details` instead of asking customers to infer refund state from
+renewal settings alone.
 
-Subscriptions that have expired without an active billing period are not eligible for refund.
+## Refund Processing
 
-When a refund is approved, the subscription will be cancelled and access to the associated service will terminate in accordance with the effective refund date.
+Approved refunds are processed using the original payment method whenever possible.
 
-Approved subscription refunds also disable auto-renewal. Customer-facing subscription detail screens should show prepared cancellations and issued refunds in the subscription return details rather than asking customers to infer refund state from renewal settings alone.
+Most refunds are completed within 3-10 business days, depending on the financial
+institution or payment provider.
 
----
+## Administrative Review
 
-# Refund Processing
+Certain refund requests may require additional review before a final decision.
 
-Approved refunds will be processed using the original payment method whenever possible.
-
-Most refunds are completed within **3-10 business days**, depending on your financial institution or payment provider.
-
----
-
-# Administrative Review
-
-Certain refund requests may require additional review before a final decision is made.
-
-Examples include:
+Examples:
 
 * Incomplete purchase information.
 * Suspected fraud or abuse.
@@ -82,8 +79,18 @@ Examples include:
 
 Additional review does not guarantee refund approval.
 
----
+## Scoped Policy Explanations
 
-# Policy Updates
+RefundsAI support surfaces should keep policy explanations scoped to the customer
+question.
 
-We reserve the right to update this Refund Policy at any time. Changes will apply to future purchases unless otherwise required by applicable law.
+Examples:
+
+* If the customer asks about digital purchases, answer from the digital policy.
+* If the customer asks about an active result set, do not broaden to unrelated product types.
+* If the customer asks whether a specific purchase is refundable, use backend eligibility rather than policy text alone.
+
+## Policy Updates
+
+Refund policy updates may apply to future purchases unless otherwise required by
+applicable law.

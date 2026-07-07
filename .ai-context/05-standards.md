@@ -2,82 +2,131 @@
 
 # Engineering Standards
 
-## Purpose
+## General Principles
 
-This document defines the engineering standards used throughout the repository.
+* Prefer clear, explicit behavior over clever inference.
+* Keep files focused on one responsibility.
+* Reuse local patterns before introducing abstractions.
+* Preserve frontend, route, service, repository, policy, and database ownership boundaries.
+* Keep business decisions deterministic and testable.
+* Update documentation with behavior changes.
 
-All new code should follow these conventions unless explicitly documented otherwise.
+## Frontend Standards
 
----
+Implementation surface: `apps/web`.
 
-# General Principles
+Use the existing patterns:
 
-* Favor readability over cleverness.
-* Keep implementations modular and composable.
-* Maintain clear separation of responsibilities.
-* Prefer small, focused files over large multi-purpose implementations.
-* Reuse existing abstractions before creating new ones.
-* Seek clarity over inference.
+* Server components load backend data for page-level reads.
+* Client components own browser interaction, transient UI state, and session-storage hints.
+* Same-origin route handlers proxy browser calls to FastAPI.
+* `apps/web/src/lib/application-api.ts` maps backend snake_case API payloads into frontend camelCase types.
+* CSS modules own component styling.
+* Global CSS owns application baseline styling.
 
----
+Do not:
 
-# Frontend
+* Make frontend state authoritative for identity, purchase, refund, or policy data.
+* Reimplement backend policy in components.
+* Add direct Supabase or OpenAI calls from frontend code.
+* Use inline styles for normal component styling.
 
-## Components
+## Backend Standards
 
-* Build reusable, single-responsibility components.
-* Prefer composition over deeply nested components.
-* Keep business logic outside presentation components whenever practical.
+Implementation surface: `apps/api`.
 
-## Styling
+Use the existing route/service/repository split:
 
-* Global styles define the baseline look and feel of the application and should be used for shared visual behavior.
-* Scoped CSS modules define specific styling for reusable and modular components.
-* Tailwind utility classes should be used only for layout constraints, not aesthetic styling.
-* Do not apply inline styles directly to components.
-* Use CSS modules and global stylesheets to control how elements look and feel.
-* Use motion (Framer Motion) for animating elements.
+| Layer | Standard |
+| --- | --- |
+| Routes | Validate request shape, call services, map known exceptions to `ApiResponse`. |
+| Services | Coordinate business workflows and deterministic policy. |
+| Repositories | Isolate SQL and transaction behavior. |
+| Policy helpers | Return pure deterministic decisions from persisted facts. |
+| Schemas | Define frontend-facing response shape with Pydantic. |
 
----
+Routes should stay thin. Business logic belongs in services and policy helpers.
 
-# Backend
+Repository mutations that change refund state should guard expected persisted state and
+raise conflicts when the write does not apply exactly once.
 
-* Organize code by feature and responsibility.
-* Keep business logic within dedicated services.
-* Keep API routes lightweight.
-* Separate orchestration from business logic.
-* Keep database access isolated from API endpoints.
+## AI Chat Standards
 
----
+Implementation surface: `apps/api/src/refunds_ai_api/services/ai_chat`.
 
-# Naming
+Chat behavior should remain modular:
 
-* Use descriptive names.
-* Avoid abbreviations unless widely understood.
-* Maintain consistent naming across frontend, backend, database, and API layers.
+* `graph.py` defines the small LangGraph shape.
+* `nodes/` define graph nodes.
+* `workflows/` resolve object, operation, workflow kind, and workflow context.
+* `workflows/tool_routing.py`, `workflows/tool_execution.py`, and
+  `workflows/state_updates.py` keep deterministic tool flow focused.
+* `workflows/refund_mutation/` owns confirmation-gated refund mutation behavior.
+* `resolvers/` owns page, product, purchase, policy, eligibility, and account-fact resolution.
+* `trace/` owns structured trace summaries and readable trace block formatting.
+* `tools.py` defines read-only OpenAI-facing tool schemas and backend execution wrappers.
+* `state.py` normalizes compact client-carried state.
+* `prompts.py` builds system and compact model-context messages.
+* `responses.py` guards customer-facing text.
 
----
+OpenAI-facing tools should be read-only unless the architecture is explicitly changed.
+Refund mutations should continue through deterministic backend confirmation gates.
 
-# Documentation
+## Database Standards
 
-* Document non-obvious business logic.
-* Explain why complex logic exists rather than what individual statements do.
-* Keep documentation synchronized with implementation.
+Implementation surface:
 
----
+* `apps/api/src/refunds_ai_api/database/migrations/`
+* `apps/api/src/refunds_ai_api/database/migrator.py`
+* `apps/api/src/refunds_ai_api/database/seeds.py`
 
-# Maintainability
+Every business table migration should define:
 
-* Prefer explicit implementations over implicit behavior.
-* Minimize duplication.
-* Refactor repeated logic into shared abstractions.
-* Preserve clear architectural boundaries when introducing new features.
+* Primary key and foreign keys.
+* Check and uniqueness constraints.
+* Query indexes.
+* Row-level security enablement.
+* Backend-only RLS policy where frontend/database direct access remains out of scope.
 
----
+Derived refund deadline/default fields should remain database-managed when they depend
+on persisted table state.
 
-# Development Philosophy
+## Naming
 
-* Build incrementally.
-* Validate changes frequently.
-* Maintain modularity throughout development.
-* Favor long-term maintainability over short-term convenience.
+Use names that match the domain:
+
+* `purchase_type` for digital, physical, subscription.
+* `refund_stage` for blocked, eligible, prepared, issued.
+* `required_action` for the next backend workflow action.
+* `policy_facts` for backend-selected facts exposed with a workflow decision.
+
+Avoid ambiguous names such as `eligible` when the field is really a workflow gate like
+`can_prepare_refund` or `can_issue_funds`.
+
+## Documentation
+
+Documentation should be compact and implementation-grounded.
+
+Prefer:
+
+* Short sections.
+* Tables for contracts.
+* Source file references.
+* Focused explanation of why a boundary exists.
+
+Avoid:
+
+* Long dense paragraphs that mix architecture, API payloads, and business rules.
+* Repeating the same authority statement in every document.
+* Generic product claims that are not backed by implemented code.
+
+## Validation
+
+Run the smallest meaningful validation first:
+
+* Backend route/service/policy changes: targeted pytest.
+* Frontend component or API mapping changes: targeted Vitest.
+* Docs-only changes: inspect Markdown structure and run text searches for stale terms.
+
+Use broader test runs when behavior crosses route, service, repository, database, and
+frontend boundaries.

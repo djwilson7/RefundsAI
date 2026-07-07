@@ -2,154 +2,236 @@
 
 ## Purpose
 
-This document captures engineering reasoning, implementation tradeoffs, and system-design thinking throughout the project.
+This document captures engineering reasoning and implementation tradeoffs.
 
 It is not the authoritative source for project rules. Those live in `.ai-context/`.
+This file explains why the project evolved the way it did.
 
-This file explains why the project evolves the way it does.
+## Insight 001 - Context Before Code
 
----
-
-## Insight 001 — Context Before Code
-
-Before scaffolding the application, the project establishes a context layer that defines vision, architecture, business boundaries, testing expectations, API contracts, database ownership, tool specifications, and security boundaries.
+The project established `.ai-context/` before implementation work.
 
 Reason:
 
-This project is a presentation-grade technical challenge, not a disposable prototype. Establishing context first allows faster implementation later while reducing architectural drift, unnecessary rewrites, and model-generated scope creep.
+* The technical challenge needs a coherent architecture, not a disposable prototype.
+* AI agents and human contributors need the same source of truth.
+* Clear context reduces architecture drift and model-generated scope creep.
 
 Tradeoff:
 
-This delays initial coding, but improves implementation velocity once development begins.
+* Initial coding starts later.
+* Later implementation moves faster because the boundaries are already explicit.
 
----
+## Insight 002 - Agent Behavior First
 
-## Insight 002 — Agent Behavior First
-
-The primary evaluation target is the agent workflow.
+The primary evaluation target is the AI support workflow.
 
 The project prioritizes:
 
-- policy-governed refund decisions
-- tool orchestration
-- edge-case denial behavior
-- auditability
-- trace visibility
+* policy-governed refund decisions
+* backend tool orchestration
+* edge-case denial behavior
+* trace visibility
+* audit-ready execution paths
 
 Reason:
 
-The Loom evaluation specifically asks for a live agent demo, code tour, and reasoning logs. The user interface supports the agent workflow, but the agent workflow is the core product proof.
+The walkthrough should demonstrate an agent that can answer, explain, and safely guide
+refund workflows. The UI supports that proof, but the agent workflow is the core product
+claim.
 
----
+## Insight 003 - Local-First Development
 
-## Insight 003 — Local-First Development
-
-The project is scoped for local development rather than immediate deployment.
+RefundsAI is optimized for local development before deployment.
 
 Reason:
 
-The technical challenge requires a GitHub repository, README, and Loom walkthrough. Local reproducibility is more important than deployment infrastructure during the early milestones.
+The technical challenge requires a GitHub repository, README, and walkthrough. Local
+reproducibility matters more than hosted infrastructure during the early milestones.
 
 Tradeoff:
 
-A hosted demo may be added later, but deployment should not block core agent functionality.
-
----
+A hosted demo can be added later, but deployment should not block the core agent and
+refund workflow.
 
 ## Insight 004 - Refund State Belongs With Purchase Details
 
-Refund state is embedded into the product-type-specific purchase detail tables instead of a standalone `refunds` table.
+Refund state is embedded in product-type-specific detail tables:
+
+* `digital_purchase_details`
+* `physical_purchase_details`
+* `subscription_purchase_details`
 
 Reason:
 
-Digital, physical, and subscription purchases have materially different refund-blocking facts. A redeemed digital code, a physical carrier acceptance event, and a subscription billing-period proration are not the same kind of state. Keeping those facts with the purchase detail table that owns the product lifecycle avoids duplicated state, keeps ownership clear, simplifies policy evaluation, makes SQL authoritative, reduces synchronization problems, and lets backend services and AI tools consume identical data.
+Digital, physical, and subscription purchases have different refund-blocking facts.
+A redeemed digital code, physical carrier acceptance event, and subscription proration
+state should not be forced into one generic refund model.
+
+Keeping state with the purchase detail owner:
+
+* avoids duplicated lifecycle state
+* keeps SQL ownership clear
+* simplifies policy evaluation
+* lets backend services and AI tools consume the same facts
 
 Tradeoff:
 
-Policy queries need to join `purchases` to the matching detail table before evaluation. That is acceptable because the purchase type already determines which detail table is authoritative, and it avoids a generic refund table that would either duplicate state or become a sparse catch-all model.
+Policy reads must load `purchases` and then the matching detail table. That is acceptable
+because `purchases.purchase_type` already determines the authoritative detail table.
 
-The database should also compute derivable refund deadlines. Letting PostgreSQL triggers derive refund windows from `purchases.purchased_at` reduces network payloads, prevents clients from spoofing deadline values, and keeps future backend services focused on sending event facts instead of recalculating database-owned state.
+Database triggers also derive refund deadlines from persisted state. This prevents
+clients from spoofing deadline values and keeps services focused on commands and event
+facts.
 
----
+## Insight 005 - Deterministic Policy Before API Wrappers
 
-## Insight 005 - Deterministic Policy Functions Before API Wrappers
-
-Core refund behavior should live in reusable, testable business functions that validate persisted database state against documented policy guidelines.
+Core refund behavior lives in reusable policy and service functions before it is exposed
+through HTTP.
 
 Reason:
 
-Refund workflows need to serve both standard API calls and future agentic tool calls. Putting the core policy and lifecycle decisions in deterministic business functions lets the backend expose the same behavior through REST endpoints, AI tools, and service orchestration without duplicating rules or trusting frontend/model input. API routes should remain thin wrappers around these workflows: load authoritative state, call policy functions, perform guarded mutations, and return standardized response shapes.
+The same refund decisions must serve:
+
+* REST endpoints
+* frontend workflow controls
+* AI tools
+* chat-triggered workflow execution
+
+Routes should stay thin: load request inputs, call services, and return standardized
+response shapes.
 
 Tradeoff:
 
-This adds a small service layer before the frontend needs it, but it keeps refund decisions testable outside HTTP, makes stale or duplicate mutations easier to reason about, and prepares the same deterministic logic for agent orchestration later.
-
----
+The service layer adds structure early, but it makes refund behavior testable outside
+HTTP and prepares the same deterministic logic for agent orchestration.
 
 ## Insight 006 - Frontend Detail Pages Present Backend State
 
-Purchase detail pages should use stable frontend routes and backend response objects instead of encoding product-specific behavior into route structure.
+Purchase detail pages use one stable route:
+
+```text
+/purchase-details/[purchaseId]
+```
+
+The backend resolves type-specific data through:
+
+```text
+GET /api/purchases/{purchase_id}/details
+```
 
 Reason:
 
-The customer experience needs to show different lifecycle facts for digital codes, physical delivery, and subscription billing, but the backend remains the authority for which detail table applies and what state is true. A single purchase detail route backed by `GET /api/purchases/{purchase_id}/details` keeps navigation simple while allowing the page to render type-specific sections from the returned `purchase_type` and detail payload.
+The customer experience needs different sections for digital codes, physical delivery,
+and subscription billing. The backend still owns which detail table applies and what
+state is true.
 
-For subscriptions, the detail page now avoids a header badge and keeps subscription state in the body sections. Billing cycle state lives under `Billing Cycle Details`; prepared and issued refund state lives under `Return Details`. Prepared subscriptions show auto-renewal off, days used in the billing cycle, and `Subscription Cancelled`. Issued subscription refunds add cancel date, amount, and the expected refund window. This keeps the refund-preparation rule visible without letting the frontend decide whether a subscription is actually cancelled or issuable.
+For subscriptions:
+
+* Billing cycle state lives under `Billing Cycle Details`.
+* Prepared and issued refund state lives under `Return Details`.
+* Prepared subscriptions show auto-renewal off, days used, and `Subscription Cancelled`.
+* Issued subscription refunds add cancel date, amount, and the expected refund window.
 
 Tradeoff:
 
-The page has a little more component branching, but it avoids route proliferation and keeps the future refund workflow UI aligned with the same API contract the agent tools will use.
-
----
+The page has component branching, but avoids route proliferation and keeps frontend
+presentation aligned with the API contract used by the agent.
 
 ## Insight 007 - Manual Refund Commands Before Agent Orchestration
 
-The customer help panel currently exposes manual `Prep Refund` and `Issue Refund` commands on purchase detail pages. Both commands are disabled by default and become enabled only from backend workflow flags: `can_prepare_refund` and `can_issue_funds`.
+The help panel exposes temporary manual commands on purchase detail pages:
+
+* `Prep Refund`
+* `Issue Refund`
+
+Both are disabled by default and enabled only from backend workflow flags:
+
+* `can_prepare_refund`
+* `can_issue_funds`
 
 Reason:
 
-The frontend needed a deterministic way to exercise the full refund workflow before the AI agent layer is wired in. The manual commands let the team validate same-origin frontend proxy routes, FastAPI refund preparation and issuance endpoints, guarded backend mutations, route refresh behavior, and the rich prepared/issued-state displays for digital, physical, and subscription purchases.
+These commands let the project validate the full refund path before relying on AI chat:
 
-The boundary remains deliberate:
+* same-origin frontend proxy routes
+* FastAPI refund endpoints
+* guarded backend mutations
+* route refresh behavior
+* prepared and issued state displays
 
-- the help panel initiates preparation and issuance commands
-- backend services decide whether preparation and issuance are allowed
-- purchase detail pages visualize the resulting lifecycle state
-
-This keeps the help panel as a command surface instead of a status surface. Digital refunds show invalidated-code state and issued-funds summaries, physical refunds show return-request, label-created, carrier-acceptance, and issued-funds summaries, and subscription refunds show billing cancellation, auto-renewal off, days used, and issued-funds summaries from backend workflow state.
-
-Physical returns include one additional detail-page command: `Given to Carrier`. That command belongs with the physical return workflow display because it represents a product-specific lifecycle event rather than a general help-panel refund command. After the backend confirms carrier acceptance, the frontend refreshes eligibility so `Issue Refund` can become enabled only from authoritative backend state.
+Physical returns also include a detail-page `Given to Carrier` command because carrier
+acceptance is a product-specific lifecycle event shown in the return workflow display.
 
 Tradeoff:
 
-The manual buttons are useful for integration testing and frontend iteration, but they are not the final product interaction model. Once the agent can invoke refund tools directly, the explicit `Prep Refund` and `Issue Refund` buttons should be removed or demoted so refund handling flows through the AI support experience while the detail page continues to render authoritative backend state.
-
----
+Manual commands are useful for integration testing, but they are not the final product
+interaction model. The target experience is chat-owned refund initiation and issuance,
+with detail pages continuing to display backend state.
 
 ## Insight 008 - Deterministic Chat Context Before Model Prose
 
-The AI chat workflow now resolves each user message into a deterministic conversation object and operation before selecting a graph workflow. Product references, active result sets, purchase types, date ranges, amount thresholds, page purchases, active purchases, and full purchase history are treated as separate objects instead of one broad "context" bucket.
+The chat workflow resolves each message into a conversation object and operation before
+selecting a workflow.
+
+Objects include:
+
+* product references
+* active result sets
+* purchase types
+* date ranges
+* amount thresholds
+* page purchases
+* active purchases
+* full purchase history
 
 Reason:
 
-Follow-up questions like "list them", "what's the first one?", or "what is the policy for these types of products?" are easy for a model to over-broaden if the prompt also contains raw purchase-history tool output. The backend already knows the selected scope, so that scope should be represented explicitly. `conversation_state.active_result_set` remains compact and ID-only, while the final-response request hydrates safe display fields only when that filtered set is the primary answer source.
+Follow-ups like "list them", "what's the first one?", and "what is the policy for these
+types of products?" are easy to over-broaden if the model sees raw full-history context.
+The backend already knows the selected scope, so it should represent that scope
+explicitly.
 
-This keeps routing deterministic, keeps client-carried state small, and makes logs easier to audit. Structured trace output can show both the active result set preview and the raw tool result summary without changing workflow behavior or asking the model to infer the intended scope.
+Implementation detail:
+
+`conversation_state.active_result_set` stays compact and ID-only. The final-response
+request hydrates safe display fields only when that filtered set is the primary answer
+source.
 
 Tradeoff:
 
-The workflow has more small resolver modules and trace summaries, but the responsibility boundaries are clearer: backend code owns scope resolution, tools own authoritative data retrieval, and the model owns customer-facing wording from the provided source.
+There are more resolver modules and trace summaries, but responsibilities are clearer:
 
----
+* backend code owns scope resolution
+* tools own authoritative data retrieval
+* the model owns wording from provided sources
 
-## Insight 009 - Refund Mutations Need a Backend Confirmation Gate
+## Insight 009 - Refund Mutations Need a Canonical Confirmation Gate
 
-AI chat can now help begin or close out a refund workflow, but the mutation must remain a backend-owned operation. A user request such as "start the refund" or "close out the refund" should resolve one concrete purchase, validate current workflow permissions, and store `conversation_state.pending_refund_action` before anything is written.
+AI chat can help begin or close out a refund workflow, but mutation remains backend-owned.
 
 Reason:
 
-The model is useful for conversation, but it must not be the authority that decides whether money movement or lifecycle mutation happens. Splitting mutation into a pending action plus a later direct confirmation keeps the customer interaction natural while preserving deterministic service ownership. The confirmed turn calls `ApplicationService.request_refund` or `ApplicationService.issue_refund`; declines clear the pending action without changing refund state.
+The model should not decide whether money movement or lifecycle mutation happens.
+The backend must resolve one concrete purchase, validate workflow permission, and require
+an exact customer confirmation command before any write occurs.
+
+Current command boundary:
+
+* Eligibility can store compact `active_refund_context`.
+* The assistant gives a product-specific canonical command.
+* A later customer turn must match that command after deterministic normalization.
+* Backend code creates internal pending action state and calls `ApplicationService`.
+* Generic replies such as `yes`, `proceed`, or `do it` do not mutate state at this boundary.
 
 Tradeoff:
 
-This adds one extra turn before mutation, but it prevents accidental writes from ambiguous language, stale selected state, or broad follow-up phrases. It also gives logs a clean audit boundary: confirmation requested, mutation attempted, conflict or completion.
+This adds one explicit confirmation step, but it prevents accidental writes from broad
+follow-ups, stale selected state, or ambiguous language.
+
+It also gives logs a clean audit boundary:
+
+* confirmation command generated
+* confirmation received or rejected
+* mutation attempted
+* conflict or completion recorded

@@ -4,83 +4,104 @@
 
 ## Purpose
 
-This document defines the testing expectations for the repository.
+Testing is part of implementation. Tests should validate behavior and business rules,
+not just execute code for coverage.
 
-Testing is considered part of implementation. New functionality is not complete until it has been validated through automated tests.
+Target coverage remains 90% across statements, functions, lines, and branches.
 
-Tests exist to validate real business logic and behavior, not simply to satisfy coverage metrics or produce passing results. Superficial tests that do not meaningfully exercise logic are not acceptable.
+## Validation Commands
 
----
+Backend:
 
-# Coverage Goals
+```bash
+cd apps/api
+python -m ruff check src tests
+python -m pytest tests
+python -m pytest tests --cov=refunds_ai_api --cov-report=term-missing --cov-fail-under=90
+python -m compileall src tests
+```
 
-Maintain a minimum of **90% coverage** across:
+Frontend:
 
-* Statements
-* Functions
-* Lines
-* Branches
+```bash
+npm run lint --workspace @refunds-ai/web
+npm run test --workspace @refunds-ai/web
+npm run coverage --workspace @refunds-ai/web
+npm run build --workspace @refunds-ai/web
+```
 
-Coverage should be maintained throughout development rather than recovered at the end of the project.
+Root workspace aliases exist for frontend commands, such as `npm run web:test`.
 
-Coverage is a signal, not a goal in itself. High coverage without meaningful validation is insufficient.
+## Current Test Surfaces
 
----
+Backend tests:
 
-# Test Maintenance
+| File | Coverage focus |
+| --- | --- |
+| `apps/api/tests/test_health.py` | Health response envelope. |
+| `apps/api/tests/test_database_health.py` | Database health behavior. |
+| `apps/api/tests/test_database_migrator.py` | Migration discovery, status, and seed behavior. |
+| `apps/api/tests/test_application_api.py` | User, purchase, details, and refund workflow API behavior. |
+| `apps/api/tests/test_refund_policy.py` | Deterministic refund policy decisions. |
+| `apps/api/tests/ai_chat/` | Chat endpoint, routing, tools, policy resolution, eligibility, refund mutation, and trace formatting. |
 
-Tests should be updated whenever changes affect:
+Frontend tests are colocated beside components and route handlers under `apps/web/src`.
+They cover API mapping, mock auth, customer screens, detail presentation, help-layer chat,
+refund commands, proxy routes, and type-specific cards.
 
-* New files
-* New functions
-* Business logic
-* Conditional branches
-* Existing functionality
-* Bug fixes
+The help-layer tests are split by responsibility:
 
-Changes to application behavior should be reflected in the test suite.
+* `application-help-layer.chat.test.tsx`
+* `application-help-layer.refund-commands.test.tsx`
+* `application-help-layer.shell.test.tsx`
+* `application-help-layer.test-utils.tsx`
 
----
+## Refund Policy Coverage
 
-# Testing Philosophy
+Refund workflow tests should validate database-backed policy behavior rather than model
+reasoning.
 
-* Test business behavior rather than implementation details.
-* Validate deterministic business logic thoroughly.
-* Avoid writing tests that only assert trivial or obvious outcomes.
-* Ensure tests meaningfully exercise logic paths and edge cases.
-* Keep tests isolated and repeatable.
-* Write clear, descriptive test cases.
-* Prevent regressions as the codebase evolves.
+Expected coverage:
 
----
+* Refund eligibility from `purchases` plus the matching detail table.
+* Digital refund windows, redeemed-code blocks, and code invalidation.
+* Physical return preparation, carrier acceptance, rejected/cancelled return blocks, and issuance.
+* Subscription active-period checks, 48-hour full refund behavior, prorated amount calculation, cancellation, and renewal disabling.
+* Prepared state required before fund issuance.
+* Already-issued refunds reading persisted amount/outcome facts.
+* Duplicate or stale mutations returning workflow denial rather than rewriting state.
 
-# Refund Policy Coverage
+## Chat Coverage
 
-Refund management tests should validate database-backed policy behavior rather than model reasoning.
+Chat tests should validate deterministic orchestration boundaries:
 
-Expected coverage includes:
+* Compact page and conversation state normalization.
+* Object-operation workflow classification.
+* Named product, SKU, order number, current page, active purchase, active result set, and ranked follow-up resolution.
+* Read-only tool execution for purchase history, date ranges, amount thresholds, policy, and eligibility.
+* Response blocking when authoritative tool data is missing.
+* Canonical confirmation command requirements for refund process actions.
+* Generic confirmations not mutating refund state at the command boundary.
+* Customer-facing response guard terms.
 
-* refund eligibility derived from purchase and purchase detail state
-* product-specific refund window validation
-* digital policy failures for redeemed codes
-* digital success paths that invalidate issued entitlements
-* physical policy failures for missing carrier acceptance, rejected returns, or expired windows
-* physical success paths that progress return lifecycle state
-* subscription full-refund and prorated-refund paths
-* subscription failures for expired or inactive billing periods
-* invalid state transitions, such as rejected physical returns without a rejection reason
-* prevention of duplicate refund state outside the owning detail table
+## Frontend Coverage
 
-Tests should assert that backend services consume `digital_purchase_details`, `physical_purchase_details`, and `subscription_purchase_details` directly when evaluating refund policy.
+Frontend tests should validate rendering and interaction, especially where state crosses
+the browser/backend boundary:
 
----
+* API response mapping in `application-api.ts`.
+* Mock login and selected customer session storage.
+* Purchase summary storage and fallback behavior.
+* Type-specific purchase detail sections.
+* Help layer chat state persistence across messages.
+* Same-origin proxy routes preserving backend status/body.
+* Refund workflow refresh after mutations or chat side effects.
 
-# Validation
+## Completion Standard
 
-Before completing work:
+Before work is complete:
 
-* Execute the relevant test suite.
-* Verify new functionality behaves as expected.
-* Ensure coverage remains above project targets.
-* Confirm tests meaningfully validate logic, not just execution paths.
-* Resolve failing tests before considering the implementation complete.
+* Run the narrowest meaningful test or lint command.
+* State what was validated.
+* State any validation that was skipped or incomplete.
+* Add or update tests when behavior, contract, policy, or workflow state changes.

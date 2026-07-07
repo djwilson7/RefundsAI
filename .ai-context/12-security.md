@@ -4,144 +4,202 @@
 
 ## Purpose
 
-This document defines the security boundaries of the application, including implemented protections, intentionally mocked functionality, and production considerations.
+This document defines current trust boundaries, intentionally mocked security behavior,
+and production security considerations.
 
----
+## Security Principles
 
-# Security Principles
-
-* Backend services are the authoritative security boundary.
-* The frontend is never trusted as a source of truth.
-* Sensitive operations require backend validation.
+* Backend services are the application security boundary.
+* The frontend is not trusted as a source of truth.
+* API keys and database credentials stay server-side.
 * Business policy is enforced server-side.
-* API keys and secrets remain server-side at all times.
-* Refund state is authoritative database state and cannot be overridden by clients or AI-generated reasoning.
+* Refund lifecycle state is database-backed and backend-controlled.
+* AI-generated reasoning is never authoritative for eligibility, amounts, deadlines, or workflow transitions.
 
----
+## Mocked Security
 
-# Mocked Security
+The following are intentionally mocked:
 
-The following functionality is intentionally mocked for the purposes of this project:
+* Customer authentication.
+* Administrator authentication.
+* Customer identity verification.
+* Financial transactions.
+* Payment processing.
 
-* Customer authentication
-* Administrator authentication
-* Customer identity verification
-* Financial transactions
-* Payment processing
+Mock auth exists to demonstrate user flow. It does not provide production identity,
+authorization, or session guarantees.
 
-These implementations exist to demonstrate application flow rather than production security.
+## Production Security Not Yet Implemented
 
----
+Production scope would require:
 
-# Production Security
+* Secure authentication.
+* Session management.
+* Role-based authorization.
+* Customer identity verification.
+* Rate limiting.
+* Durable audit logging.
+* Secure payment processing.
+* Secrets rotation and deployment hardening.
 
-In a production environment, the following would be implemented:
+These remain outside the current technical-demo scope.
 
-* Secure authentication
-* Role-based authorization
-* Customer identity verification
-* Session management
-* Rate limiting
-* Audit logging
-* Secure payment processing
+## Environment Variables
 
-These features remain outside the scope of this technical challenge.
+Backend-only environment variables:
 
----
+* `SUPABASE_DB_URL`
+* `DATABASE_CONNECT_TIMEOUT_SECONDS`
+* `OPENAI_API_KEY`
+* `OPENAI_MODEL`
 
-# Environment Variables
+Frontend server-side configuration:
 
-* Secrets must be stored in environment variables.
-* API keys must never be committed to source control.
-* Secrets must never be exposed to the frontend.
-* Environment files should remain local and be excluded from version control.
-* `SUPABASE_DB_URL` is backend-only and must not be exposed to frontend code.
+* `REFUNDS_AI_API_BASE_URL`
 
----
+Rules:
 
-# AI Security
+* Do not commit secrets or local `.env` values.
+* Do not expose `SUPABASE_DB_URL` or `OPENAI_API_KEY` to browser code.
+* Browser requests should use frontend route handlers or backend APIs, never direct service credentials.
 
-* The language model may access backend tools only.
-* The language model never communicates directly with the database.
-* Tool access is validated by backend services.
-* The language model may not bypass deterministic business logic or policy enforcement.
-* AI refund tools expose backend-evaluated information rather than trusting model reasoning.
+## Frontend Trust Boundary
 
----
+The frontend may store local UI hints:
 
-# Data Access
+* selected mock customer id
+* purchase detail header summary
+* current chat transcript and compact conversation state
 
-Customer access:
+These are not authoritative.
 
-* View only customer-owned information.
+Frontend state must not be trusted for:
 
-Administrator access:
+* customer identity
+* authorization
+* purchase ownership
+* refund eligibility
+* refund lifecycle state
+* refund amount or outcome
+* refund deadlines
+* financial state
+* administrative permissions
 
-* Customer-specific information requires customer verification.
-* Administrative access should remain scoped to the active customer session.
+## Backend Trust Boundary
 
-Backend services determine what data may be returned for every request.
+FastAPI routes and backend services own:
 
-Refund decisions occur only inside backend policy services. Clients may request workflow actions, but they cannot provide authoritative eligibility, lifecycle status, refund outcome, refund amount, or refund deadline values.
+* database access
+* OpenAI access
+* policy enforcement
+* workflow transitions
+* API response contracts
+* error/status mapping
 
----
+Routes should not trust client-submitted refund state. They should call services, and
+services should load current database facts before making decisions.
 
-# Database Security
+## Database Security
 
-The backend remains the only application layer permitted to connect to Supabase PostgreSQL.
+The backend is the only application layer allowed to connect to Supabase PostgreSQL.
 
-Business-data tables should enable PostgreSQL row-level security when introduced. RLS policies should be defined in the same migration that creates the protected table so intended access boundaries are documented and applied with the schema.
+Business tables enable row-level security in migrations. Initial policies grant access
+to Supabase `service_role`, preserving backend-only database access while production auth
+is out of scope.
 
-The internal `schema_migrations` table is migration metadata and does not require business-data RLS policies.
+Tables with backend-only RLS policies:
 
-The `users` table enables row-level security when created. Its initial policy grants access only to Supabase `service_role`, preserving the backend-only database access boundary while authentication remains mocked.
+* `users`
+* `roles`
+* `user_roles`
+* `products`
+* `purchases`
+* `digital_purchase_details`
+* `physical_purchase_details`
+* `subscription_purchase_details`
 
-The `roles` table enables row-level security when created. Its initial policy grants access only to Supabase `service_role`, preserving backend ownership of role definitions.
+`schema_migrations` is migration metadata and not business data.
 
-The `user_roles` table enables row-level security when created. Its initial policy grants access only to Supabase `service_role`, preserving backend ownership of role assignment state.
+## Refund Security Boundary
 
-Identity-layer roles determine which mocked interface a user enters. They do not represent production authentication, a permissions matrix, feature flags, or authorization logic.
+Refund lifecycle state is split across:
 
-The `products` table enables row-level security when created. Its initial policy grants access only to Supabase `service_role`, preserving backend ownership of catalog reference data.
+* `purchases`
+* `digital_purchase_details`
+* `physical_purchase_details`
+* `subscription_purchase_details`
 
-The `purchases` table enables row-level security when created. Its initial policy grants access only to Supabase `service_role`, preserving backend ownership of customer purchase history and preventing direct frontend access.
+No client or AI tool may provide authoritative values for:
 
-The purchase detail tables enable row-level security when created. Their initial policies grant access only to Supabase `service_role`, preserving backend ownership of type-specific purchase state.
+* `refund_window_expires_at`
+* `full_refund_window_expires_at`
+* `refund_requested_at`
+* `refunded_at`
+* `refund_amount_cents`
+* `refund_outcome`
+* `code_invalidated_at`
+* `return_label_created_at`
+* `accepted_by_carrier_at`
+* `cancelled_at`
+* `service_ended_at`
+* `refund_proration_mode`
 
-Refund lifecycle state is stored inside purchase detail tables. The backend service role is the only application path allowed to read or mutate this state. No standalone `refunds` table should be introduced, and no frontend Supabase client should be allowed to write refund eligibility or lifecycle fields.
+PostgreSQL triggers derive deadline/default fields. Backend services execute guarded
+mutations for workflow commands. Duplicate, stale, or invalid commands should return
+workflow conflicts rather than silently rewriting timestamps or returning pretend success.
 
-Refund deadline fields are database-managed through PostgreSQL triggers. Clients and AI tools must not provide authoritative deadline values.
+## AI Security Boundary
 
-Refund preparation and issuance are separate backend-controlled operations. Fund issuance must not skip the type-specific preparation step, even when preparation is immediate for digital or subscription purchases.
+The model may access backend tools only through the chat graph.
 
-Refund workflow mutations are strict commands. Repository writes guard expected database state and raise conflicts when duplicate calls, stale reads, or partial lifecycle state prevent exactly one row from being updated. Routes expose those conflicts as endpoint-specific `409` responses instead of silently returning current state or rewriting timestamps.
+Current OpenAI-facing tools are read-only:
 
-AI-triggered refund workflow mutations require a canonical confirmation-command gate after backend eligibility has been established. Eligibility may store compact active refund context and the expected product-specific command, but it must not create a pending mutation. Only a customer message matching the expected canonical command may create internal pending state and re-enter backend workflow execution through `ApplicationService.request_refund` or `ApplicationService.issue_refund`. Generic replies such as "yes", "proceed", "do it", or "continue", model prose, frontend state, or tool arguments must not be treated as proof that a refund was prepared or issued.
+* purchase history
+* date-range purchase history
+* amount-threshold counts
+* refund policy
+* refund eligibility
 
-Issued mock refunds persist `refunded_at`, `refund_amount_cents`, and `refund_outcome` on `purchases`. Backend policy reads those persisted facts for already-refunded purchases so the system cannot forget or recompute issued credit after the status changes to `refunded`.
+The model must not:
 
----
+* access the database directly
+* choose or widen customer identity
+* infer eligibility without backend tool data
+* mutate refund state through tool arguments
+* claim a refund was prepared or issued unless backend execution confirms it
 
-# Frontend Trust Boundary
+Refund process mutations require deterministic backend context, current workflow
+permission, and an exact canonical confirmation command from the customer.
 
-The frontend is responsible for presentation only.
+Generic confirmations such as `yes`, `proceed`, `do it`, and `continue` are not valid
+write approval at the canonical-command boundary.
 
-Authoritative information should always be retrieved through backend APIs.
+## Response Safety
 
-Frontend state should never be trusted for:
+Customer-facing assistant responses should avoid internal implementation terms such as:
 
-* Customer identity
-* Refund eligibility
-* Refund lifecycle state
-* Business policy
-* Financial state
-* Administrative permissions
+* graph
+* node
+* resolver
+* tool
+* selected set
+* state
+* mutation
+* persisted state
+* `issue_funds`
+* `invalidate_code`
+* `cancel_subscription`
+* `required_action`
 
----
+The assistant should redirect off-domain questions back to account, purchase, order,
+account activity, policy, or refund process topics.
 
-# Repository Security
+## Repository Security
 
-* Never commit secrets or API keys.
-* Keep local configuration files out of source control.
-* Validate sensitive changes before merging.
-* Document security-related architectural changes within `.ai-context/` as they are introduced.
+Repository contributors must:
+
+* Keep secrets out of source control.
+* Keep local environment files untracked.
+* Validate security-sensitive changes before merge.
+* Update `.ai-context/12-security.md` when trust boundaries change.
+* Update tests when security behavior is enforced by code.

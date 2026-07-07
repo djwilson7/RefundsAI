@@ -4,86 +4,105 @@
 
 ## Vision
 
-Build a production-inspired AI customer support platform that automates business decisions wherever company policy explicitly permits while preserving deterministic business logic, policy enforcement, and operational governance.
+RefundsAI is a production-inspired customer support platform for refund workflows.
 
-The language model acts as the conversational interface between users and business systems. It is responsible for understanding intent, gathering context, orchestrating backend tools, communicating outcomes, and escalating interactions when policy or customer circumstances require human intervention.
+The AI assistant is the conversational interface. It can understand customer intent,
+gather context, call backend tools, explain outcomes, and guide approved workflows.
+It is not the business authority.
 
-Business policy remains the authoritative source for operational decisions.
+Backend services, deterministic policy code, and persisted database facts decide
+refund eligibility and refund lifecycle transitions.
 
----
+## Current Implementation
 
-## Goals
+Implemented surfaces:
 
-This project is designed to demonstrate:
+* Next.js customer portal in `apps/web`.
+* FastAPI backend in `apps/api`.
+* Supabase PostgreSQL migrations and seed data.
+* Mock customer and administrator entry paths.
+* Customer purchase history and purchase detail screens.
+* Type-specific purchase detail presentation for digital, physical, and subscription purchases.
+* Backend refund workflow evaluation, preparation, issuance, digital code redemption, and physical carrier acceptance.
+* LangGraph-backed chat endpoint for purchase facts, refund policy, refund eligibility, and confirmation-gated refund actions.
 
-* AI-assisted customer support workflows.
-* Deterministic policy enforcement.
-* Tool-driven language model orchestration.
-* Transparent AI behavior and auditability.
-* Clean separation between conversational AI and business logic.
-* Production-oriented software architecture.
+Not yet productionized:
 
----
+* Real authentication and authorization.
+* Real payment processing.
+* Persisted support-session history and AI audit views.
+* Voice capture, transcription, and voice responses.
+* Production deployment hardening.
 
-## Scope
+## Core Product Rule
 
-The application consists of two primary interfaces:
+Refund state belongs to the purchase type that owns the operational lifecycle:
+
+* Digital refund state: `digital_purchase_details`
+* Physical refund state: `physical_purchase_details`
+* Subscription refund state: `subscription_purchase_details`
+
+The shared `purchases` table stores purchase history plus workflow summary facts such
+as `status`, `refund_requested_at`, `refunded_at`, `refund_amount_cents`, and
+`refund_outcome`.
+
+No standalone `refunds` table should be introduced under the current architecture.
+
+## Primary Interfaces
 
 ### Customer Portal
 
 Customers can:
 
-* View account information.
-* Browse purchase history.
-* Inspect refund eligibility.
-* Request refunds.
-* Interact with an AI assistant through text or voice.
+* Enter through mock login.
+* View account summary metrics.
+* Browse seeded purchase history.
+* Open one stable purchase detail route: `/purchase-details/[purchaseId]`.
+* Ask the shared help panel about purchases, policy, eligibility, and refund process actions.
+* Use temporary manual refund commands on purchase detail pages while workflow wiring is validated.
 
-### Admin Operations Dashboard
+### Admin Dashboard
 
-Administrators can:
+The admin route currently renders a placeholder dashboard surface.
 
-* View operational metrics.
-* Verify customer identity before accessing customer data.
-* Review customer purchase and support history.
-* Audit AI interactions and execution traces.
-* Ask conversational questions about customer activity and operational data.
+The intended role is operational review: metrics, customer verification, support history,
+AI traces, and escalated cases. Those workflows are not yet implemented as mature
+backend features.
 
-The implementation intentionally focuses on AI product behavior rather than building a complete e-commerce platform.
+## Technology Stack
 
-Refund eligibility is computed from persisted purchase and purchase-detail state. The database is the source of truth for the facts used by backend policy services, and the language model communicates evaluated outcomes rather than making refund decisions.
-
----
-
-## Technical Stack
-
-### Frontend
+Frontend:
 
 * Next.js
 * TypeScript
-* Tailwind CSS
+* React
+* CSS modules and global CSS
+* Framer Motion for motion where used
 
-### Backend
+Backend:
 
 * FastAPI
 * Python
+* Pydantic response schemas
+* psycopg for PostgreSQL access
 
-### Database
+Database:
 
 * Supabase PostgreSQL
+* Ordered Python migration modules
+* Idempotent seed steps
 
-### AI Services
+AI:
 
-* OpenAI APIs
-* Function Calling
-* Voice Transcription
-
----
+* OpenAI chat completions client
+* LangGraph workflow
+* Backend-owned tool execution
 
 ## Repository Philosophy
 
-This repository follows a documentation-first development approach.
+This repository is documentation-first.
 
-The `.ai-context/` directory is the authoritative source for project architecture, implementation boundaries, business logic, engineering standards, and system behavior.
-
-All contributors—human or AI—should consult the relevant context documents before making implementation decisions.
+`.ai-context/` is the authoritative project context. Source code, migrations, tests,
+and package scripts remain the implementation source of truth. When documentation and
+implementation drift, inspect the code and update the docs rather than preserving stale
+or generic guidance.

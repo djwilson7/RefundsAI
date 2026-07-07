@@ -4,93 +4,109 @@
 
 ## Purpose
 
-This document defines the tools available to the language model and the contract for each tool.
+This document defines the language-model tool surface and chat orchestration contract.
 
-All interactions between the language model and backend services should occur through documented tools.
+Implementation source:
 
-As new tools are introduced, they should be added to this document.
+* Chat service: `apps/api/src/refunds_ai_api/services/ai_chat/service.py`
+* Graph shape: `apps/api/src/refunds_ai_api/services/ai_chat/graph.py`
+* Tools: `apps/api/src/refunds_ai_api/services/ai_chat/tools.py`
+* Workflow routing: `apps/api/src/refunds_ai_api/services/ai_chat/workflows/`
+* Resolver modules: `apps/api/src/refunds_ai_api/services/ai_chat/resolvers/`
+* Refund mutation modules: `apps/api/src/refunds_ai_api/services/ai_chat/workflows/refund_mutation/`
+* State normalization: `apps/api/src/refunds_ai_api/services/ai_chat/state.py`
+* Prompt/context packaging: `apps/api/src/refunds_ai_api/services/ai_chat/prompts.py`
+* Response guards: `apps/api/src/refunds_ai_api/services/ai_chat/responses.py`
+* Trace formatting: `apps/api/src/refunds_ai_api/services/ai_chat/trace/`
+* Compatibility trace entrypoint: `apps/api/src/refunds_ai_api/services/ai_chat/trace_formatting.py`
 
----
+## Tool Design Principles
 
-# Tool Design Principles
+* Tools provide authoritative backend information to the model.
+* Tools should be deterministic and narrow.
+* The active request supplies `customer_id`; the model must not choose or widen identity.
+* OpenAI-facing tools are read-only in the current architecture.
+* Refund mutations run through deterministic backend workflow execution after exact confirmation, not through model-selected write tools.
+* Tool output should be safe for customer-facing explanation.
 
-* Tools provide the language model with authoritative backend information.
-* Each tool should have a single, well-defined responsibility.
-* Tools should be deterministic and repeatable.
-* Tools should validate inputs before execution.
-* Business logic remains within backend services, not the language model.
-* Refund tools should expose backend-evaluated eligibility from purchase detail state.
-* Refund tools must not let the model submit or override authoritative refund state.
+## Active OpenAI-Facing Tools
 
----
-
-# Tool Documentation
-
-Each tool should document:
-
-* Name
-* Purpose
-* Supported Roles
-* Inputs
-* Outputs
-* Read/Write Behavior
-* Side Effects
-* Possible Errors
-
----
-
-# Active Chat Tool Surface
-
-The current `POST /api/chat` endpoint exposes only read-only tools to the language model.
-
-| Category | Tool | Purpose | Mutates State |
+| Category | Tool | Purpose | Mutates state |
 | --- | --- | --- | --- |
-| Purchases | `get_customer_purchase_history` | Retrieve active-customer purchase rows and aggregates. | No |
-| Purchases | `get_purchase_history_by_date_range` | Retrieve active-customer purchases for an inclusive local date range. | No |
-| Purchases | `get_purchase_count_by_amount_threshold` | Count active-customer purchases matching an amount threshold. | No |
-| Policies | `get_refund_policy` | Retrieve deterministic refund policy sections. | No |
-| Refunds | `get_refund_eligibility` | Retrieve backend-evaluated refund eligibility and workflow state. | No |
+| Purchases | `get_customer_purchase_history` | Read active-customer purchase rows and aggregates. | No |
+| Purchases | `get_purchase_history_by_date_range` | Read purchases for an inclusive local date range. | No |
+| Purchases | `get_purchase_count_by_amount_threshold` | Count purchases matching a cent-based threshold. | No |
+| Policies | `get_refund_policy` | Read deterministic policy catalog sections. | No |
+| Refunds | `get_refund_eligibility` | Read backend-evaluated refund workflow decisions. | No |
 
-No currently callable OpenAI tool may prepare, submit, process, issue, cancel, or otherwise mutate a refund workflow directly. Refund workflow mutation is handled as a deterministic backend workflow step after explicit customer confirmation, not as a model-selected write tool.
+No OpenAI-facing tool may prepare, submit, issue, cancel, or otherwise mutate refund state.
 
-The backend may execute `ApplicationService.request_refund` or `ApplicationService.issue_refund` only when all of the following are true:
+## Chat Graph
 
-* The deterministic object-operation resolver identifies exactly one purchase.
-* Backend refund workflow state says the requested action is currently allowed.
-* The previous turn stored `conversation_state.active_refund_context` with a canonical confirmation command for that purchase type.
-* The current customer message matches the expected canonical command after deterministic normalization.
+Graph shape:
 
-Generic replies such as "yes", "proceed", "do it", or "continue" do not mutate refund state after a canonical command has been issued. Declines and invalid commands do not mutate refund state.
+```text
+validate_context
+  -> request_tool_call
+  -> execute_tools
+  -> generate_final_response
+```
 
----
+The graph is intentionally small. Deterministic routing and context resolution happen
+inside the execution path before a model-requested tool is honored.
 
-# Shared Chat Orchestration Rules
+## Deterministic Workflow Routing
 
-## Identity and Authorization
+Workflow routing is built from two resolved values:
 
-The active chat request supplies `customer_id`. The model must not choose, override, or widen customer identity through tool arguments.
+1. Conversation object.
+2. Requested operation.
 
-Tools that inspect purchase history or refund eligibility require an active customer context. General refund policy lookup may run without customer context because it is not account-specific.
+Conversation objects include:
 
-## Deterministic Fallback Routing
+* `full_purchase_history`
+* `active_result_set`
+* `active_purchase`
+* `page_purchase`
+* `product_reference`
+* `purchase_type`
+* `date_range`
+* `amount_threshold`
+* `unknown`
 
-If the model requests no supported tool for a supported account, policy, or eligibility question, the backend executes the narrowest deterministic tool itself.
+Operations include:
 
-If the model requests broad purchase history for a resolvable date-bounded, policy, or eligibility question, the backend overrides that request with the narrower deterministic tool.
+* `count`
+* `list`
+* `select_first`
+* `select_last`
+* `select_latest`
+* `select_previous`
+* `policy`
+* `eligibility`
+* `start_refund`
+* `explain`
+* `unknown`
 
-Broad purchase history is the fallback when no narrower deterministic tool applies.
+The lookup table maps object-operation pairs to workflow families:
 
-The chat workflow resolves each customer message into a deterministic conversation object plus operation before selecting a workflow. Conversation objects include explicit product references, demonstrative references to the active result set, purchase type, date range, amount threshold, page purchase, active purchase, active result set, full purchase history, and unknown. Operations include count, list, ranked selection, policy, eligibility, refund start, explanation, and unknown. The object-operation lookup decides whether the turn is an account fact, refund policy lookup, read-only eligibility lookup, confirmation-gated refund mutation, or clarification.
+* `account_fact`
+* `refund_policy`
+* `refund_eligibility`
+* `refund_mutation`
+* `off_domain`
 
-Eligibility phrasing has priority over policy lookup when the customer asks whether a purchase can be refunded. Examples include "Can I refund X?", "Can I get a refund for X?", "Am I able to get a refund for X?", "Is X refundable?", "Is X eligible for a refund?", and "Check if X is refundable." Policy lookup is reserved for policy, rule, requirement, and refund-window questions.
+This keeps the model from becoming the authority for purchase scope, policy scope, or
+workflow target.
 
-After a refund-policy answer for an active purchase or active result set, narrow confirmation follow-ups such as "yes", "yes please", "yes, let's check", "let's check", or "check it" promote to refund eligibility for the active object. The same bare confirmations must not promote when there is no active purchase or result set.
+## Context Resolution Rules
 
-## Conversation and Page Context
+The endpoint accepts compact page context:
 
-The endpoint accepts compact page context for either the all-purchases surface or one purchase-detail surface by purchase id only. Full rendered page content must not be sent to the model.
+* `surface: "purchase_history"`
+* `surface: "purchase_detail"` plus `purchase_id`
 
-The endpoint returns compact conversation state for follow-up routing:
+It returns compact `conversation_state` for follow-up routing:
 
 * `selected_purchase_type`
 * `selected_product`
@@ -103,358 +119,274 @@ The endpoint returns compact conversation state for follow-up routing:
 * `selected_refund_context`
 * `active_refund_context`
 * `active_result_set`
+* `active_purchase`
 * `active_workflow`
 * `pending_refund_action`
 * `current_page`
 
-The chat graph injects compact model-visible context into both tool-selection and final-response model requests when it is relevant. This context may include selected purchase type, product, purchase id, selected purchase id counts with short ids, active result set label and count, policy scope, refund context, active refund context, pending refund action, current purchase-detail reference, summarized tool data, and blocked-action context. It must not include the full prior transcript or full rendered page content.
+The model receives only compact context. The backend must not send full rendered page
+content or replay the full transcript as a substitute for structured state.
 
-Before honoring any model-requested tool, the backend resolves authoritative context in this order: explicit named product references, demonstrative or pronoun references to an active purchase/result set, explicit purchase type, explicit date range, explicit amount threshold, page purchase, active purchase, active result set, full purchase history, then unknown or clarification. The model may interpret language, but it does not decide which purchase, scope, policy, or workflow target is authoritative.
+Resolution precedence:
 
-Aggregate and list results become the active purchase scope for follow-up resolution. Examples include purchase-type groups, amount-threshold groups, date ranges, and any other filtered purchase-history result that returns `selected_purchase_ids`. These results also store `selected_scope_label` for customer-safe follow-up phrasing and `active_result_set` as an ID-only state object with `type`, `purchase_ids`, `sort`, and `label`.
+1. Exact canonical refund confirmation command boundary.
+2. Page purchase references such as "this product" or "this order".
+3. Active refund context for refund process continuations.
+4. Explicit product, SKU, order number, or purchase id references.
+5. Selected single purchase for vague follow-ups.
+6. Active result set for plural/ranked follow-ups.
+7. Purchase type, date range, or amount threshold from message text.
+8. Full purchase history when a supported account-fact intent has no narrower target.
+9. Clarification or off-domain response.
 
-When `active_result_set` is the primary final-response answer source, the final-response package hydrates the selected ids into safe display fields already available to the model, such as product name, purchase type, display amount, status, and purchase date. The hydrated item list is model-request context only; it must not be written back into `conversation_state.active_result_set`.
+Explicit named product references can escape a narrowed selected set. Demonstrative
+references such as "those purchases" resolve to the active result set when one exists.
 
-Scoped ranking follow-ups using "one", "that one", "those", "last one", "first one", "latest", "most recent", "newest", "oldest", "earliest", "cheapest", or "most expensive" resolve inside the selected purchase id set first when it exists. "Oldest", "earliest", and "first" rank by the lowest `purchased_at`; "latest", "most recent", "newest", and "last one" rank by the highest `purchased_at`; "cheapest" and "most expensive" rank by `amount_cents`. The backend uses global ranked purchase history only when no selected set exists.
+## Active Result Sets and Ranking
 
-Ranking-only follow-ups are account-fact questions, not refund-policy or refund-eligibility questions. The backend must not call `get_refund_policy` or `get_refund_eligibility` for a ranking-only follow-up unless the user explicitly asks about refund policy, return policy, cancellation rules, refundability, eligibility, approval, or the refund process.
+Aggregate/list results can become the active scope for follow-ups. Examples:
 
-Whenever the backend resolver identifies exactly one concrete purchase, it updates `selected_purchase_id`, `selected_product`, and `selected_purchase_type` from that backend purchase row. Assistant prose is not parsed to infer state.
+* purchase type filters
+* amount thresholds
+* date ranges
+* full purchase-history list results
 
-After `get_refund_eligibility` returns exactly one resolved purchase, the endpoint stores `active_refund_context` with the evaluated purchase id, product name, purchase type, eligibility flag, workflow stage, next action, reason codes, and expected canonical confirmation command. If the eligible physical workflow next action is `generate_return_label`, the active context stage is `awaiting_return_label` and next action is `generate_return_label`. The active context also carries the product-specific command: `Confirm invalidate code and issue refund` for digital purchases, `Confirm cancel and issue refund` for subscriptions, or `Confirm start return and issue label` for physical purchases. Follow-up workflow continuation phrases such as "generate the return label", "start the return", "return the item", "proceed", or "yes, continue" resolve against this active context but do not execute mutation unless the customer sends the expected canonical command. If the active context is missing, the backend asks the customer to choose one product or order number before continuing.
+`active_result_set` stores ids plus metadata. It should not store full purchase rows.
 
-Refund workflow mutation requests are canonical command-gated. Eligibility creates the customer-visible command but does not create `pending_refund_action`. When the customer sends the expected canonical command, the backend validates the active refund context, active purchase, customer ownership, and current workflow permission, creates compact `pending_refund_action` internally, and immediately executes the existing backend mutation path. Command parsing normalizes case, punctuation, and ampersand usage, but it does not treat generic confirmations as write approval.
+Ranking terms resolve inside the active selected set first:
 
-Explicit product-name follow-ups such as "Developer Toolkit" escape narrowed selected sets and resolve against the active customer's full backend purchase rows using exact, normalized, partial, fuzzy, SKU, order-number, or purchase-id matching.
+| User phrasing | Sort meaning |
+| --- | --- |
+| `oldest`, `earliest`, `first` | Lowest `purchased_at`. |
+| `latest`, `most recent`, `newest`, `last` | Highest `purchased_at`. |
+| `cheapest` | Lowest `amount_cents`. |
+| `most expensive` | Highest `amount_cents`. |
 
-When an active result set exists and the customer includes an explicit purchase-type word in a product reference, the resolver must constrain matching to that type before falling back globally. For example, "Music Collection subscription" must not silently resolve to a digital "Music Collection" purchase while the active scope is subscriptions; if no matching subscription purchase exists, the backend asks for clarification.
+Ranking-only follow-ups are account-fact questions. They must not call refund policy or
+eligibility tools unless the customer explicitly asks about refund policy, refundability,
+eligibility, approval, cancellation rules, or the refund process.
 
-Named product references must resolve unambiguously to an actual purchase before product-specific policy or eligibility lookup. If no match is found or multiple product-name matches are plausible, the backend must not infer purchase type, must not call `get_refund_policy` or `get_refund_eligibility`, and must ask for clarification.
-
-Purchase-detail page references such as "this product", "this item", "this purchase", or "this order" resolve to `page_context.purchase_id` before selected purchase state, selected refund state, or product-name matching.
-
-## Response Guards
-
-Account-fact responses must be blocked unless an authoritative tool result exists.
-
-Refund policy explanations must use `get_refund_policy` results.
-
-Refund eligibility explanations must use `get_refund_eligibility` results. The model must not infer, override, or calculate eligibility independently.
-
-Malformed pseudo-tool text from the model is invalid output and must not be treated as reasoning or a valid tool call.
-
-Assistant response generation must not return Markdown-formatted content, capture voice input, or persist conversation logs. Business-state mutation is allowed only through the deterministic confirmed refund workflow path described above.
-
-Customer-facing assistant content must refer to the overall handling as "the refund process" and, for physical purchases, the return-label and carrier phase as "the return process." It must not expose internal terms such as workflow, mutation, backend step, persisted state, orchestration, `issue_funds`, `invalidate_code`, `cancel_subscription`, `required_action`, selected context, selected set, resolver, tool, state, purchase ids, node, or graph.
-
-## Logging
-
-Backend chat logs should include sequential trace events for the observable orchestration path:
-
-* model request package
-* requested tool calls
-* invalid model output
-* backend-enforced tool execution inputs
-* skipped tool decisions
-* blocked response decisions
-* tool results
-* final generated response
-
-Structured application log records should retain full event data for tests and future audit surfaces. Console output should render those events as concise human-readable step summaries and avoid dumping full nested prompt, tool, or response payloads. Console summaries should still show the model-relevant context: compact selected conversation state, current page or resolved page reference, intent flags, tool result summaries provided to the model, and blocked-action reasons.
-
-Final-response console summaries should distinguish raw tool results from active-result-set context. Raw purchase-history results may be summarized as totals and counts, while active-result-set context should show its label/count and, when it is the primary answer source, a capped `items_preview` containing only safe model-visible display fields.
-
----
-
-# Callable Tool Contracts
-
-## Purchases
+## Tool Contracts
 
 ### `get_customer_purchase_history`
 
-**Purpose**
+Purpose: Read one customer's purchase history and aggregate totals.
 
-Retrieve one customer's purchase history and backend-computed aggregate counts and totals for read-only AI responses.
+Inputs:
 
-**Supported Roles**
+* none from the model; active request supplies `customer_id`
 
-Customer, AI Assistant
-
-**Inputs**
-
-* `customer_id`
-
-**Outputs**
+Outputs:
 
 * sanitized purchase rows
-* total purchase count
-* total amount in cents
-* model-facing dollar display strings
-* counts and totals by purchase type
-* counts and totals by purchase status
+* total count and amount
+* counts/totals by purchase type
+* counts/totals by purchase status
+* cent values and display dollar strings
 
-**Behavior**
+Errors:
 
-Read Only. The active chat request supplies `customer_id`; the model must not choose or override it. Database money values remain cent-based. Dollar fields are derived boundary/display values for model explanation only.
-
-**Side Effects**
-
-None
-
-**Errors**
-
-`CUSTOMER_NOT_FOUND`, `DATABASE_NOT_CONFIGURED`
+* `CUSTOMER_NOT_FOUND`
+* `DATABASE_NOT_CONFIGURED`
 
 ### `get_purchase_history_by_date_range`
 
-**Purpose**
+Purpose: Read purchase history for an inclusive local date range.
 
-Retrieve a customer's purchases and backend-computed aggregate counts and totals for an inclusive local date range.
+Inputs:
 
-**Supported Roles**
-
-Customer, AI Assistant
-
-**Inputs**
-
-* `start_date` in `YYYY-MM-DD`
-* `end_date` in `YYYY-MM-DD`
+* `start_date` as `YYYY-MM-DD`
+* `end_date` as `YYYY-MM-DD`
 * `timezone`, such as `America/Chicago`
 
-**Outputs**
+Outputs:
 
-* `date_range` with start date, end date, label, and timezone
-* sanitized purchase rows with amount/date display fields
-* total purchase count
-* total amount in cents and dollars
-* counts and totals by purchase type
-* counts and totals by purchase status
+* resolved `date_range`
+* sanitized purchase rows
+* aggregate counts and totals
 
-**Behavior**
+Rules:
 
-Read Only. The active chat request supplies `customer_id`; the model must not choose or override it.
+* Dates are interpreted in the customer timezone.
+* Queries use a half-open timestamp range: start inclusive, day-after-end exclusive.
+* Business weeks run Sunday through Saturday.
 
-Date inputs are inclusive local dates. The backend resolves relative phrases in the customer timezone before querying and converts local dates to a half-open timestamp range:
+Errors:
 
-* `purchased_at >= start_date at 00:00:00 local time`
-* `purchased_at < day_after_end_date at 00:00:00 local time`
-
-Do not use SQL `BETWEEN` for timestamp ranges.
-
-A business week starts Sunday at 00:00:00 local time and ends Saturday at 23:59:59 local time.
-
-* "This week" means Sunday of the current local week through the current local date.
-* "Last week" means the full previous Sunday-through-Saturday week.
-* If the customer local date is Sunday, July 5, 2026, "this week" resolves to July 5, 2026 through July 5, 2026, and "last week" resolves to June 28, 2026 through July 4, 2026.
-* "First week of May" means May 1 through May 7.
-
-**Side Effects**
-
-None
-
-**Errors**
-
-`CUSTOMER_NOT_FOUND`, `DATABASE_NOT_CONFIGURED`
+* `CUSTOMER_NOT_FOUND`
+* `DATABASE_NOT_CONFIGURED`
 
 ### `get_purchase_count_by_amount_threshold`
 
-**Purpose**
+Purpose: Count purchases matching an amount threshold.
 
-Count a customer's purchases matching an amount threshold and return deterministic aggregate facts for filtered purchase-history questions.
-
-**Supported Roles**
-
-Customer, AI Assistant
-
-**Inputs**
+Inputs:
 
 * `threshold_cents`
-* `comparison`, one of `gt`, `gte`, `lt`, or `lte`
+* `comparison`: `gt`, `gte`, `lt`, or `lte`
 
-**Outputs**
+Outputs:
 
 * `count`
 * `matching_purchase_ids`
 * `total_amount_cents`
 * `total_amount_dollars`
-* `threshold_cents`
-* `threshold_dollars`
-* `comparison`
+* threshold and comparison metadata
 
-**Behavior**
+Rules:
 
-Read Only. The active chat request supplies `customer_id`; the model must not choose or override it.
+* User dollar amounts are converted to cents at the chat boundary.
+* Comparisons run against `amount_cents`.
 
-Backend fallback parsing may execute this tool without a model tool call for supported amount-threshold questions such as "How many purchases have I made over $100?"
+Errors:
 
-User-facing dollar thresholds are converted to cents at the chat boundary before filtering, and all comparisons are performed against cent-based purchase amounts.
-
-**Side Effects**
-
-None
-
-**Errors**
-
-`CUSTOMER_NOT_FOUND`, `DATABASE_NOT_CONFIGURED`
-
-## Policies
+* `CUSTOMER_NOT_FOUND`
+* `DATABASE_NOT_CONFIGURED`
 
 ### `get_refund_policy`
 
-**Purpose**
+Purpose: Read deterministic refund policy catalog sections.
 
-Retrieve deterministic RefundsAI refund policy sections scoped to the customer's policy question.
+Inputs:
 
-**Supported Roles**
+* `scope`: `general`, `product_type`, `funds_release`, or `administrative_review`
+* optional `purchase_type`: `digital`, `physical`, or `subscription`
 
-Customer, AI Assistant
-
-**Inputs**
-
-* `scope`, one of `general`, `product_type`, `funds_release`, or `administrative_review`
-* `purchase_type`, optional one of `digital`, `physical`, or `subscription`
-
-**Outputs**
+Outputs:
 
 * `scope`
 * `purchase_type`
 * `effective_date`
-* `sections`
+* `sections[]`
 * `source`
 
-**Behavior**
+Rules:
 
-Read Only.
+* Does not inspect customer purchases.
+* Does not calculate eligibility.
+* Does not mutate state.
 
-General policy questions return all product-type rules plus shared processing, administrative-review, and update sections.
+Errors:
 
-Product-specific questions return only the relevant product-type policy.
-
-Funds-release questions return refund processing policy and any relevant product-specific prerequisite when a product type is named.
-
-Administrative-review questions return review policy and any relevant product-specific policy when a product type is named.
-
-This tool does not inspect customer purchases, calculate eligibility, or mutate refund workflow state.
-
-**Side Effects**
-
-None
-
-**Errors**
-
-None
-
-## Refunds
+* none expected from the current in-memory catalog
 
 ### `get_refund_eligibility`
 
-**Purpose**
+Purpose: Read backend-evaluated refund workflow state for backend-resolved purchase ids.
 
-Return backend-evaluated read-only refund eligibility and workflow state for backend-resolved purchase ids.
+Inputs:
 
-**Supported Roles**
+* `purchase_ids`
+* `context`, such as `product`, `current_page`, `selected_set`, `date_range`, or `all_purchases`
 
-Customer, AI Assistant
+Outputs:
 
-**Inputs**
+* requested and resolved purchase ids
+* counts by eligible, blocked, prepared, and issued state
+* purchase rows with safe display fields
+* workflow fields from `ApplicationService.get_refund_workflow`
+* safe `policy_facts`
 
-* `purchase_ids`, a non-empty list of purchase ids resolved by backend chat context
-* `context`, a compact label such as `product`, `digital`, `current_page`, `selected_set`, `date_range`, or `all_purchases`
+Rules:
 
-**Outputs**
+* The backend filters requested ids against the active customer's purchases.
+* The tool calls backend workflow policy for each purchase.
+* The model may explain outcomes but must not prepare or issue refunds from this tool.
 
-Top-level output:
+Errors:
 
-* `customer_id`
-* `context`
-* `requested_purchase_ids`
-* `resolved_purchase_ids`
-* `purchase_count`
-* `eligible_count`
-* `blocked_count`
-* `prepared_count`
-* `issued_count`
-* `purchases`
+* `CUSTOMER_NOT_FOUND`
+* `DATABASE_NOT_CONFIGURED`
 
-Each purchase result includes:
+## Refund Process Mutation Gate
 
-* purchase id
-* order number
-* SKU
-* product name
-* purchase type
-* status
-* amount fields
-* purchase date display
-* `refund_stage`
-* `can_enter_refund_workflow`
-* `can_prepare_refund`
-* `can_issue_funds`
+Refund process mutations execute only through backend services.
+
+Required conditions:
+
+* The resolver identifies exactly one purchase owned by the active customer.
+* Backend workflow state allows the requested action.
+* `active_refund_context` carries the expected command and mutation action.
+* The current user message matches the canonical command.
+
+Canonical commands:
+
+| Type | Command | Backend action |
+| --- | --- | --- |
+| Digital | `Confirm invalidate code and issue refund` | `request_refund` preparation path |
+| Physical | `Confirm start return and issue label` | `request_refund` preparation path |
+| Subscription | `Confirm cancel and issue refund` | `request_refund` preparation path |
+
+Prepared purchases that can issue funds may be confirmed through active refund context
+for the issuance path. The backend still revalidates current workflow state before
+calling `ApplicationService.issue_refund`.
+
+Generic replies such as `yes`, `proceed`, `go ahead`, `do it`, or `continue` do not
+mutate state at the canonical-command boundary.
+
+Declines and invalid commands do not mutate state.
+
+## Response Guards
+
+Account-fact responses require authoritative tool data.
+
+Refund policy explanations require `get_refund_policy`.
+
+Refund eligibility explanations require `get_refund_eligibility`.
+
+The assistant must not expose internal implementation terms in customer-facing text,
+including:
+
+* graph
+* node
+* tool
+* resolver
+* selected context
+* selected set
+* state
+* purchase ids
+* mutation
+* backend step
+* persisted state
+* `issue_funds`
+* `invalidate_code`
+* `cancel_subscription`
 * `required_action`
-* `refund_outcome`
-* refundable amount fields
-* `reasons`
-* safe `policy_facts` from the backend workflow decision
 
-**Behavior**
+Customer-facing content should describe overall handling as "the refund process".
+For physical return label and carrier steps, use "the return process".
 
-Read Only. The active chat request supplies `customer_id`; the model must not choose or override it.
+## Logging and Trace Events
 
-The backend resolves user text to active customer purchase ids before executing the tool and filters requested ids against that active customer's purchase history.
+Chat logs should show the observable orchestration path without dumping full nested
+prompts, tool payloads, or response objects.
 
-The tool calls `ApplicationService.get_refund_workflow` for each resolved purchase and returns deterministic decisions for model explanation.
+Trace events should cover:
 
-The assistant may explain that a purchase is eligible to begin refund handling, blocked, prepared, or issued. It must not prepare, submit, process, issue, cancel, or otherwise mutate a refund workflow.
+* route receipt
+* graph start
+* model request package
+* workflow classification
+* workflow context resolution
+* tool selection and overrides
+* invalid model output
+* tool execution and results
+* response blocking
+* confirmation command generation and receipt
+* mutation attempts and outcomes
+* final response
+* route return
 
-**Side Effects**
+Structured log records should retain event payloads for tests and future audit surfaces.
+Console summaries should remain concise and human-readable.
 
-None
+## Tool Evolution
 
-**Errors**
+When adding or changing tools:
 
-`CUSTOMER_NOT_FOUND`, `DATABASE_NOT_CONFIGURED`
-
----
-
-# Non-Tool Refund Workflow Boundaries
-
-Every tool should clearly indicate whether it is:
-
-* **Read Only** - Retrieves information without modifying system state.
-* **Mutating** - Creates, updates, or modifies business state.
-
-Mutating tools should execute only after deterministic backend validation and policy enforcement.
-
-Refund mutating tools should update only the owning purchase detail table for the product type being processed:
-
-* digital refund actions update `digital_purchase_details`
-* physical refund actions update `physical_purchase_details`
-* subscription refund actions update `subscription_purchase_details`
-
-No tool should create or depend on a standalone `refunds` table.
-
-Tools should not send database-derived refund deadlines. PostgreSQL triggers compute refund window fields from persisted purchase/detail state.
-
-The current frontend help panel includes temporary manual `Prep Refund` and `Issue Refund` commands that call backend refund workflow endpoints through same-origin frontend proxy routes. These commands are not AI-callable tools. They exist to validate backend workflow state and frontend lifecycle displays before Phase 4 agent-triggered mutations.
-
----
-
-# Role-Based Access
-
-Tools should explicitly define which personas may invoke them.
-
-Available roles include:
-
-* Customer
-* Administrator
-* AI Assistant
-
-Role restrictions should be enforced by backend services before tool execution.
-
----
-
-# Tool Evolution
-
-As the application grows, this document should remain synchronized with the implemented tool surface.
-
-Adding, modifying, or removing tools should include corresponding updates to this document to preserve a clear contract between the language model and backend services.
+* Update `tools.py` schema and execution wrapper.
+* Update workflow routing if the tool affects classification.
+* Update response guards if customer-facing behavior changes.
+* Update `09-api.md` if request/response state changes.
+* Update tests in `apps/api/tests/ai_chat/`.
+* Preserve read-only OpenAI-facing tools unless a decision explicitly changes the architecture.

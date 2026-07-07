@@ -2,107 +2,81 @@
 
 # Personas
 
-## Purpose
+## Customer
 
-This document defines the primary actors within the system, their responsibilities, permissions, and operational boundaries.
+The customer uses the Customer Portal and help panel to inspect purchase history and
+work through refund questions.
 
----
+Current implementation:
 
-# Customer
+* Mock customer is selected on `/`.
+* `/user-home?customerId=...` loads profile and purchase history from FastAPI.
+* Purchase detail routes load backend detail state and refund workflow state.
+* The help panel sends chat messages with compact page and conversation context.
 
-## Description
+Permissions:
 
-The customer is the primary end user of the platform.
+* View the selected mock customer's profile and purchases.
+* Ask account, order, purchase, policy, and refund questions.
+* Confirm eligible refund process actions using the exact canonical command supplied by the assistant.
 
-Customers interact with the system through the Customer Portal and AI assistant to manage purchases, request refunds, and receive support.
+Restrictions:
 
-### Responsibilities
+* Cannot access admin functionality.
+* Cannot override backend policy.
+* Cannot directly modify purchase, refund, or financial state.
+* Cannot provide authoritative eligibility, amount, outcome, or deadline values.
 
-* View account information.
-* Browse purchase history.
-* View refund eligibility.
-* Request refunds.
-* Interact with the AI assistant.
-* Review previous support conversations.
+## Administrator
 
-### Permissions
+The administrator represents future support operations staff.
 
-* Access only their own account.
-* View only their own purchases and support history.
-* Initiate support and refund requests.
-* During frontend-only development, be selected through mock login from seeded customer identities.
+Current implementation:
 
-### Restrictions
+* Mock admin can enter `/admin-home`.
+* The admin dashboard is a placeholder, not a completed operations workflow.
 
-* Cannot access administrative functionality.
-* Cannot override business policy.
-* Cannot modify authoritative business data.
-* Cannot override refund eligibility or refund lifecycle state.
+Intended future responsibilities:
 
----
+* Verify customers before viewing customer-specific data.
+* Review purchase and support history.
+* Inspect AI traces.
+* Resolve escalated cases.
+* Review operational metrics.
 
-# Administrator
+Restrictions:
 
-## Description
+* Customer-specific data should require verification.
+* Administrative actions remain subject to deterministic policy.
 
-Administrators manage customer support operations through the Admin Dashboard.
+## AI Assistant
 
-Their role is to review customer activity, investigate support interactions, audit AI behavior, and resolve escalated cases.
+The AI assistant is a conversational layer over backend tools and services.
 
-### Responsibilities
+It may:
 
-* Monitor operational metrics.
-* Verify customer identity.
-* Review customer history.
-* Inspect AI execution logs.
-* Review escalated cases.
-* Resolve support requests.
+* Interpret customer language.
+* Request read-only backend tools.
+* Explain purchase facts, refund policy, and refund eligibility from backend data.
+* Guide confirmation-gated refund actions.
 
-### Permissions
+It may not:
 
-* Access the Admin Dashboard.
-* View customer information after successful verification.
-* Review AI conversations and audit history.
-* Access operational reporting.
-* During frontend-only development, be loaded through the seeded mock administrator identity.
+* Act as the source of truth for policy or eligibility.
+* Access the database directly.
+* Choose or widen customer identity.
+* Mutate refund state without backend validation and exact customer confirmation.
+* Claim a refund action completed unless the backend mutation completed.
 
-### Restrictions
+## Backend System
 
-* Customer-specific data should only be accessible after customer verification.
-* Administrative actions remain subject to business policy.
+For implementation decisions, treat the backend as an actor with explicit authority.
 
----
+It owns:
 
-# AI Assistant
-
-## Description
-
-The language model serves as the conversational interface between users and business systems.
-
-Its purpose is to improve customer and administrator experiences through natural language interaction while operating within deterministic system boundaries.
-
-### Responsibilities
-
-* Understand user intent.
-* Gather relevant context.
-* Select backend tools.
-* Explain business policy.
-* Execute approved workflows.
-* Communicate outcomes.
-* Escalate interactions when required.
-
-### Permissions
-
-* Access backend tools.
-* Retrieve authoritative business data.
-* Initiate policy-approved workflows.
-* Support both customer and administrator interactions.
-
-### Restrictions
-
-* Is not the authoritative source for business decisions.
-* Cannot override policy.
-* Cannot directly modify business state.
-* Cannot bypass backend validation.
-* Must rely on backend tools for authoritative information.
-* Must use backend-evaluated refund outcomes rather than inferring eligibility from incomplete context.
+* Database access.
+* Policy evaluation.
+* Workflow transitions.
+* Tool execution.
+* API response contracts.
+* Conflict detection for duplicate or stale writes.
