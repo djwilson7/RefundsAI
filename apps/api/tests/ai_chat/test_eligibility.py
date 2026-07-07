@@ -1928,8 +1928,8 @@ def test_chat_graph_returns_graceful_response_when_final_model_call_fails(caplog
         "surface": "purchase_history",
         "purchase": None,
     }
-    assert caplog.records[0].event == {
-        "type": "model.failure",
+    assert caplog.records[0].event["type"] == "model.failure"
+    assert caplog.records[0].event["data"] == {
         "reason": "RuntimeError",
         "detail": "final model offline",
         "model": "gpt-5.4-mini",

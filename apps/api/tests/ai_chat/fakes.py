@@ -670,6 +670,8 @@ class FailingPurchaseApplicationService(FakeApplicationService):
         raise RuntimeError("database offline")
 
 class StaticChatService:
+    audit_writer = None
+
     def create_response(
         self,
         *,
@@ -679,6 +681,7 @@ class StaticChatService:
         page_context: dict[str, Any] | None = None,
         conversation_state: dict[str, Any] | None = None,
         trace_step_start: int = 1,
+        audit_session: Any = None,
     ) -> AIChatResult:
         return AIChatResult(
             content=f"Received {message}",

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from refunds_ai_api.services.ai_chat.audit_instrumentation import merge_token_usage
 from refunds_ai_api.services.ai_chat.logging import (
     build_model_context_summary,
     log_trace_step,
-    logger,
 )
 from refunds_ai_api.services.ai_chat.models import ChatGraphState
 from refunds_ai_api.services.ai_chat.parsing import has_invalid_pseudo_tool_output
@@ -60,16 +61,15 @@ def request_tool_call_node(runtime: Any, state: ChatGraphState) -> ChatGraphStat
     try:
         turn = runtime.model_client.generate(messages=messages, tools=tools)
     except Exception as exc:
-        logger.warning(
-            "ai.chat.model_failed: %s",
-            exc,
-            extra={
-                "event": {
-                    "type": "model.failure",
-                    "reason": exc.__class__.__name__,
-                    "detail": str(exc),
-                    "model": runtime.model,
-                }
+        state = log_trace_step(
+            state,
+            message="Model tool-selection request failed.",
+            event_type="model.failure",
+            level=logging.WARNING,
+            data={
+                "reason": exc.__class__.__name__,
+                "detail": str(exc),
+                "model": runtime.model,
             },
         )
         return {
@@ -108,4 +108,8 @@ def request_tool_call_node(runtime: Any, state: ChatGraphState) -> ChatGraphStat
         "tool_calls": turn.tool_calls,
         "account_fact_intent": account_fact_intent,
         "invalid_model_output": invalid_model_output,
+        "audit_token_usage": merge_token_usage(
+            state.get("audit_token_usage"),
+            turn.token_usage,
+        ),
     }

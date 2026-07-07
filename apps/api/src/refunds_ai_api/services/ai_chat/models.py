@@ -5,6 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict
 
+from refunds_ai_api.services.audit import (
+    ModelAuditSession,
+    ModelAuditWriterService,
+    TokenUsage,
+)
+
 from .parsing import parse_tool_arguments
 from .state import EMPTY_CONVERSATION_STATE
 
@@ -24,6 +30,7 @@ class ModelTurn:
 
     content: str | None
     tool_calls: list[ModelToolCall]
+    token_usage: TokenUsage | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +78,7 @@ class OpenAIChatCompletionsModelClient:
 
         response = client.chat.completions.create(**request)
         message = response.choices[0].message
+        usage = getattr(response, "usage", None)
         tool_calls = [
             ModelToolCall(
                 id=tool_call.id,
@@ -80,7 +88,19 @@ class OpenAIChatCompletionsModelClient:
             for tool_call in message.tool_calls or []
         ]
 
-        return ModelTurn(content=message.content, tool_calls=tool_calls)
+        return ModelTurn(
+            content=message.content,
+            tool_calls=tool_calls,
+            token_usage=(
+                TokenUsage(
+                    prompt_tokens=getattr(usage, "prompt_tokens", None),
+                    completion_tokens=getattr(usage, "completion_tokens", None),
+                    total_tokens=getattr(usage, "total_tokens", None),
+                )
+                if usage is not None
+                else None
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -94,6 +114,8 @@ class AIChatResult:
     )
     side_effects: list[dict[str, Any]] = field(default_factory=list)
     next_trace_step: int = field(default=1, compare=False)
+    token_usage: TokenUsage | None = field(default=None, compare=False)
+    audit_failed: bool = field(default=False, compare=False)
 
 
 class ChatGraphState(TypedDict, total=False):
@@ -118,3 +140,6 @@ class ChatGraphState(TypedDict, total=False):
     side_effects: list[dict[str, Any]]
     error: str
     trace_step: int
+    audit_session: ModelAuditSession
+    audit_writer: ModelAuditWriterService
+    audit_token_usage: TokenUsage

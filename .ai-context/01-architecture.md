@@ -260,11 +260,13 @@ It does not send full rendered page content or replay the full transcript.
 
 ### Model Audit Logging & Observability Stream
 
-The Phase 1 audit foundation exists in `services/audit.py`, `repositories/audit.py`,
-and migration `014_create_model_audit_tables.py`. Phase 2 will connect chat graph
-execution to this writer.
+The audit foundation exists in `services/audit.py`, `repositories/audit.py`,
+and migration `014_create_model_audit_tables.py`. `/api/chat` starts an audit
+session for each valid chat request and carries the session through graph state.
+`log_trace_step` persists each graph trace as an ordered audit event when a writer
+is present.
 
-Target flow:
+Current persistence flow:
 
 ```text
 Customer Message
@@ -277,8 +279,8 @@ Customer Message
        - Tool Request / Completion
        - Mutation Start / Complete
   -> Persist Audit Event to Database
-  -> Broadcast Event via Websocket/SSE
-  -> Admin UI timeline updates immediately
+  -> Route Response Returned
+  -> Complete or Fail Model Audit Session
 ```
 
-This streaming design provides live monitoring and audit capability while keeping the model and business operations isolated and transparent.
+Realtime stream delivery and admin timeline rendering remain later v0.6.0 phases.

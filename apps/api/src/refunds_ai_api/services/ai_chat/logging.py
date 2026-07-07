@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .audit_instrumentation import record_audit_trace_event
 from .models import ChatGraphState
 from .trace_formatting import format_trace_detail_block
 
@@ -60,6 +61,7 @@ def log_trace_step(
         "%s",
         format_trace_console_message(event),
     )
+    record_audit_trace_event(state, event=event)
     return {**state, "trace_step": step + 1}
 
 

@@ -318,7 +318,7 @@ Rules:
 * Event rows reference `model_audit_event_lookup.event_key`.
 * Lookup categories are `request`, `routing`, `tool`, `validation`, `mutation`, `response`, or `error`.
 * Backend code writes through `repositories/audit.py` and `services/audit.py`.
-* Chat graph instrumentation is a v0.6.0 Phase 2 task; Phase 1 only creates the durable model and writer boundary.
+* `/api/chat` creates a session for each valid request, persists ordered graph trace events, and completes or fails the session with token and latency metrics.
 
 ## Database-Managed Refund Fields
 

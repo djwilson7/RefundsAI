@@ -441,10 +441,10 @@ Provide administrators with operational visibility, AI auditability, and live mo
 
 #### Phase 2: Graph Instrumentation
 
-* [ ] Create an audit session at chat request start.
-* [ ] Persist each graph/log step as an audit event.
-* [ ] Capture workflow, context, tools, validation, mutation, response, and errors.
-* [ ] Store token usage and latency on the audit session.
+* [x] Create an audit session at chat request start.
+* [x] Persist each graph/log step as an audit event.
+* [x] Capture workflow, context, tools, validation, mutation, response, and errors.
+* [x] Store token usage and latency on the audit session.
 
 #### Phase 3: Read APIs
 
@@ -468,7 +468,7 @@ Provide administrators with operational visibility, AI auditability, and live mo
 
 ### Validation
 
-* [ ] Graph execution events successfully persisted as structured audit events in real-time.
+* [x] Graph execution events successfully persisted as structured audit events.
 * [ ] Live timeline replayed and streamed immediately in the Admin UI without page refreshes.
 * [ ] Historical sessions accessible and inspectable in the Audit Viewer with detailed token usage and latency breakdowns.
 * [ ] Admin UI correctly resolves stable event keys to user-friendly labels and icons.

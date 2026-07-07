@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
+
 from refunds_ai_api.services.ai_chat import (
     CHAT_UNAVAILABLE_RESPONSE,
     CUSTOMER_CONTEXT_REQUIRED_RESPONSE,
@@ -7,7 +11,9 @@ from refunds_ai_api.services.ai_chat import (
     AIChatResult,
     AIChatService,
     ModelToolCall,
+    ModelTurn,
 )
+from refunds_ai_api.services.audit import ModelAuditEventKey, ModelAuditSession, TokenUsage
 
 from .fakes import (
     CUSTOMER_ID,
@@ -20,6 +26,61 @@ from .fakes import (
     UnknownToolModelClient,
     build_client,
 )
+
+
+class FakeAuditWriter:
+    def __init__(self) -> None:
+        self.started: list[dict[str, object]] = []
+        self.events: list[dict[str, object]] = []
+        self.completed: list[dict[str, object]] = []
+
+    def start_session(self, **kwargs) -> ModelAuditSession:  # type: ignore[no-untyped-def]
+        self.started.append(kwargs)
+        return ModelAuditSession(
+            id=uuid4(),
+            trace_id=uuid4(),
+            started_at=datetime.now(UTC),
+        )
+
+    def record_event(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        self.events.append(kwargs)
+
+    def complete_session(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        self.completed.append({"status": "succeeded", **kwargs})
+
+    def fail_session(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        self.completed.append({"status": "failed", **kwargs})
+
+
+class TokenReportingModelClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> ModelTurn:
+        self.calls += 1
+        if self.calls == 1:
+            return ModelTurn(
+                content=None,
+                tool_calls=[],
+                token_usage=TokenUsage(
+                    prompt_tokens=3,
+                    completion_tokens=2,
+                    total_tokens=5,
+                ),
+            )
+        return ModelTurn(
+            content="You made 2 digital purchases.",
+            tool_calls=[],
+            token_usage=TokenUsage(
+                prompt_tokens=7,
+                completion_tokens=11,
+                total_tokens=18,
+            ),
+        )
 
 
 def test_chat_endpoint_returns_graph_response() -> None:
@@ -49,6 +110,46 @@ def test_chat_endpoint_returns_graph_response() -> None:
     }
     assert body["error"] is None
     assert "timestamp" in body["meta"]
+
+def test_chat_endpoint_records_audit_session_events_and_metrics() -> None:
+    audit_writer = FakeAuditWriter()
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=TokenReportingModelClient(),
+        audit_writer=audit_writer,  # type: ignore[arg-type]
+    )
+    client = build_client(chat_service)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "How many digital purchases have I made?",
+            "customer_id": CUSTOMER_ID,
+            "purchase_id": PURCHASE_ID,
+        },
+    )
+
+    assert response.status_code == 200
+    assert audit_writer.started[0]["model_name"] == "gpt-5.4-mini"
+    assert str(audit_writer.started[0]["customer_id"]) == CUSTOMER_ID
+    event_keys = [event["event_key"] for event in audit_writer.events]
+    assert event_keys[0:2] == [
+        ModelAuditEventKey.REQUEST_RECEIVED,
+        ModelAuditEventKey.GRAPH_STARTED,
+    ]
+    assert ModelAuditEventKey.TOOL_REQUESTED in event_keys
+    assert ModelAuditEventKey.RESPONSE_GENERATED in event_keys
+    assert event_keys[-1] == ModelAuditEventKey.RESPONSE_RETURNED
+    assert [event["sequence_number"] for event in audit_writer.events] == list(
+        range(1, len(audit_writer.events) + 1)
+    )
+    assert audit_writer.completed[0]["status"] == "succeeded"
+    assert audit_writer.completed[0]["token_usage"] == TokenUsage(
+        prompt_tokens=10,
+        completion_tokens=13,
+        total_tokens=23,
+    )
 
 def test_chat_endpoint_rejects_empty_messages() -> None:
     client = build_client(StaticChatService())
@@ -256,11 +357,11 @@ def test_chat_graph_returns_graceful_response_when_model_fails(caplog) -> None:
             message="Show my purchases",
             customer_id=CUSTOMER_ID,
             purchase_id=None,
-        )
+    )
 
     assert result == AIChatResult(content=CHAT_UNAVAILABLE_RESPONSE, graph_ready=True)
-    assert caplog.records[0].event == {
-        "type": "model.failure",
+    assert caplog.records[0].event["type"] == "model.failure"
+    assert caplog.records[0].event["data"] == {
         "reason": "RuntimeError",
         "detail": "model offline",
         "model": "gpt-5.4-mini",

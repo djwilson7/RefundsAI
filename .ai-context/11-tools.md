@@ -405,7 +405,7 @@ For physical return label and carrier steps, use "the return process".
 Chat logs should show the observable orchestration path without dumping full nested
 prompts, tool payloads, or response objects.
 
-Model audit persistence now has a Phase 1 writer boundary:
+Model audit persistence writes through the audit boundary:
 
 | Component | Responsibility |
 | --- | --- |
@@ -413,7 +413,11 @@ Model audit persistence now has a Phase 1 writer boundary:
 | `ModelAuditEventKey` | Defines stable event keys backed by `model_audit_event_lookup`. |
 | `ModelAuditRepository` | Owns SQL writes for `model_audit_sessions` and `model_audit_events`. |
 
-Phase 2 will connect graph trace events to this writer.
+`/api/chat` starts an audit session for each valid chat request. When graph state
+contains an audit session and writer, `log_trace_step` maps trace events to stable
+audit keys and persists them in sequence. The route finalizes the session after
+the response-returned trace event, including token usage reported by model calls
+and computed latency.
 
 Trace events should cover:
 

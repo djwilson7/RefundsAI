@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from refunds_ai_api.services.application import ApplicationService
+from refunds_ai_api.services.audit import ModelAuditSession, ModelAuditWriterService
 
 from .graph import build_chat_graph
 from .logging import logger
@@ -27,6 +28,7 @@ class AIChatService:
     application_service: ApplicationService
     model: str
     model_client: ChatModelClient | None
+    audit_writer: ModelAuditWriterService | None = None
 
     def create_response(
         self,
@@ -37,6 +39,7 @@ class AIChatService:
         page_context: dict[str, Any] | None = None,
         conversation_state: dict[str, Any] | None = None,
         trace_step_start: int = 1,
+        audit_session: ModelAuditSession | None = None,
     ) -> AIChatResult:
         """Invoke the purchase-history graph and return the assistant response."""
         graph = self._build_graph()
@@ -53,6 +56,8 @@ class AIChatService:
                     "conversation_state": normalize_conversation_state(conversation_state),
                     "model": self.model,
                     "trace_step": trace_step_start,
+                    "audit_session": audit_session,
+                    "audit_writer": self.audit_writer,
                 }
             )
         except Exception as exc:
@@ -74,6 +79,7 @@ class AIChatService:
                 conversation_state=normalize_conversation_state(conversation_state),
                 side_effects=[],
                 next_trace_step=trace_step_start,
+                audit_failed=True,
             )
 
         return AIChatResult(
@@ -87,6 +93,13 @@ class AIChatService:
                 if isinstance(side_effect, dict)
             ],
             next_trace_step=int(state.get("trace_step", trace_step_start)),
+            token_usage=state.get("audit_token_usage"),
+            audit_failed=state.get("error")
+            in {
+                "missing_openai_api_key",
+                "model_request_failed",
+                "final_model_request_failed",
+            },
         )
 
     def _build_graph(self):

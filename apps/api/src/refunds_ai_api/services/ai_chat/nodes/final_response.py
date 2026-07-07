@@ -6,10 +6,10 @@ import json
 import logging
 from typing import Any
 
+from refunds_ai_api.services.ai_chat.audit_instrumentation import merge_token_usage
 from refunds_ai_api.services.ai_chat.logging import (
     build_model_context_summary,
     log_trace_step,
-    logger,
 )
 from refunds_ai_api.services.ai_chat.models import ChatGraphState
 from refunds_ai_api.services.ai_chat.prompts import (
@@ -191,16 +191,15 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
     try:
         turn = runtime.model_client.generate(messages=messages, tools=tools)
     except Exception as exc:
-        logger.warning(
-            "ai.chat.model_failed: %s",
-            exc,
-            extra={
-                "event": {
-                    "type": "model.failure",
-                    "reason": exc.__class__.__name__,
-                    "detail": str(exc),
-                    "model": runtime.model,
-                }
+        state = log_trace_step(
+            state,
+            message="Final model response request failed.",
+            event_type="model.failure",
+            level=logging.WARNING,
+            data={
+                "reason": exc.__class__.__name__,
+                "detail": str(exc),
+                "model": runtime.model,
             },
         )
         return {
@@ -237,7 +236,14 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
         },
     )
 
-    return {**state, "assistant_response": assistant_response}
+    return {
+        **state,
+        "assistant_response": assistant_response,
+        "audit_token_usage": merge_token_usage(
+            state.get("audit_token_usage"),
+            turn.token_usage,
+        ),
+    }
 
 
 def _empty_refund_eligibility_result(
