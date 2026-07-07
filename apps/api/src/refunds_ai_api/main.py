@@ -4,9 +4,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from refunds_ai_api.repositories.audit import close_audit_connection_pools
+from refunds_ai_api.routes import chat as chat_routes
 from refunds_ai_api.routes.admin_audit import router as admin_audit_router
 from refunds_ai_api.routes.application import router as application_router
-from refunds_ai_api.routes.chat import router as chat_router
 from refunds_ai_api.routes.health import router as health_router
 
 logger = logging.getLogger("uvicorn.error")
@@ -19,7 +20,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("- Local:   http://localhost:8000")
     logger.info("- Docs:    http://localhost:8000/docs")
     logger.info("- Network: http://0.0.0.0:8000")
-    yield
+    try:
+        yield
+    finally:
+        chat_routes.close_model_audit_writer()
+        close_audit_connection_pools()
 
 
 def create_app() -> FastAPI:
@@ -32,7 +37,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(admin_audit_router)
     app.include_router(application_router)
-    app.include_router(chat_router)
+    app.include_router(chat_routes.router)
     app.include_router(health_router)
     return app
 

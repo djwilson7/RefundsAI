@@ -6,14 +6,15 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Protocol
 from uuid import UUID
 
-import psycopg
 from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
 
 from refunds_ai_api.config import Settings
 from refunds_ai_api.repositories.application import (
@@ -23,6 +24,7 @@ from refunds_ai_api.repositories.application import (
 )
 
 MODEL_AUDIT_EVENTS_CHANNEL = "model_audit_events"
+_AUDIT_POOLS: dict[tuple[str, int], ConnectionPool] = {}
 
 
 class ConnectionProvider(Protocol):
@@ -35,23 +37,59 @@ class ConnectionProvider(Protocol):
 
 
 @dataclass(frozen=True)
-class PsycopgAuditConnectionProvider:
-    """Open psycopg connections using backend Supabase configuration."""
+class PsycopgPoolAuditConnectionProvider:
+    """Reuse pooled psycopg connections using backend Supabase configuration."""
 
     settings: Settings
+    max_size: int = 4
 
     @contextmanager
     def open(self) -> Iterator[Connection]:
-        """Yield a configured psycopg connection."""
+        """Yield a configured pooled psycopg connection."""
         if not self.settings.supabase_db_url:
             raise RepositoryConfigurationError("SUPABASE_DB_URL is not configured.")
 
-        with psycopg.connect(
+        pool = get_audit_connection_pool(
             self.settings.supabase_db_url,
             connect_timeout=self.settings.database_connect_timeout_seconds,
-            row_factory=dict_row,
-        ) as connection:
+            max_size=self.max_size,
+        )
+        with pool.connection() as connection:
             yield connection
+
+
+PsycopgAuditConnectionProvider = PsycopgPoolAuditConnectionProvider
+
+
+def get_audit_connection_pool(
+    db_url: str,
+    *,
+    connect_timeout: int,
+    max_size: int,
+) -> ConnectionPool:
+    """Return the shared audit connection pool for one database URL."""
+    key = (db_url, connect_timeout)
+    pool = _AUDIT_POOLS.get(key)
+    if pool is None or pool.closed:
+        pool = ConnectionPool(
+            db_url,
+            kwargs={
+                "connect_timeout": connect_timeout,
+                "row_factory": dict_row,
+            },
+            min_size=0,
+            max_size=max_size,
+            open=True,
+        )
+        _AUDIT_POOLS[key] = pool
+    return pool
+
+
+def close_audit_connection_pools() -> None:
+    """Close all shared audit connection pools."""
+    for pool in _AUDIT_POOLS.values():
+        pool.close()
+    _AUDIT_POOLS.clear()
 
 
 @dataclass(frozen=True)
@@ -337,4 +375,21 @@ class AuditSessionNotFoundError(EntityNotFoundError):
 
 def adapt_jsonb(value: dict[str, Any] | None) -> Jsonb | None:
     """Adapt optional dictionaries for psycopg JSONB parameters."""
-    return Jsonb(value) if value is not None else None
+    return Jsonb(serialize_json_value(value)) if value is not None else None
+
+
+def serialize_json_value(value: Any) -> Any:
+    """Return a JSON-compatible value for audit payload persistence."""
+    if isinstance(value, dict):
+        return {key: serialize_json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [serialize_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [serialize_json_value(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
