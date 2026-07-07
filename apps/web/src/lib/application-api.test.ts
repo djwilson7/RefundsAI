@@ -4,9 +4,13 @@ import {
   formatPurchaseDate,
   formatPurchaseStatus,
   getPurchaseDetails,
+  getModelAuditInvocations,
+  getModelAuditSessionDetail,
   getRefundWorkflow,
   getUserProfile,
   getUserPurchases,
+  mapApiModelAuditSessionToInvocation,
+  mapApiModelAuditSessionToDetail,
   mapApiPurchaseDetailsToPurchaseDetails,
   mapApiPurchaseToCustomerPurchase,
   mapApiRefundWorkflowToRefundWorkflow,
@@ -70,6 +74,110 @@ const apiRefundWorkflow = {
     auto_renew: false,
   },
 };
+
+const apiModelAuditSession = {
+  id: "70000000-0000-4000-8000-000000000001",
+  trace_id: "71000000-0000-4000-8000-000000000001",
+  conversation_id: null,
+  customer_id: "20000000-0000-4000-8000-000000000001",
+  request_id: "req-123",
+  model_name: "gpt-5.4-mini",
+  status: "succeeded",
+  prompt_tokens: 500,
+  completion_tokens: 312,
+  total_tokens: 812,
+  started_at: "2026-07-07T16:18:00Z",
+  completed_at: "2026-07-07T16:18:03.200Z",
+  latency_ms: 3200,
+  event_count: 14,
+  created_at: "2026-07-07T16:18:00Z",
+  updated_at: "2026-07-07T16:18:03.200Z",
+};
+
+const apiModelAuditEvents = [
+  {
+    id: "73000000-0000-4000-8000-000000000001",
+    session_id: apiModelAuditSession.id,
+    trace_id: apiModelAuditSession.trace_id,
+    sequence_number: 1,
+    event_key: "REQUEST_RECEIVED",
+    display_name: "Request received",
+    category: "request",
+    description: "Customer chat request accepted by the backend.",
+    display_order: 1,
+    workflow_kind: null,
+    tool_name: null,
+    summary: "FastAPI chat route received validated customer message.",
+    input_json: {
+      message:
+        "Can you check whether my wireless headphones are eligible for a refund?",
+    },
+    output_json: null,
+    metadata_json: { trace_event_type: "message.received" },
+    created_at: "2026-07-07T16:18:00Z",
+  },
+  {
+    id: "73000000-0000-4000-8000-000000000002",
+    session_id: apiModelAuditSession.id,
+    trace_id: apiModelAuditSession.trace_id,
+    sequence_number: 6,
+    event_key: "TOOL_COMPLETED",
+    display_name: "Tool completed",
+    category: "tool",
+    description: "Backend tool execution completed.",
+    display_order: 7,
+    workflow_kind: "refund_eligibility",
+    tool_name: "get_refund_eligibility",
+    summary: "Backend refund-eligibility tool completed.",
+    input_json: null,
+    output_json: {},
+    metadata_json: { trace_event_type: "tool_call.completed" },
+    created_at: "2026-07-07T16:18:01Z",
+  },
+  {
+    id: "73000000-0000-4000-8000-000000000003",
+    session_id: apiModelAuditSession.id,
+    trace_id: apiModelAuditSession.trace_id,
+    sequence_number: 12,
+    event_key: "RESPONSE_GENERATED",
+    display_name: "Response generated",
+    category: "response",
+    description: "The assistant response was generated.",
+    display_order: 12,
+    workflow_kind: null,
+    tool_name: null,
+    summary: "The assistant response was generated.",
+    input_json: null,
+    output_json: {},
+    metadata_json: { trace_event_type: "response.generated" },
+    created_at: "2026-07-07T16:18:03Z",
+  },
+];
+
+const apiModelAuditEventsWithOnlyToolRequest = [
+  {
+    ...apiModelAuditEvents[0],
+  },
+  {
+    ...apiModelAuditEvents[1],
+    id: "73000000-0000-4000-8000-000000000004",
+    sequence_number: 8,
+    event_key: "TOOL_REQUESTED",
+    display_name: "Tool requested",
+    category: "tool",
+    tool_name: "get_customer_purchase_history",
+    summary: "Overriding model tool selection with deterministic workflow routing.",
+    output_json: null,
+    metadata_json: {
+      trace_event_type: "tool_call.overridden",
+      data: {
+        requested_tool_name: "validate_customer_account",
+        tool_name: "get_customer_purchase_history",
+      },
+    },
+    created_at: "2026-07-07T16:18:01Z",
+  },
+];
 
 describe("application API client", () => {
   afterEach(() => {
@@ -181,6 +289,85 @@ describe("application API client", () => {
       policyFacts: {
         auto_renew: false,
       },
+    });
+  });
+
+  it("maps model audit session and events to invocation cards", () => {
+    expect(
+      mapApiModelAuditSessionToInvocation(
+        apiModelAuditSession,
+        apiModelAuditEvents,
+      ),
+    ).toEqual({
+      id: "70000000-0000-4000-8000-000000000001",
+      title: "July 7, 2026",
+      lastActive: "Last active 4:18 PM",
+      description:
+        "Can you check whether my wireless headphones are eligible for a refund?",
+      status: "succeeded",
+      eventCount: 14,
+      toolCount: 1,
+      failureCount: 0,
+      totalTokens: 812,
+      latency: "3.2s",
+      timeToResponse: "3.0s",
+    });
+  });
+
+  it("maps model audit session and events to detail view data", () => {
+    expect(
+      mapApiModelAuditSessionToDetail(apiModelAuditSession, apiModelAuditEvents),
+    ).toMatchObject({
+      modelName: "gpt-5.4-mini",
+      traceId: "71000000-0000-4000-8000-000000000001",
+      requestId: "req-123",
+      prompt:
+        "Can you check whether my wireless headphones are eligible for a refund?",
+      finalResponse: "The assistant response was generated.",
+      toolCalls: [
+        expect.objectContaining({
+          toolName: "get_refund_eligibility",
+          status: "completed",
+        }),
+      ],
+      timelineEvents: expect.arrayContaining([
+        expect.objectContaining({
+          title: "Request received",
+          category: "request",
+        }),
+      ]),
+    });
+  });
+
+  it("counts deterministic tool usage from persisted tool request events", () => {
+    expect(
+      mapApiModelAuditSessionToInvocation(
+        apiModelAuditSession,
+        apiModelAuditEventsWithOnlyToolRequest,
+      ),
+    ).toMatchObject({
+      toolCount: 1,
+    });
+  });
+
+  it("does not display TTR above total session latency", () => {
+    expect(
+      mapApiModelAuditSessionToInvocation(
+        {
+          ...apiModelAuditSession,
+          latency_ms: 11_200,
+        },
+        [
+          apiModelAuditEvents[0],
+          {
+            ...apiModelAuditEvents[2],
+            created_at: "2026-07-07T16:18:18.100Z",
+          },
+        ],
+      ),
+    ).toMatchObject({
+      latency: "11.2s",
+      timeToResponse: "11.2s",
     });
   });
 
@@ -306,6 +493,100 @@ describe("application API client", () => {
     );
   });
 
+  it("loads model audit invocations from session and event APIs", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { sessions: [apiModelAuditSession] },
+            error: null,
+            meta: {},
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { events: apiModelAuditEvents },
+            error: null,
+            meta: {},
+          }),
+      });
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(getModelAuditInvocations(1)).resolves.toEqual([
+      expect.objectContaining({
+        description:
+          "Can you check whether my wireless headphones are eligible for a refund?",
+        eventCount: 14,
+        latency: "3.2s",
+        timeToResponse: "3.0s",
+        toolCount: 1,
+      }),
+    ]);
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:8000/api/admin/audit/sessions?limit=1",
+      { cache: "no-store" },
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:8000/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001/events",
+      { cache: "no-store" },
+    );
+  });
+
+  it("loads one model audit session detail from session and event APIs", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { session: apiModelAuditSession },
+            error: null,
+            meta: {},
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { events: apiModelAuditEvents },
+            error: null,
+            meta: {},
+          }),
+      });
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(getModelAuditSessionDetail(apiModelAuditSession.id)).resolves.toMatchObject({
+      modelName: "gpt-5.4-mini",
+      prompt:
+        "Can you check whether my wireless headphones are eligible for a refund?",
+      toolCalls: [
+        expect.objectContaining({
+          toolName: "get_refund_eligibility",
+        }),
+      ],
+    });
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:8000/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001",
+      { cache: "no-store" },
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:8000/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001/events",
+      { cache: "no-store" },
+    );
+  });
+
   it("returns null when the user API is unavailable or unsuccessful", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     await expect(getUserProfile(apiUser.id)).resolves.toBeNull();
@@ -366,6 +647,23 @@ describe("application API client", () => {
       }),
     );
     await expect(getRefundWorkflow(apiPurchase.id)).resolves.toBeNull();
+  });
+
+  it("returns null when the model audit sessions API is unavailable or unsuccessful", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    await expect(getModelAuditInvocations()).resolves.toBeNull();
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    await expect(getModelAuditInvocations()).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: false, data: null }),
+      }),
+    );
+    await expect(getModelAuditInvocations()).resolves.toBeNull();
   });
 
   it("formats purchase values for display", () => {

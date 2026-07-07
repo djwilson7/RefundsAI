@@ -52,6 +52,16 @@ class FakeAuditWriter:
         self.completed.append({"status": "failed", **kwargs})
 
 
+class FailingStartAuditWriter(FakeAuditWriter):
+    def start_session(self, **kwargs) -> ModelAuditSession:  # type: ignore[no-untyped-def]
+        raise RuntimeError("audit session timeout")
+
+
+class FailingEventAuditWriter(FakeAuditWriter):
+    def record_event(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        raise RuntimeError("audit event timeout")
+
+
 class TokenReportingModelClient:
     def __init__(self) -> None:
         self.calls = 0
@@ -150,6 +160,49 @@ def test_chat_endpoint_records_audit_session_events_and_metrics() -> None:
         completion_tokens=13,
         total_tokens=23,
     )
+
+
+def test_chat_endpoint_audit_write_failure_does_not_fail_response(caplog) -> None:
+    chat_service = StaticChatService()
+    chat_service.audit_writer = FailingEventAuditWriter()
+    client = build_client(chat_service)
+
+    with caplog.at_level("WARNING", logger="refunds_ai_api.chat"):
+        response = client.post(
+            "/api/chat",
+            json={
+                "message": "Show my purchases",
+                "customer_id": CUSTOMER_ID,
+                "purchase_id": PURCHASE_ID,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["message"]["content"] == "Received Show my purchases"
+    assert body["data"]["message"]["content"] != CHAT_UNAVAILABLE_RESPONSE
+    assert {record.event["type"] for record in caplog.records} == {"audit.write_failed"}
+
+
+def test_chat_endpoint_audit_session_creation_failure_does_not_fail_response(caplog) -> None:
+    chat_service = StaticChatService()
+    chat_service.audit_writer = FailingStartAuditWriter()
+    client = build_client(chat_service)
+
+    with caplog.at_level("WARNING", logger="refunds_ai_api.audit"):
+        response = client.post(
+            "/api/chat",
+            json={
+                "message": "Show my purchases",
+                "customer_id": CUSTOMER_ID,
+                "purchase_id": PURCHASE_ID,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["message"]["content"] == "Received Show my purchases"
+    assert caplog.records[0].event["type"] == "audit.session_create_failed"
+
 
 def test_chat_endpoint_rejects_empty_messages() -> None:
     client = build_client(StaticChatService())

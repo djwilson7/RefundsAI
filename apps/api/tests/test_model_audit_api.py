@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import psycopg
 from fastapi.testclient import TestClient
 
 from refunds_ai_api.main import create_app
@@ -194,3 +195,22 @@ def test_list_audit_sessions_returns_database_configuration_error() -> None:
         "code": "DATABASE_NOT_CONFIGURED",
         "message": "SUPABASE_DB_URL is not configured.",
     }
+
+
+def test_list_audit_sessions_returns_controlled_timeout_error(caplog) -> None:
+    client = build_client(
+        StubModelAuditService(error=psycopg.errors.ConnectionTimeout("connection timed out"))
+    )
+
+    with caplog.at_level("WARNING", logger="refunds_ai_api.audit"):
+        response = client.get("/api/admin/audit/sessions")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["success"] is False
+    assert body["data"] is None
+    assert body["error"] == {
+        "code": "audit_store_unavailable",
+        "message": "Audit logs are temporarily unavailable.",
+    }
+    assert caplog.records[0].event["type"] == "audit.store_unavailable"

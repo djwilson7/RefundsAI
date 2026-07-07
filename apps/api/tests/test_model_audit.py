@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from queue import Full
+from time import monotonic, sleep
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
@@ -10,11 +12,17 @@ from uuid import UUID
 import pytest
 
 from refunds_ai_api.repositories.application import RepositoryConflictError
-from refunds_ai_api.repositories.audit import AuditSessionNotFoundError, ModelAuditRepository
+from refunds_ai_api.repositories.audit import (
+    AuditSessionNotFoundError,
+    ModelAuditRepository,
+    serialize_json_value,
+)
 from refunds_ai_api.services.audit import (
+    AuditQueueFullError,
     ModelAuditEventKey,
     ModelAuditSession,
     ModelAuditWriterService,
+    NonBlockingModelAuditWriterService,
     TokenUsage,
 )
 
@@ -148,6 +156,46 @@ class RecordingAuditRepository:
         self.completed_sessions.append(kwargs)
 
 
+class FailingAuditRepository(RecordingAuditRepository):
+    def append_event(self, **kwargs: Any) -> None:
+        raise RuntimeError("audit database offline")
+
+
+class TrackingConnectionProvider:
+    def __init__(self, connection: StubConnection) -> None:
+        self.connection = connection
+        self.active_connections = 0
+        self.closed_connections = 0
+
+    @contextmanager
+    def open(self) -> Iterator[StubConnection]:
+        self.active_connections += 1
+        try:
+            yield self.connection
+        finally:
+            self.active_connections -= 1
+            self.closed_connections += 1
+
+
+class AlwaysFullQueue:
+    def put_nowait(self, item: Any) -> None:
+        raise Full
+
+    def qsize(self) -> int:
+        return 0
+
+
+def wait_for_condition(predicate) -> None:  # type: ignore[no-untyped-def]
+    deadline = monotonic() + 2
+
+    while monotonic() < deadline:
+        if predicate():
+            return
+        sleep(0.01)
+
+    raise AssertionError("Timed out waiting for queued audit writes.")
+
+
 def test_model_audit_writer_creates_session_event_and_completion() -> None:
     repository = RecordingAuditRepository()
     service = ModelAuditWriterService(repository)
@@ -218,6 +266,122 @@ def test_model_audit_writer_marks_session_failed() -> None:
 
     assert repository.completed_sessions[0]["status"] == "failed"
     assert repository.completed_sessions[0]["latency_ms"] == 500
+
+
+def test_non_blocking_model_audit_writer_queues_ordered_writes() -> None:
+    repository = RecordingAuditRepository()
+    service = NonBlockingModelAuditWriterService(repository)
+
+    session = service.start_session(
+        session_id=SESSION_ID,
+        trace_id=TRACE_ID,
+        model_name="gpt-5.4-mini",
+        started_at=STARTED_AT,
+    )
+    event_id = service.record_event(
+        session=session,
+        sequence_number=1,
+        event_key=ModelAuditEventKey.REQUEST_RECEIVED,
+        summary="Request accepted.",
+    )
+    service.complete_session(
+        session=session,
+        token_usage=TokenUsage(total_tokens=19),
+        completed_at=COMPLETED_AT,
+    )
+
+    wait_for_condition(
+        lambda: repository.created_sessions
+        and len(repository.events) == 1
+        and repository.completed_sessions
+    )
+    service.stop()
+
+    assert repository.created_sessions[0]["session_id"] == SESSION_ID
+    assert repository.events[0]["event_id"] == event_id
+    assert repository.events[0]["event_key"] == ModelAuditEventKey.REQUEST_RECEIVED
+    assert repository.completed_sessions[0]["session_id"] == SESSION_ID
+    assert repository.completed_sessions[0]["total_tokens"] == 19
+
+
+def test_audit_queue_drains_events_in_order() -> None:
+    repository = RecordingAuditRepository()
+    service = NonBlockingModelAuditWriterService(repository)
+    session = ModelAuditSession(id=SESSION_ID, trace_id=TRACE_ID, started_at=STARTED_AT)
+
+    service.record_event(
+        session=session,
+        sequence_number=1,
+        event_key=ModelAuditEventKey.REQUEST_RECEIVED,
+    )
+    service.record_event(
+        session=session,
+        sequence_number=2,
+        event_key=ModelAuditEventKey.GRAPH_STARTED,
+    )
+    service.record_event(
+        session=session,
+        sequence_number=3,
+        event_key=ModelAuditEventKey.RESPONSE_RETURNED,
+    )
+
+    wait_for_condition(lambda: len(repository.events) == 3)
+    service.stop()
+
+    assert [event["sequence_number"] for event in repository.events] == [1, 2, 3]
+
+
+def test_audit_queue_full_drop_logs_warning(caplog) -> None:
+    service = NonBlockingModelAuditWriterService(RecordingAuditRepository())
+    object.__setattr__(service, "_queue", AlwaysFullQueue())
+    session = ModelAuditSession(id=SESSION_ID, trace_id=TRACE_ID, started_at=STARTED_AT)
+
+    with caplog.at_level("WARNING", logger="refunds_ai_api.audit"):
+        event_id = service.record_event(
+            session=session,
+            sequence_number=1,
+            event_key=ModelAuditEventKey.REQUEST_RECEIVED,
+        )
+
+    service.stop(drain=False)
+
+    assert isinstance(event_id, UUID)
+    assert caplog.records[0].event["type"] == "audit.queue_full_dropped"
+
+
+def test_non_blocking_start_session_raises_when_session_enqueue_is_dropped(caplog) -> None:
+    service = NonBlockingModelAuditWriterService(RecordingAuditRepository())
+    object.__setattr__(service, "_queue", AlwaysFullQueue())
+
+    with caplog.at_level("WARNING", logger="refunds_ai_api.audit"):
+        with pytest.raises(AuditQueueFullError):
+            service.start_session(model_name="gpt-5.4-mini")
+
+    service.stop(drain=False)
+
+    assert caplog.records[0].event["type"] == "audit.queue_full_dropped"
+
+
+def test_audit_writer_logs_write_failure_and_continues(caplog) -> None:
+    repository = FailingAuditRepository()
+    service = NonBlockingModelAuditWriterService(repository)
+    session = ModelAuditSession(id=SESSION_ID, trace_id=TRACE_ID, started_at=STARTED_AT)
+
+    with caplog.at_level("WARNING", logger="refunds_ai_api.audit"):
+        service.record_event(
+            session=session,
+            sequence_number=1,
+            event_key=ModelAuditEventKey.REQUEST_RECEIVED,
+        )
+        wait_for_condition(
+            lambda: any(
+                record.event["type"] == "audit.write_failed" for record in caplog.records
+            )
+        )
+
+    service.stop()
+
+    assert caplog.records[0].event["reason"] == "RuntimeError"
 
 
 def test_model_audit_writer_rejects_unknown_event_key() -> None:
@@ -306,6 +470,42 @@ def test_model_audit_repository_inserts_session_and_event() -> None:
     assert event_params[9].__class__.__name__ == "Jsonb"
     assert event_params[10].__class__.__name__ == "Jsonb"
     assert event_params[11] == COMPLETED_AT
+
+
+def test_model_audit_repository_releases_connections_after_writes() -> None:
+    connection = StubConnection()
+    provider = TrackingConnectionProvider(connection)
+    repository = ModelAuditRepository(provider)
+
+    repository.create_session(
+        session_id=SESSION_ID,
+        trace_id=TRACE_ID,
+        model_name="gpt-5.4-mini",
+        status="running",
+        started_at=STARTED_AT,
+    )
+    repository.complete_session(
+        session_id=SESSION_ID,
+        status="succeeded",
+        completed_at=COMPLETED_AT,
+    )
+
+    assert provider.active_connections == 0
+    assert provider.closed_connections == 2
+
+
+def test_serialize_json_value_converts_datetime_payloads() -> None:
+    payload = {
+        "created_at": STARTED_AT,
+        "items": [{"purchased_at": COMPLETED_AT}],
+        "ids": (SESSION_ID,),
+    }
+
+    assert serialize_json_value(payload) == {
+        "created_at": "2026-07-07T14:00:00+00:00",
+        "items": [{"purchased_at": "2026-07-07T14:00:00.425000+00:00"}],
+        "ids": [str(SESSION_ID)],
+    }
 
 
 def test_model_audit_repository_completes_session() -> None:
