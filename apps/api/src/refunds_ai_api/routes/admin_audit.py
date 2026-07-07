@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
+import psycopg
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
+from psycopg_pool import PoolTimeout
 
 from refunds_ai_api.config import get_settings
 from refunds_ai_api.repositories.application import RepositoryConfigurationError
@@ -21,6 +24,7 @@ from refunds_ai_api.schemas.responses import ApiResponse
 from refunds_ai_api.services.model_audit import ModelAuditReadService
 
 router = APIRouter(prefix="/api/admin/audit", tags=["admin-audit"])
+logger = logging.getLogger("refunds_ai_api.audit")
 
 
 def response_meta() -> dict[str, str]:
@@ -48,6 +52,8 @@ def list_audit_sessions(
         ]
     except RepositoryConfigurationError as exc:
         return service_unavailable_response(response, "DATABASE_NOT_CONFIGURED", str(exc))
+    except (psycopg.errors.ConnectionTimeout, PoolTimeout) as exc:
+        return audit_store_unavailable_response(response, exc)
 
     return ApiResponse(
         success=True,
@@ -72,6 +78,8 @@ def get_audit_session(
         return not_found_response(response, "AUDIT_SESSION_NOT_FOUND", str(exc))
     except RepositoryConfigurationError as exc:
         return service_unavailable_response(response, "DATABASE_NOT_CONFIGURED", str(exc))
+    except (psycopg.errors.ConnectionTimeout, PoolTimeout) as exc:
+        return audit_store_unavailable_response(response, exc)
 
     return ApiResponse(
         success=True,
@@ -97,6 +105,8 @@ def list_audit_session_events(
         return not_found_response(response, "AUDIT_SESSION_NOT_FOUND", str(exc))
     except RepositoryConfigurationError as exc:
         return service_unavailable_response(response, "DATABASE_NOT_CONFIGURED", str(exc))
+    except (psycopg.errors.ConnectionTimeout, PoolTimeout) as exc:
+        return audit_store_unavailable_response(response, exc)
 
     return ApiResponse(
         success=True,
@@ -141,5 +151,30 @@ def service_unavailable_response(response: Response, code: str, message: str) ->
         success=False,
         data=None,
         error={"code": code, "message": message},
+        meta=response_meta(),
+    )
+
+
+def audit_store_unavailable_response(response: Response, exc: Exception) -> ApiResponse:
+    """Return a controlled unavailable response for audit store timeouts."""
+    logger.warning(
+        "audit.store_unavailable: %s",
+        exc,
+        extra={
+            "event": {
+                "type": "audit.store_unavailable",
+                "reason": exc.__class__.__name__,
+                "detail": str(exc),
+            }
+        },
+    )
+    response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return ApiResponse(
+        success=False,
+        data=None,
+        error={
+            "code": "audit_store_unavailable",
+            "message": "Audit logs are temporarily unavailable.",
+        },
         meta=response_meta(),
     )

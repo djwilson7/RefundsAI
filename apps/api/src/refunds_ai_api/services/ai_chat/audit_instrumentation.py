@@ -44,11 +44,11 @@ def record_audit_trace_event(
         )
     except Exception as exc:
         logger.warning(
-            "ai.chat.audit_event_failed: %s",
+            "audit.write_failed: %s",
             exc,
             extra={
                 "event": {
-                    "type": "audit.event_failed",
+                    "type": "audit.write_failed",
                     "reason": exc.__class__.__name__,
                     "detail": str(exc),
                     "trace_event_type": event_type,

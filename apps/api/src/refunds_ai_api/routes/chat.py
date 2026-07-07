@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -22,9 +23,16 @@ from refunds_ai_api.services.ai_chat import (
     log_trace_step,
 )
 from refunds_ai_api.services.application import ApplicationService
-from refunds_ai_api.services.audit import ModelAuditSession, ModelAuditWriterService
+from refunds_ai_api.services.audit import (
+    ModelAuditSession,
+    ModelAuditWriterService,
+    NonBlockingModelAuditWriterService,
+)
 
 router = APIRouter(prefix="/api", tags=["chat"])
+logger = logging.getLogger("refunds_ai_api.audit")
+_AUDIT_WRITER: NonBlockingModelAuditWriterService | None = None
+_AUDIT_WRITER_KEY: tuple[str | None, int] | None = None
 
 
 def response_meta() -> dict[str, str]:
@@ -39,8 +47,7 @@ def get_ai_chat_service(
     connection_provider = PsycopgConnectionProvider(settings)
     repository = ApplicationRepository(connection_provider)
     application_service = ApplicationService(repository)
-    audit_repository = ModelAuditRepository(PsycopgAuditConnectionProvider(settings))
-    audit_writer = ModelAuditWriterService(audit_repository)
+    audit_writer = get_model_audit_writer(settings)
     model_client = (
         OpenAIChatCompletionsModelClient(
             api_key=settings.openai_api_key,
@@ -56,6 +63,28 @@ def get_ai_chat_service(
         model_client=model_client,
         audit_writer=audit_writer,
     )
+
+
+def get_model_audit_writer(settings: Settings) -> NonBlockingModelAuditWriterService:
+    """Return the shared in-process audit writer for this API process."""
+    global _AUDIT_WRITER, _AUDIT_WRITER_KEY
+    key = (settings.supabase_db_url, settings.database_connect_timeout_seconds)
+    if _AUDIT_WRITER is None or _AUDIT_WRITER_KEY != key:
+        if _AUDIT_WRITER is not None:
+            _AUDIT_WRITER.stop(drain=False)
+        audit_repository = ModelAuditRepository(PsycopgAuditConnectionProvider(settings))
+        _AUDIT_WRITER = NonBlockingModelAuditWriterService(audit_repository)
+        _AUDIT_WRITER_KEY = key
+    return _AUDIT_WRITER
+
+
+def close_model_audit_writer() -> None:
+    """Stop the shared in-process audit writer."""
+    global _AUDIT_WRITER, _AUDIT_WRITER_KEY
+    if _AUDIT_WRITER is not None:
+        _AUDIT_WRITER.stop(drain=True)
+    _AUDIT_WRITER = None
+    _AUDIT_WRITER_KEY = None
 
 
 @router.post("/chat", response_model=ApiResponse)
@@ -165,7 +194,18 @@ def start_audit_session(
             customer_id=parse_optional_uuid(customer_id),
             request_id=str(uuid4()),
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "audit.session_create_failed: %s",
+            exc,
+            extra={
+                "event": {
+                    "type": "audit.session_create_failed",
+                    "reason": exc.__class__.__name__,
+                    "detail": str(exc),
+                }
+            },
+        )
         return None
 
 
@@ -184,7 +224,19 @@ def complete_audit_session(
             audit_writer.fail_session(session=audit_session, token_usage=token_usage)
             return
         audit_writer.complete_session(session=audit_session, token_usage=token_usage)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "audit.write_failed: %s",
+            exc,
+            extra={
+                "event": {
+                    "type": "audit.write_failed",
+                    "reason": exc.__class__.__name__,
+                    "detail": str(exc),
+                    "operation": "complete_session",
+                }
+            },
+        )
         return
 
 
