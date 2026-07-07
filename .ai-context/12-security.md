@@ -116,6 +116,8 @@ Refund preparation and issuance are separate backend-controlled operations. Fund
 
 Refund workflow mutations are strict commands. Repository writes guard expected database state and raise conflicts when duplicate calls, stale reads, or partial lifecycle state prevent exactly one row from being updated. Routes expose those conflicts as endpoint-specific `409` responses instead of silently returning current state or rewriting timestamps.
 
+AI-triggered refund workflow mutations require a canonical confirmation-command gate after backend eligibility has been established. Eligibility may store compact active refund context and the expected product-specific command, but it must not create a pending mutation. Only a customer message matching the expected canonical command may create internal pending state and re-enter backend workflow execution through `ApplicationService.request_refund` or `ApplicationService.issue_refund`. Generic replies such as "yes", "proceed", "do it", or "continue", model prose, frontend state, or tool arguments must not be treated as proof that a refund was prepared or issued.
+
 Issued mock refunds persist `refunded_at`, `refund_amount_cents`, and `refund_outcome` on `purchases`. Backend policy reads those persisted facts for already-refunded purchases so the system cannot forget or recompute issued credit after the status changes to `refunded`.
 
 ---

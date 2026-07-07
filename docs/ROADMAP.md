@@ -316,7 +316,7 @@ Build the customer-facing experience on top of the backend API contracts from v0
 
 ## Objective
 
-Implement the AI agent layer incrementally and complete the technical exercise scope through read-only purchase intelligence, deterministic refund policy lookup, and backend-evaluated refund eligibility. Controlled refund workflow execution remains documented as the next phase.
+Implement the AI agent layer incrementally and complete the technical exercise scope through purchase intelligence, deterministic refund policy lookup, backend-evaluated refund eligibility, and confirmation-gated refund workflow execution.
 
 The agent uses `gpt-5.4-mini` for the current OpenAI integration. The completed milestone proves the model can retrieve account facts, call deterministic tools, preserve compact conversation context, explain backend-owned refund policy, and communicate backend-evaluated refund eligibility without mutating refund workflows.
 
@@ -364,11 +364,11 @@ Example customer question: "Which of my digital products can be refunded?"
 
 Example customer question: "Start a refund for the eligible one."
 
-* [ ] Mutating refund tools for policy-approved preparation and issuance.
-* [ ] Explicit user-confirmation gate before any agent-triggered refund mutation.
-* [ ] LangGraph workflow for preparing refunds, continuing approved in-progress refund steps, and reporting final state.
-* [ ] Structured logs for confirmation requests, confirmation receipt, mutation attempts, workflow conflicts, and outcomes.
-* [ ] Backend tests confirming mutating tools require explicit confirmation and still rely on deterministic backend services.
+* [x] Confirmation-gated mutating refund workflow actions for policy-approved preparation and issuance.
+* [x] Explicit user-confirmation gate before any agent-triggered refund mutation.
+* [x] LangGraph workflow for preparing refunds, continuing approved in-progress refund steps, and reporting final state.
+* [x] Structured logs for confirmation requests, mutation attempts, workflow conflicts, and outcomes.
+* [x] Backend tests confirming mutations require explicit confirmation and still rely on deterministic backend services.
 
 ### Validation
 
@@ -378,8 +378,9 @@ Example customer question: "Start a refund for the eligible one."
 * [x] Agent resolves purchase-detail page policy follow-ups from current page purchase id without evaluating eligibility.
 * [x] Agent resolves active-result-set policy and eligibility follow-ups without treating demonstrative phrases as literal product names.
 * [x] Agent correctly explains backend-evaluated refund eligibility without mutating refund workflow state.
+* [x] Agent creates pending refund actions before mutation and executes refund preparation or issuance only after direct confirmation.
 * [x] LangGraph nodes call backend services through stable contracts.
-* [x] Structured logs capture intent, workflow lookup, tool execution, aggregate calculations, policy lookup, eligibility lookup, active-result-set previews, blocked future-phase requests, and final responses.
+* [x] Structured logs capture intent, workflow lookup, tool execution, aggregate calculations, policy lookup, eligibility lookup, active-result-set previews, confirmation gates, mutation outcomes, and final responses.
 
 ---
 

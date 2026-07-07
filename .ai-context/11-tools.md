@@ -51,7 +51,16 @@ The current `POST /api/chat` endpoint exposes only read-only tools to the langua
 | Policies | `get_refund_policy` | Retrieve deterministic refund policy sections. | No |
 | Refunds | `get_refund_eligibility` | Retrieve backend-evaluated refund eligibility and workflow state. | No |
 
-No currently callable chat tool may prepare, submit, process, issue, cancel, or otherwise mutate a refund workflow. Refund workflow mutation remains a Phase 4 boundary.
+No currently callable OpenAI tool may prepare, submit, process, issue, cancel, or otherwise mutate a refund workflow directly. Refund workflow mutation is handled as a deterministic backend workflow step after explicit customer confirmation, not as a model-selected write tool.
+
+The backend may execute `ApplicationService.request_refund` or `ApplicationService.issue_refund` only when all of the following are true:
+
+* The deterministic object-operation resolver identifies exactly one purchase.
+* Backend refund workflow state says the requested action is currently allowed.
+* The previous turn stored `conversation_state.active_refund_context` with a canonical confirmation command for that purchase type.
+* The current customer message matches the expected canonical command after deterministic normalization.
+
+Generic replies such as "yes", "proceed", "do it", or "continue" do not mutate refund state after a canonical command has been issued. Declines and invalid commands do not mutate refund state.
 
 ---
 
@@ -71,7 +80,11 @@ If the model requests broad purchase history for a resolvable date-bounded, poli
 
 Broad purchase history is the fallback when no narrower deterministic tool applies.
 
-The chat workflow resolves each customer message into a deterministic conversation object plus operation before selecting a workflow. Conversation objects include explicit product references, demonstrative references to the active result set, purchase type, date range, amount threshold, page purchase, active purchase, active result set, full purchase history, and unknown. Operations include count, list, ranked selection, policy, eligibility, refund start, explanation, and unknown. The object-operation lookup decides whether the turn is an account fact, refund policy lookup, read-only eligibility lookup, blocked future mutation, or clarification.
+The chat workflow resolves each customer message into a deterministic conversation object plus operation before selecting a workflow. Conversation objects include explicit product references, demonstrative references to the active result set, purchase type, date range, amount threshold, page purchase, active purchase, active result set, full purchase history, and unknown. Operations include count, list, ranked selection, policy, eligibility, refund start, explanation, and unknown. The object-operation lookup decides whether the turn is an account fact, refund policy lookup, read-only eligibility lookup, confirmation-gated refund mutation, or clarification.
+
+Eligibility phrasing has priority over policy lookup when the customer asks whether a purchase can be refunded. Examples include "Can I refund X?", "Can I get a refund for X?", "Am I able to get a refund for X?", "Is X refundable?", "Is X eligible for a refund?", and "Check if X is refundable." Policy lookup is reserved for policy, rule, requirement, and refund-window questions.
+
+After a refund-policy answer for an active purchase or active result set, narrow confirmation follow-ups such as "yes", "yes please", "yes, let's check", "let's check", or "check it" promote to refund eligibility for the active object. The same bare confirmations must not promote when there is no active purchase or result set.
 
 ## Conversation and Page Context
 
@@ -91,9 +104,10 @@ The endpoint returns compact conversation state for follow-up routing:
 * `active_refund_context`
 * `active_result_set`
 * `active_workflow`
+* `pending_refund_action`
 * `current_page`
 
-The chat graph injects compact model-visible context into both tool-selection and final-response model requests when it is relevant. This context may include selected purchase type, product, purchase id, selected purchase id counts with short ids, active result set label and count, policy scope, refund context, active refund context, current purchase-detail reference, summarized tool data, and blocked-action context. It must not include the full prior transcript or full rendered page content.
+The chat graph injects compact model-visible context into both tool-selection and final-response model requests when it is relevant. This context may include selected purchase type, product, purchase id, selected purchase id counts with short ids, active result set label and count, policy scope, refund context, active refund context, pending refund action, current purchase-detail reference, summarized tool data, and blocked-action context. It must not include the full prior transcript or full rendered page content.
 
 Before honoring any model-requested tool, the backend resolves authoritative context in this order: explicit named product references, demonstrative or pronoun references to an active purchase/result set, explicit purchase type, explicit date range, explicit amount threshold, page purchase, active purchase, active result set, full purchase history, then unknown or clarification. The model may interpret language, but it does not decide which purchase, scope, policy, or workflow target is authoritative.
 
@@ -107,9 +121,13 @@ Ranking-only follow-ups are account-fact questions, not refund-policy or refund-
 
 Whenever the backend resolver identifies exactly one concrete purchase, it updates `selected_purchase_id`, `selected_product`, and `selected_purchase_type` from that backend purchase row. Assistant prose is not parsed to infer state.
 
-After `get_refund_eligibility` returns exactly one resolved purchase, the endpoint stores `active_refund_context` with the evaluated purchase id, product name, purchase type, eligibility flag, workflow stage, next action, and reason codes. If the eligible physical workflow next action is `generate_return_label`, the active context stage is `awaiting_return_label` and next action is `generate_return_label`. Follow-up workflow continuation phrases such as "generate the return label", "start the return", "return the item", "proceed", or "yes, continue" must resolve against this active context. If the active context is missing, the backend asks the customer to confirm the product or order number before continuing. Phase 3 still does not call refund mutation tools; when the next action is known but mutation tooling is not wired, the assistant says that workflow action is not wired yet.
+After `get_refund_eligibility` returns exactly one resolved purchase, the endpoint stores `active_refund_context` with the evaluated purchase id, product name, purchase type, eligibility flag, workflow stage, next action, reason codes, and expected canonical confirmation command. If the eligible physical workflow next action is `generate_return_label`, the active context stage is `awaiting_return_label` and next action is `generate_return_label`. The active context also carries the product-specific command: `Confirm invalidate code and issue refund` for digital purchases, `Confirm cancel and issue refund` for subscriptions, or `Confirm start return and issue label` for physical purchases. Follow-up workflow continuation phrases such as "generate the return label", "start the return", "return the item", "proceed", or "yes, continue" resolve against this active context but do not execute mutation unless the customer sends the expected canonical command. If the active context is missing, the backend asks the customer to choose one product or order number before continuing.
+
+Refund workflow mutation requests are canonical command-gated. Eligibility creates the customer-visible command but does not create `pending_refund_action`. When the customer sends the expected canonical command, the backend validates the active refund context, active purchase, customer ownership, and current workflow permission, creates compact `pending_refund_action` internally, and immediately executes the existing backend mutation path. Command parsing normalizes case, punctuation, and ampersand usage, but it does not treat generic confirmations as write approval.
 
 Explicit product-name follow-ups such as "Developer Toolkit" escape narrowed selected sets and resolve against the active customer's full backend purchase rows using exact, normalized, partial, fuzzy, SKU, order-number, or purchase-id matching.
+
+When an active result set exists and the customer includes an explicit purchase-type word in a product reference, the resolver must constrain matching to that type before falling back globally. For example, "Music Collection subscription" must not silently resolve to a digital "Music Collection" purchase while the active scope is subscriptions; if no matching subscription purchase exists, the backend asks for clarification.
 
 Named product references must resolve unambiguously to an actual purchase before product-specific policy or eligibility lookup. If no match is found or multiple product-name matches are plausible, the backend must not infer purchase type, must not call `get_refund_policy` or `get_refund_eligibility`, and must ask for clarification.
 
@@ -125,9 +143,9 @@ Refund eligibility explanations must use `get_refund_eligibility` results. The m
 
 Malformed pseudo-tool text from the model is invalid output and must not be treated as reasoning or a valid tool call.
 
-The endpoint must not return Markdown-formatted assistant content, capture voice input, persist conversation logs, or mutate business state.
+Assistant response generation must not return Markdown-formatted content, capture voice input, or persist conversation logs. Business-state mutation is allowed only through the deterministic confirmed refund workflow path described above.
 
-Customer-facing assistant content must not expose backend routing terms such as selected context, selected set, resolver, tool, state, purchase ids, node, or graph.
+Customer-facing assistant content must refer to the overall handling as "the refund process" and, for physical purchases, the return-label and carrier phase as "the return process." It must not expose internal terms such as workflow, mutation, backend step, persisted state, orchestration, `issue_funds`, `invalidate_code`, `cancel_subscription`, `required_action`, selected context, selected set, resolver, tool, state, purchase ids, node, or graph.
 
 ## Logging
 

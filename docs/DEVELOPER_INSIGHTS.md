@@ -139,3 +139,17 @@ This keeps routing deterministic, keeps client-carried state small, and makes lo
 Tradeoff:
 
 The workflow has more small resolver modules and trace summaries, but the responsibility boundaries are clearer: backend code owns scope resolution, tools own authoritative data retrieval, and the model owns customer-facing wording from the provided source.
+
+---
+
+## Insight 009 - Refund Mutations Need a Backend Confirmation Gate
+
+AI chat can now help begin or close out a refund workflow, but the mutation must remain a backend-owned operation. A user request such as "start the refund" or "close out the refund" should resolve one concrete purchase, validate current workflow permissions, and store `conversation_state.pending_refund_action` before anything is written.
+
+Reason:
+
+The model is useful for conversation, but it must not be the authority that decides whether money movement or lifecycle mutation happens. Splitting mutation into a pending action plus a later direct confirmation keeps the customer interaction natural while preserving deterministic service ownership. The confirmed turn calls `ApplicationService.request_refund` or `ApplicationService.issue_refund`; declines clear the pending action without changing refund state.
+
+Tradeoff:
+
+This adds one extra turn before mutation, but it prevents accidental writes from ambiguous language, stale selected state, or broad follow-up phrases. It also gives logs a clean audit boundary: confirmation requested, mutation attempted, conflict or completion.
