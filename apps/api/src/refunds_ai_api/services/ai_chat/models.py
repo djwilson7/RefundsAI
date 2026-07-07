@@ -92,6 +92,7 @@ class AIChatResult:
     conversation_state: dict[str, Any] = field(
         default_factory=lambda: dict(EMPTY_CONVERSATION_STATE)
     )
+    side_effects: list[dict[str, Any]] = field(default_factory=list)
     next_trace_step: int = field(default=1, compare=False)
 
 
@@ -114,5 +115,6 @@ class ChatGraphState(TypedDict, total=False):
     resolved_context_purchase: dict[str, Any]
     invalid_model_output: bool
     assistant_response: str
+    side_effects: list[dict[str, Any]]
     error: str
     trace_step: int

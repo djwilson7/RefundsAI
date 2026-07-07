@@ -107,8 +107,10 @@ def has_refund_eligibility_intent(
         r"\bwhich\b.+\b(?:can|could)\s+be\s+refund(?:ed|able)\b",
         r"\bwhich\b.+\b(?:eligible|eligibility)\b",
         r"\bcan\s+i\s+refund\b",
+        r"\bcan\s+i\s+get\s+a\s+refund\s+for\b",
         r"\bcould\s+i\s+refund\b",
         r"\bam\s+i\s+able\s+to\s+refund\b",
+        r"\bam\s+i\s+able\s+to\s+get\s+a\s+refund\s+for\b",
         r"\bcan\s+i\s+get\s+my\s+money\s+back\b",
         r"\bam\s+i\s+eligible\b",
         r"\bis\s+(?:it|this|that|this\s+item|that\s+item)\s+eligible\b",
@@ -118,9 +120,13 @@ def has_refund_eligibility_intent(
         r"\bare\s+(?:they|these|those|them)\s+refund(?:ed|able)\b",
         r"\bcan\s+(?:they|these|those|them)\s+be\s+refund(?:ed|able)\b",
         r"\bcan\b.+\bbe\s+refund(?:ed|able)\b",
+        r"\bcheck\s+if\b.+\brefund(?:ed|able)\b",
         r"\brefund\s+eligibility\b",
     )
     if any(re.search(pattern, normalized_message) for pattern in eligibility_patterns):
+        return True
+
+    if _has_policy_to_eligibility_follow_up(normalized_message, normalized_state):
         return True
 
     has_prior_refund_context = bool(
@@ -128,6 +134,38 @@ def has_refund_eligibility_intent(
         or normalized_state.get("selected_refund_context")
     )
     return has_prior_refund_context and has_context_reference(normalized_message)
+
+
+def _has_policy_to_eligibility_follow_up(
+    message: str,
+    conversation_state: dict[str, Any],
+) -> bool:
+    active_workflow = conversation_state.get("active_workflow")
+    if not isinstance(active_workflow, dict):
+        return False
+    if active_workflow.get("kind") != "refund_policy":
+        return False
+
+    active_result_set = conversation_state.get("active_result_set")
+    active_purchase = conversation_state.get("active_purchase")
+    has_active_object = (
+        isinstance(active_result_set, dict)
+        and bool(active_result_set.get("purchase_ids"))
+    ) or (
+        isinstance(active_purchase, dict)
+        and bool(active_purchase.get("purchase_id"))
+    ) or bool(conversation_state.get("selected_purchase_id"))
+    if not has_active_object:
+        return False
+
+    follow_up_patterns = (
+        r"^yes[.!]?$",
+        r"^yes,?\s+please[.!]?$",
+        r"^yes,?\s+(?:please,?\s+)?(?:let'?s|lets)\s+check[.!]?$",
+        r"^(?:let'?s|lets)\s+check[.!]?$",
+        r"^check\s+(?:it|that|them|those|these)[.!]?$",
+    )
+    return any(re.search(pattern, message) for pattern in follow_up_patterns)
 
 
 def has_policy_follow_up_intent(message: str, conversation_state: dict[str, Any]) -> bool:

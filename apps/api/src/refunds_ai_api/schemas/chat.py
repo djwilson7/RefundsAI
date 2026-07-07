@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatMessageCreate(BaseModel):
@@ -37,3 +37,4 @@ class ChatResponseRead(BaseModel):
     model: str
     graph_ready: bool
     conversation_state: dict[str, Any]
+    side_effects: list[dict[str, Any]] = Field(default_factory=list)

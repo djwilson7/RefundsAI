@@ -72,6 +72,7 @@ class AIChatService:
                 content=CHAT_UNAVAILABLE_RESPONSE,
                 graph_ready=self.model_client is not None,
                 conversation_state=normalize_conversation_state(conversation_state),
+                side_effects=[],
                 next_trace_step=trace_step_start,
             )
 
@@ -80,6 +81,11 @@ class AIChatService:
             graph_ready=self.model_client is not None,
             conversation_state=state.get("conversation_state")
             or normalize_conversation_state(conversation_state),
+            side_effects=[
+                side_effect
+                for side_effect in state.get("side_effects", [])
+                if isinstance(side_effect, dict)
+            ],
             next_trace_step=int(state.get("trace_step", trace_step_start)),
         )
 

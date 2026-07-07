@@ -38,8 +38,34 @@ def format_trace_detail_block(event_type: str, data: Mapping[str, Any]) -> str |
             "Workflow Classification",
             summarize_workflow_classification(data),
         )
+    if event_type == "workflow.confirmation_requested":
+        return format_debug_block(
+            "Workflow Confirmation",
+            summarize_workflow_confirmation(data),
+        )
+    if event_type in {
+        "workflow.confirmation_command_generated",
+        "workflow.confirmation_command_received",
+        "workflow.confirmation_command_invalid",
+        "workflow.confirmation_command_verified",
+    }:
+        return format_debug_block(
+            "Workflow Confirmation Command",
+            summarize_workflow_confirmation_command(data),
+        )
     if event_type == "workflow.context_resolved":
         return format_debug_block("Workflow Context", summarize_workflow_context(data))
+    if event_type in {
+        "workflow.mutation_executing",
+        "workflow.mutation_completed",
+        "workflow.mutation_conflict",
+        "workflow.refund_mutation_started",
+        "workflow.refund_mutation_completed",
+    }:
+        return format_debug_block(
+            "Workflow Mutation",
+            summarize_workflow_mutation(data),
+        )
     if event_type == "workflow.executing":
         return format_debug_block("Workflow Execution", summarize_workflow_execution(data))
     if event_type == "tool_call.executing":
@@ -180,6 +206,76 @@ def summarize_workflow_context(value: Any) -> dict[str, Any]:
     }
 
 
+def summarize_workflow_confirmation(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Return confirmation gate details for a pending refund mutation."""
+    pending_action = _mapping_or_none(data.get("pending_action")) or {}
+    workflow = _mapping_or_none(data.get("workflow")) or {}
+    return {
+        "workflow": data.get("kind"),
+        "reason": data.get("reason"),
+        "pending_action": {
+            "action": pending_action.get("action"),
+            "product_name": pending_action.get("product_name"),
+            "purchase_type": pending_action.get("purchase_type"),
+            "required_action": pending_action.get("required_action"),
+            "refundable_amount_cents": pending_action.get("refundable_amount_cents"),
+        },
+        "current_workflow": {
+            "refund_stage": workflow.get("refund_stage"),
+            "required_action": workflow.get("required_action"),
+            "can_prepare_refund": workflow.get("can_prepare_refund"),
+            "can_issue_funds": workflow.get("can_issue_funds"),
+        },
+    }
+
+
+def summarize_workflow_confirmation_command(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Return canonical confirmation-command boundary details."""
+    pending_action = _mapping_or_none(data.get("pending_action")) or {}
+    return {
+        "workflow": data.get("kind"),
+        "purchase": {
+            "purchase_id": _short_id(data.get("purchase_id")),
+            "purchase_type": data.get("purchase_type"),
+            "active_refund_stage": data.get("active_refund_stage"),
+        },
+        "command": {
+            "expected": data.get("expected_command"),
+            "received": preview_text(data.get("received_command")),
+            "matched": data.get("matched_command"),
+        },
+        "pending_action": {
+            "action": pending_action.get("action"),
+            "required_action": pending_action.get("required_action"),
+        }
+        if pending_action
+        else None,
+    }
+
+
+def summarize_workflow_mutation(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Return mutation execution details without dumping full payloads."""
+    result = _mapping_or_none(data.get("result")) or {}
+    return {
+        "workflow": data.get("kind"),
+        "action": data.get("action"),
+        "purchase_id": _short_id(data.get("purchase_id")),
+        "purchase_type": data.get("purchase_type"),
+        "active_refund_stage": data.get("active_refund_stage"),
+        "expected_command": data.get("expected_command"),
+        "received_command": preview_text(data.get("received_command")),
+        "matched_command": data.get("matched_command"),
+        "product_name": data.get("product_name"),
+        "reason": data.get("reason"),
+        "result": {
+            "refund_stage": result.get("refund_stage"),
+            "required_action": result.get("required_action"),
+            "refundable_amount_cents": result.get("refundable_amount_cents"),
+            "refund_outcome": result.get("refund_outcome"),
+        },
+    }
+
+
 def summarize_workflow_execution(data: Mapping[str, Any]) -> dict[str, Any]:
     """Return deterministic workflow execution route summary."""
     workflow = data.get("kind")
@@ -266,6 +362,19 @@ def summarize_tool_result(tool_name: str, result: Mapping[str, Any]) -> dict[str
                 "section_count": len(sections) if isinstance(sections, list) else 0,
             },
         }
+    if "refund_stage" in result:
+        return {
+            "summary": (
+                f"refund {result.get('refund_stage')}, "
+                f"next={result.get('required_action')}"
+            ),
+            "result": {
+                "refund_stage": result.get("refund_stage"),
+                "required_action": result.get("required_action"),
+                "refund_outcome": result.get("refund_outcome"),
+                "refundable_amount_cents": result.get("refundable_amount_cents"),
+            },
+        }
     return {"summary": tool_name, "result": dict(result)}
 
 
@@ -276,6 +385,9 @@ def summarize_state_update(data: Mapping[str, Any]) -> dict[str, Any]:
         "active_workflow": summarize_active_workflow(data.get("active_workflow")),
         "active_result_set": summarize_active_result_set(active_result_set),
         "active_purchase": summarize_active_purchase(data.get("active_purchase")),
+        "pending_refund_action": summarize_pending_refund_action(
+            data.get("pending_refund_action")
+        ),
         "refund_context": _refund_context_from_state(data),
     }
 
@@ -311,6 +423,9 @@ def summarize_api_response(data: Mapping[str, Any]) -> dict[str, Any]:
             "active_scope": state.get("selected_scope_label"),
             "selected_count": _count(state.get("selected_purchase_ids")),
             "refund_selected": _count(state.get("selected_refund_purchase_ids")),
+            "pending_refund_action": summarize_pending_refund_action(
+                state.get("pending_refund_action")
+            ),
         },
     }
 
@@ -350,6 +465,9 @@ def summarize_conversation_state(state: Mapping[str, Any] | None) -> dict[str, A
         "active_workflow": active_workflow.get("kind") if active_workflow else None,
         "active_result_set": summarize_active_result_set(active_result_set),
         "active_purchase": summarize_active_purchase(active_purchase),
+        "pending_refund_action": summarize_pending_refund_action(
+            state.get("pending_refund_action")
+        ),
     }
 
 
@@ -388,6 +506,18 @@ def summarize_active_purchase(value: Any) -> dict[str, Any] | None:
         "purchase_id": active_purchase.get("purchase_id"),
         "product_name": active_purchase.get("product_name"),
         "purchase_type": active_purchase.get("purchase_type"),
+    }
+
+
+def summarize_pending_refund_action(value: Any) -> dict[str, Any] | None:
+    """Return pending refund confirmation summary."""
+    pending_action = _mapping_or_none(value)
+    if pending_action is None:
+        return None
+    return {
+        "action": pending_action.get("action"),
+        "product_name": pending_action.get("product_name"),
+        "purchase_type": pending_action.get("purchase_type"),
     }
 
 
@@ -642,6 +772,12 @@ def _page_label(value: Any) -> str | None:
     surface = page.get("surface")
     purchase_id = page.get("purchase_id")
     return f"{surface}:{purchase_id}" if purchase_id else str(surface)
+
+
+def _short_id(value: Any) -> str | None:
+    if not isinstance(value, str) or len(value) < 8:
+        return value if isinstance(value, str) else None
+    return value[:8]
 
 
 def _page_reference_label(value: Any) -> str | None:

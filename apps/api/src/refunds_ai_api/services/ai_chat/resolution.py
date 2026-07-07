@@ -115,10 +115,11 @@ def resolve_refund_policy_query_with_purchase(
     if policy_query is not None:
         resolved_purchase = None
         if product_reference is not None:
-            resolved_purchase = resolve_purchase_reference(
+            resolved_purchase, _unresolved_reference = resolve_purchase_reference_for_state(
                 application_service,
                 customer_id,
                 product_reference,
+                normalized_state,
             )
             if resolved_purchase is None:
                 return None, None, product_reference
@@ -149,10 +150,11 @@ def resolve_refund_policy_query_with_purchase(
 
     resolved_purchase = None
     if product_reference is not None:
-        resolved_purchase = resolve_purchase_reference(
+        resolved_purchase, _unresolved_reference = resolve_purchase_reference_for_state(
             application_service,
             customer_id,
             product_reference,
+            normalized_state,
         )
         if resolved_purchase is None:
             return None, None, product_reference
@@ -213,15 +215,21 @@ def resolve_refund_eligibility_query(
 
     product_reference = extract_product_reference(message)
     if product_reference is not None:
-        resolved_purchase = resolve_purchase_reference(
+        resolved_purchase, unresolved_reference = resolve_purchase_reference_for_state(
             application_service,
             customer_id,
             product_reference,
+            normalized_state,
         )
         if resolved_purchase is None:
+            context = (
+                "scoped_product_type_mismatch"
+                if unresolved_reference is not None
+                else "product"
+            )
             return EligibilityResolution(
                 [],
-                "product",
+                context,
                 unresolved_product_reference=product_reference,
             )
         return EligibilityResolution(
@@ -263,6 +271,17 @@ def resolve_refund_eligibility_query(
             message,
             normalized_state,
         )
+        if not selected_ids:
+            active_result_set = normalized_state.get("active_result_set")
+            if isinstance(active_result_set, dict) and any(
+                has_reference_phrase(normalized_message, term)
+                for term in ("those", "them", "these")
+            ):
+                selected_ids = [
+                    str(purchase_id)
+                    for purchase_id in active_result_set.get("purchase_ids", [])
+                    if isinstance(purchase_id, str)
+                ]
         if selected_ids:
             resolved_purchase = (
                 resolve_purchase_by_id(application_service, customer_id, selected_ids[0])
@@ -274,6 +293,14 @@ def resolve_refund_eligibility_query(
                 "selected_set",
                 resolved_purchase=resolved_purchase,
             )
+
+    policy_follow_up_resolution = resolve_policy_follow_up_eligibility(
+        application_service,
+        customer_id,
+        normalized_state,
+    )
+    if policy_follow_up_resolution is not None:
+        return policy_follow_up_resolution
 
     purchase_type = parse_purchase_type_filter(message)
     if purchase_type is not None:
@@ -319,6 +346,55 @@ def resolve_refund_eligibility_query(
     return EligibilityResolution(purchase_ids, "all_purchases")
 
 
+def resolve_policy_follow_up_eligibility(
+    application_service: ApplicationService | None,
+    customer_id: str | None,
+    conversation_state: dict[str, Any],
+) -> EligibilityResolution | None:
+    """Resolve policy confirmation follow-ups to the active purchase scope."""
+    active_workflow = conversation_state.get("active_workflow")
+    if not isinstance(active_workflow, dict) or active_workflow.get("kind") != "refund_policy":
+        return None
+
+    active_result_set = conversation_state.get("active_result_set")
+    if isinstance(active_result_set, dict):
+        purchase_ids = [
+            str(purchase_id)
+            for purchase_id in active_result_set.get("purchase_ids", [])
+            if isinstance(purchase_id, str)
+        ]
+        if purchase_ids:
+            return EligibilityResolution(purchase_ids, "selected_set")
+
+    active_purchase = conversation_state.get("active_purchase")
+    if isinstance(active_purchase, dict):
+        purchase_id = active_purchase.get("purchase_id")
+        if isinstance(purchase_id, str):
+            return EligibilityResolution(
+                [purchase_id],
+                "selected_purchase",
+                resolved_purchase=resolve_purchase_by_id(
+                    application_service,
+                    customer_id,
+                    purchase_id,
+                ),
+            )
+
+    selected_purchase_id = conversation_state.get("selected_purchase_id")
+    if isinstance(selected_purchase_id, str):
+        return EligibilityResolution(
+            [selected_purchase_id],
+            "selected_purchase",
+            resolved_purchase=resolve_purchase_by_id(
+                application_service,
+                customer_id,
+                selected_purchase_id,
+            ),
+        )
+
+    return None
+
+
 def extract_product_reference(message: str) -> str | None:
     """Extract a likely named product/SKU/order reference from supported follow-up text."""
     stripped_message = message.strip().strip("?.! ")
@@ -328,8 +404,13 @@ def extract_product_reference(message: str) -> str | None:
 
     patterns = (
         r"\bcan\s+i\s+refund\s+(?:my\s+|the\s+)?(.+)$",
+        r"\bcan\s+i\s+get\s+a\s+refund\s+for\s+(?:my\s+|the\s+)?(.+)$",
+        r"\bam\s+i\s+able\s+to\s+get\s+a\s+refund\s+for\s+(?:my\s+|the\s+)?(.+)$",
         r"\bcan\s+i\s+get\s+my\s+money\s+back\s+for\s+(?:my\s+|the\s+)?(.+)$",
         r"\bcan\s+(?:my\s+|the\s+)?(.+?)\s+be\s+refunded\b",
+        r"\bis\s+(?:my\s+|the\s+)?(.+?)\s+refund(?:ed|able)\b",
+        r"\bis\s+(?:my\s+|the\s+)?(.+?)\s+eligible\s+for\s+(?:a\s+)?refund\b",
+        r"\bcheck\s+if\s+(?:my\s+|the\s+)?(.+?)\s+is\s+refund(?:ed|able)\b",
         r"\bwhat\s+about\s+(?:the\s+)?(.+)$",
         r"\brefund\s+policy\s+for\s+(?:the\s+)?(.+)$",
         r"\bpolicy\s+for\s+(?:the\s+)?(.+)$",
@@ -471,6 +552,72 @@ def resolve_purchase_reference(
 
     purchases = application_service.list_user_purchases(customer_id)
     return match_purchase_reference(product_reference, purchases)
+
+
+def resolve_purchase_reference_for_state(
+    application_service: ApplicationService | None,
+    customer_id: str | None,
+    product_reference: str,
+    conversation_state: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Resolve a product reference while respecting explicit type words in scope."""
+    if application_service is None or customer_id is None:
+        return None, None
+
+    requested_type = explicit_purchase_type_word(product_reference)
+    if requested_type is None:
+        return (
+            resolve_purchase_reference(
+                application_service,
+                customer_id,
+                product_reference,
+            ),
+            None,
+        )
+
+    active_result_set = conversation_state.get("active_result_set")
+    active_purchase_ids = (
+        active_result_set.get("purchase_ids")
+        if isinstance(active_result_set, dict)
+        else None
+    )
+    if active_purchase_ids:
+        scoped_purchases = [
+            purchase
+            for purchase in list_purchases_by_ids(
+                application_service,
+                customer_id,
+                active_purchase_ids,
+            )
+            if purchase.get("purchase_type") == requested_type
+        ]
+        scoped_match = match_purchase_reference(product_reference, scoped_purchases)
+        if scoped_match is not None:
+            return scoped_match, None
+
+    type_matches = [
+        purchase
+        for purchase in application_service.list_user_purchases(customer_id)
+        if purchase.get("purchase_type") == requested_type
+    ]
+    type_match = match_purchase_reference(product_reference, type_matches)
+    if type_match is not None:
+        return type_match, None
+
+    return None, product_reference
+
+
+def explicit_purchase_type_word(product_reference: str) -> str | None:
+    """Return explicit product category words that should constrain resolution."""
+    normalized_reference = normalize_match_text(product_reference)
+    terms = set(normalized_reference.split())
+    if terms & {"subscription", "subscriptions"}:
+        return "subscription"
+    if terms & {"digital", "download", "downloads"}:
+        return "digital"
+    if terms & {"physical", "shipped", "shipment"}:
+        return "physical"
+    return None
 
 
 def match_purchase_reference(

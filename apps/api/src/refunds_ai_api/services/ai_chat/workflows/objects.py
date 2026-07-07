@@ -72,6 +72,14 @@ def resolve_conversation_object(
     )
     normalized_message = message.casefold()
 
+    if _has_policy_to_eligibility_follow_up(normalized_message, normalized_state):
+        referenced_object = _referenced_conversation_object(
+            normalized_state,
+            page_context,
+        )
+        if referenced_object is not None:
+            return referenced_object
+
     if _has_demonstrative_product_reference(normalized_message):
         referenced_object = _referenced_conversation_object(
             normalized_state,
@@ -293,6 +301,34 @@ def _has_demonstrative_product_reference(message: str) -> bool:
             "these",
         )
     )
+
+
+def _has_policy_to_eligibility_follow_up(
+    message: str,
+    conversation_state: Mapping[str, Any],
+) -> bool:
+    active_workflow = conversation_state.get("active_workflow")
+    if not isinstance(active_workflow, Mapping):
+        return False
+    if active_workflow.get("kind") != "refund_policy":
+        return False
+    normalized_message = " ".join(message.replace(",", " ").strip(" .!?").split())
+    follow_up_patterns = (
+        "yes",
+        "yes please",
+        "yes lets check",
+        "yes let's check",
+        "yes please lets check",
+        "yes please let's check",
+        "lets check",
+        "let's check",
+        "check it",
+        "check that",
+        "check them",
+        "check those",
+        "check these",
+    )
+    return normalized_message in follow_up_patterns
 
 
 def _purchase_type_label(purchase_type: str) -> str:

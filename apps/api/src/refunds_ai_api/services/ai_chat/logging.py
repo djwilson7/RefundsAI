@@ -143,9 +143,19 @@ def humanize_event_type(event_type: str) -> str:
         "tool_call.skipped": "Tool skipped",
         "workflow.blocked": "Workflow blocked",
         "workflow.classified": "Workflow classified",
+        "workflow.confirmation_command_generated": "Confirmation command generated",
+        "workflow.confirmation_command_invalid": "Confirmation command invalid",
+        "workflow.confirmation_command_received": "Confirmation command received",
+        "workflow.confirmation_command_verified": "Confirmation command verified",
+        "workflow.confirmation_requested": "Workflow confirmation requested",
         "workflow.completed": "Workflow completed",
         "workflow.context_resolved": "Workflow context resolved",
+        "workflow.refund_mutation_completed": "Refund mutation completed",
+        "workflow.refund_mutation_started": "Refund mutation started",
         "workflow.executing": "Workflow executing",
+        "workflow.mutation_completed": "Workflow mutation completed",
+        "workflow.mutation_conflict": "Workflow mutation conflict",
+        "workflow.mutation_executing": "Workflow mutation executing",
         "workflow.state_updated": "Workflow state updated",
         "workflow.tool_overridden": "Workflow tool overridden",
     }
@@ -204,11 +214,20 @@ def trace_console_details(event_type: str, data: dict[str, Any]) -> str:
             object=data.get("object"),
             object_label=data.get("object_label"),
             operation=data.get("operation"),
+            operation_reason=data.get("operation_reason"),
             tool=data.get("tool_name"),
             product=data.get("product_reference"),
+            action=data.get("action"),
             workflow=active_workflow_label(data.get("active_workflow")),
             result_set=active_result_set_label(data.get("active_result_set")),
             purchase=active_purchase_label(data.get("active_purchase")),
+            pending=pending_refund_action_label(data.get("pending_action")),
+            purchase_type=data.get("purchase_type"),
+            command_purchase=short_id(data.get("purchase_id")),
+            stage=data.get("active_refund_stage"),
+            expected=data.get("expected_command"),
+            received=shorten_text(data.get("received_command")),
+            matched=data.get("matched_command"),
         )
 
     if event_type == "tool_call.skipped":
@@ -323,6 +342,9 @@ def summarize_conversation_state(value: Any) -> str | None:
         refund_selected=count_items(refund_ids),
         refund_context=value.get("selected_refund_context"),
         active_refund=active_refund_context_label(active_refund_context),
+        pending_refund=pending_refund_action_label(
+            value.get("pending_refund_action")
+        ),
         workflow=active_workflow_label(active_workflow),
         result_set=active_result_set_label(active_result_set),
         active_purchase=active_purchase_label(active_purchase),
@@ -396,7 +418,19 @@ def active_refund_context_label(value: Any) -> str | None:
         purchase=short_id(value.get("purchase_id")),
         stage=value.get("stage"),
         next=value.get("next_action"),
+        command=value.get("confirmation_command"),
     )
+
+
+def pending_refund_action_label(value: Any) -> str | None:
+    """Return a compact label for pending refund confirmation state."""
+    if not isinstance(value, dict):
+        return None
+    action = value.get("action")
+    product_name = value.get("product_name")
+    if not action or not product_name:
+        return None
+    return f"{action}:{product_name}"
 
 
 def active_workflow_label(value: Any) -> str | None:

@@ -106,7 +106,10 @@ def resolve_workflow_context(
             if policy_lookup_query is not None:
                 policy_unresolved_reference = None
 
-    if classification.kind is WorkflowKind.REFUND_ELIGIBILITY:
+    if classification.kind in {
+        WorkflowKind.REFUND_ELIGIBILITY,
+        WorkflowKind.REFUND_MUTATION,
+    }:
         eligibility_resolution = resolve_refund_eligibility_query(
             message,
             conversation_state=state.get("conversation_state"),
@@ -125,6 +128,7 @@ def resolve_workflow_context(
         WorkflowKind.ACCOUNT_FACT,
         WorkflowKind.REFUND_POLICY,
         WorkflowKind.REFUND_ELIGIBILITY,
+        WorkflowKind.REFUND_MUTATION,
     }:
         resolved_context_purchase = resolve_purchase_fact_context(
             runtime.application_service,

@@ -18,7 +18,9 @@ SYSTEM_PROMPT = (
     "tool-provided purchase data for counts, totals, purchase types, statuses, "
     "and dates. Use only tool-provided refund policy data for policy explanations. "
     "Use only tool-provided refund eligibility data for eligibility explanations. "
-    "Do not initiate refund workflow actions. Keep the conversation grounded in the "
+    "Refund process changes are allowed only through explicit confirmation-gated "
+    "context. Do not claim a refund was started, prepared, or issued unless "
+    "available context says that action completed. Keep the conversation grounded in the "
     "customer's account, account history, purchases, orders, account activity, "
     "and refund flows. If the customer asks about unrelated topics, briefly and "
     "gracefully redirect them to account, purchase, order, activity, or refund "
@@ -112,8 +114,25 @@ def compact_model_context_payload(
                 "eligible",
                 "stage",
                 "next_action",
+                "confirmation_command",
+                "confirmation_backend_action",
+                "confirmation_steps",
             )
             if key in active_refund_context
+        }
+
+    pending_refund_action = conversation_state.get("pending_refund_action")
+    if isinstance(pending_refund_action, dict):
+        compact_state["pending_refund_action"] = {
+            key: pending_refund_action[key]
+            for key in (
+                "action",
+                "purchase_id",
+                "product_name",
+                "purchase_type",
+                "required_action",
+            )
+            if key in pending_refund_action
         }
 
     current_page = page_reference or conversation_state.get("current_page")

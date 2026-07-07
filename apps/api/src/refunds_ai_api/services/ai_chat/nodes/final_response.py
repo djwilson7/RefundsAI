@@ -21,6 +21,11 @@ from refunds_ai_api.services.ai_chat.responses import (
     CHAT_UNAVAILABLE_RESPONSE,
     sanitize_customer_response,
 )
+from refunds_ai_api.services.ai_chat.state import normalize_conversation_state
+from refunds_ai_api.services.ai_chat.workflow import (
+    build_refund_confirmation_command_offer,
+    normalize_refund_confirmation_command,
+)
 
 
 def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGraphState:
@@ -41,6 +46,29 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
         )
         return {**state, "assistant_response": ACCOUNT_DATA_REQUIRED_RESPONSE}
 
+    empty_eligibility_result = _empty_refund_eligibility_result(tool_results)
+    if empty_eligibility_result is not None:
+        state = log_trace_step(
+            state,
+            message=(
+                "Blocked final refund eligibility response because no purchase "
+                "was evaluated."
+            ),
+            event_type="response.blocked",
+            data={
+                "reason": "empty_refund_eligibility_result_guardrail",
+                "result": empty_eligibility_result,
+            },
+            level=logging.WARNING,
+        )
+        return {
+            **state,
+            "assistant_response": (
+                "I could not determine which purchase to check. Please choose "
+                "one purchase by product name or order number."
+            ),
+        }
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": state["message"]},
@@ -53,6 +81,7 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
     )
     if compact_context_message is not None:
         messages.append(compact_context_message)
+    state = _log_refund_confirmation_command_generated(state, tool_results)
     resolved_context_purchase = state.get("resolved_context_purchase")
     if resolved_context_purchase is not None:
         messages.append(
@@ -111,14 +140,30 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
                 "that scoped result. If the customer asks a ranking follow-up without "
                 "refund, return, policy, eligibility, approval, or process "
                 "wording, answer only the purchase fact requested and do not "
-                "discuss refund policy. Do not expose backend terms such as "
-                "selected context, selected set, state, tool, resolver, or "
-                "purchase ids. For refund "
+                "discuss refund policy. Do not expose internal terms such as "
+                "workflow, mutation, backend, backend step, persisted state, "
+                "orchestration, issue_funds, invalidate_code, "
+                "cancel_subscription, required_action, selected context, "
+                "selected set, state, tool, resolver, or purchase ids. Refer "
+                "to refund handling as the refund process, and refer to "
+                "return-label or carrier handling for physical purchases as "
+                "the return process. For refund "
                 "policy questions, answer only from the refund-policy tool "
                 "result and keep the answer scoped to the customer's request. "
                 "For refund eligibility questions, answer only from the "
-                "refund-eligibility tool result and do not offer to start, "
-                "prepare, issue, submit, or process a refund. "
+                "refund-eligibility tool result and do not claim a refund was "
+                "started, prepared, issued, submitted, or processed. If "
+                "get_refund_eligibility evaluated zero purchases, do not say a "
+                "purchase is eligible or ineligible; say the check could not be "
+                "completed and ask for a product name or order number. Do not "
+                "invent blocked reasons or infer denial from an empty item list. "
+                "Distinguish not eligible, already refunded, refund pending, not "
+                "evaluated, needs confirmation, and completed. If deterministic "
+                "context includes a confirmation_command, explain what the "
+                "command will do and include that exact command before anything "
+                "changes. Generic replies "
+                "such as yes, proceed, do it, or continue are not enough to "
+                "continue the refund process. "
                 "If the request is unrelated, briefly redirect the customer "
                 "back to supported account topics. Return plain standard text "
                 "only, with no Markdown formatting."
@@ -168,6 +213,10 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
         turn.content or CHAT_UNAVAILABLE_RESPONSE,
         state,
     )
+    assistant_response = _append_refund_confirmation_command_offer(
+        assistant_response,
+        state,
+    )
     state = log_trace_step(
         state,
         message="Model generated final assistant response.",
@@ -189,3 +238,80 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
     )
 
     return {**state, "assistant_response": assistant_response}
+
+
+def _empty_refund_eligibility_result(
+    tool_results: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    for tool_result in reversed(tool_results):
+        if not isinstance(tool_result, dict):
+            continue
+        if tool_result.get("name") != "get_refund_eligibility":
+            continue
+        result = tool_result.get("result")
+        if isinstance(result, dict) and result.get("purchase_count") == 0:
+            return result
+    return None
+
+
+def _append_refund_confirmation_command_offer(
+    assistant_response: str,
+    state: ChatGraphState,
+) -> str:
+    """Ensure eligible refund answers include the canonical mutation command."""
+    conversation_state = normalize_conversation_state(state.get("conversation_state"))
+    active_refund_context = conversation_state.get("active_refund_context")
+    if not isinstance(active_refund_context, dict):
+        return assistant_response
+    if active_refund_context.get("eligible") is not True:
+        return assistant_response
+    if active_refund_context.get("stage") not in {
+        "eligibility_confirmed",
+        "awaiting_return_label",
+    }:
+        return assistant_response
+    command = active_refund_context.get("confirmation_command")
+    if not isinstance(command, str) or not command:
+        return assistant_response
+    normalized_response = normalize_refund_confirmation_command(assistant_response)
+    normalized_command = normalize_refund_confirmation_command(command)
+    if normalized_command and normalized_command in normalized_response:
+        return assistant_response
+    offer = build_refund_confirmation_command_offer(active_refund_context)
+    if not offer:
+        return assistant_response
+    return f"{assistant_response}\n\n{offer}"
+
+
+def _log_refund_confirmation_command_generated(
+    state: ChatGraphState,
+    tool_results: list[dict[str, Any]],
+) -> ChatGraphState:
+    """Log canonical command generation after a single eligible result."""
+    if not any(
+        isinstance(tool_result, dict)
+        and tool_result.get("name") == "get_refund_eligibility"
+        for tool_result in tool_results
+    ):
+        return state
+    conversation_state = normalize_conversation_state(state.get("conversation_state"))
+    active_refund_context = conversation_state.get("active_refund_context")
+    if not isinstance(active_refund_context, dict):
+        return state
+    command = active_refund_context.get("confirmation_command")
+    if not isinstance(command, str) or not command:
+        return state
+    return log_trace_step(
+        state,
+        message="Generated canonical refund confirmation command.",
+        event_type="workflow.confirmation_command_generated",
+        data={
+            "kind": "refund_eligibility",
+            "purchase_type": active_refund_context.get("purchase_type"),
+            "purchase_id": active_refund_context.get("purchase_id"),
+            "active_refund_stage": active_refund_context.get("stage"),
+            "expected_command": command,
+            "received_command": None,
+            "matched_command": None,
+        },
+    )

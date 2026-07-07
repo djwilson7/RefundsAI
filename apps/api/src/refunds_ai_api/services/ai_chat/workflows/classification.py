@@ -17,7 +17,10 @@ from refunds_ai_api.services.ai_chat.routing import (
 )
 from refunds_ai_api.services.ai_chat.state import normalize_conversation_state
 from refunds_ai_api.services.ai_chat.workflow import (
+    is_refund_confirmation_boundary_reply,
+    parse_refund_workflow_confirmation_intent,
     parse_refund_workflow_continuation_intent,
+    parse_refund_workflow_decline_intent,
     parse_refund_workflow_mutation_intent,
 )
 from refunds_ai_api.services.ai_chat.workflows.classification_types import WorkflowKind
@@ -67,6 +70,34 @@ def classify_workflow(
         model_intent=model_intent,
     )
     workflow_kind = lookup_workflow_kind(conversation_object, operation.operation)
+    active_refund_context = normalized_state.get("active_refund_context")
+    if (
+        isinstance(active_refund_context, dict)
+        and active_refund_context.get("confirmation_command")
+        and is_refund_confirmation_boundary_reply(message)
+    ):
+        return WorkflowClassification(
+            WorkflowKind.REFUND_MUTATION,
+            "deterministic",
+            "refund_confirmation_command_boundary",
+            conversation_object,
+            operation,
+        )
+    if (
+        normalized_state.get("pending_refund_action") is not None
+        and (
+            parse_refund_workflow_confirmation_intent(message)
+            or parse_refund_workflow_decline_intent(message)
+        )
+    ):
+        return WorkflowClassification(
+            WorkflowKind.REFUND_MUTATION,
+            "deterministic",
+            "pending_refund_action_confirmation",
+            conversation_object,
+            operation,
+        )
+
     if workflow_kind is not WorkflowKind.OFF_DOMAIN:
         return WorkflowClassification(
             workflow_kind,

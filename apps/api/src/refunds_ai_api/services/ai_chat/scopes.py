@@ -16,6 +16,7 @@ from .routing import (
     parse_purchase_type_filter,
 )
 from .state import normalize_conversation_state
+from .workflow import refund_confirmation_command_for_purchase_type
 
 
 def selected_purchase_ids_for_refund_context(
@@ -278,7 +279,7 @@ def build_active_refund_context_from_eligibility_result(
     if not isinstance(reasons, list):
         reasons = []
 
-    return {
+    active_refund_context: dict[str, Any] = {
         "purchase_id": purchase_id,
         "product_name": product_name,
         "purchase_type": purchase_type,
@@ -287,6 +288,17 @@ def build_active_refund_context_from_eligibility_result(
         "next_action": next_action,
         "reason_codes": [reason for reason in reasons if isinstance(reason, str)],
     }
+    command_config = refund_confirmation_command_for_purchase_type(purchase_type)
+    if eligible and command_config is not None:
+        active_refund_context.update(
+            {
+                "confirmation_command": command_config["command"],
+                "confirmation_backend_action": command_config["backend_action"],
+                "confirmation_mutation_action": command_config["mutation_action"],
+                "confirmation_steps": list(command_config["steps"]),
+            }
+        )
+    return active_refund_context
 
 
 def update_conversation_state_for_page_reference(

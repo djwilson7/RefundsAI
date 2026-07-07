@@ -20,6 +20,17 @@ CUSTOMER_CONTEXT_REQUIRED_RESPONSE = (
     "Please load a mock customer, then ask again."
 )
 FORBIDDEN_CUSTOMER_RESPONSE_TERMS = (
+    "workflow",
+    "mutation",
+    "backend",
+    "backend step",
+    "persisted state",
+    "orchestration",
+    "issue_funds",
+    "invalidate_code",
+    "cancel_subscription",
+    "required_action",
+    "required action",
     "selected context",
     "selected set",
     "resolver",

@@ -55,18 +55,35 @@ def resolve_operation(
             "refund_start_operation",
         )
 
+    if _has_policy_to_eligibility_follow_up(normalized_message, conversation_state):
+        return OperationResolution(
+            WorkflowOperation.ELIGIBILITY,
+            "deterministic",
+            "policy_follow_up_confirmation_promoted",
+        )
+
+    if _has_refund_denial_explanation_operation(
+        normalized_message,
+        conversation_state,
+    ):
+        return OperationResolution(
+            WorkflowOperation.ELIGIBILITY,
+            "deterministic",
+            "refund_denial_explanation_phrase_matched",
+        )
+
     if _has_refund_eligibility_operation(normalized_message):
         return OperationResolution(
             WorkflowOperation.ELIGIBILITY,
             "deterministic",
-            "refund_eligibility_operation",
+            "refund_eligibility_phrase_matched",
         )
 
     if _has_refund_policy_operation(normalized_message):
         return OperationResolution(
             WorkflowOperation.POLICY,
             "deterministic",
-            "refund_policy_operation",
+            "refund_policy_phrase_matched",
         )
 
     if re.search(r"\b(?:first|oldest|earliest)\b", normalized_message):
@@ -177,18 +194,85 @@ def _has_refund_start_operation(
 def _has_refund_eligibility_operation(message: str) -> bool:
     eligibility_patterns = (
         r"\bcan\s+i\s+refund\b",
+        r"\bcan\s+i\s+get\s+a\s+refund\s+for\b",
         r"\bcould\s+i\s+refund\b",
         r"\bam\s+i\s+able\s+to\s+refund\b",
+        r"\bam\s+i\s+able\s+to\s+get\s+a\s+refund\s+for\b",
         r"\bam\s+i\s+eligible\b",
+        r"\bis\b.+\beligible\s+for\s+(?:a\s+)?refund\b",
         r"\bis\s+(?:it|this|that|this\s+item|that\s+item)\s+eligible\b",
         r"\bis\s+(?:it|this|that|this\s+item|that\s+item)\s+refund(?:ed|able)\b",
+        r"\bis\b.+\brefund(?:ed|able)\b",
         r"\bare\s+(?:they|these|those|them)\s+refund(?:ed|able)\b",
         r"\bcan\s+(?:they|these|those|them)\s+be\s+refund(?:ed|able)\b",
         r"\bcan\b.+\bbe\s+refund(?:ed|able)\b",
+        r"\bcheck\s+if\b.+\brefund(?:ed|able)\b",
         r"\beligib(?:le|ility)\b",
         r"\brefund\s+eligibility\b",
     )
     return any(re.search(pattern, message) for pattern in eligibility_patterns)
+
+
+def _has_refund_denial_explanation_operation(
+    message: str,
+    conversation_state: Mapping[str, Any] | None,
+) -> bool:
+    explanation_patterns = (
+        r"\bwhy\s+can'?t\s+i\s+get\s+a\s+refund\b",
+        r"\bwhy\s+is\s+(?:it|this|that|this\s+item|that\s+item)\s+not\s+eligible\b",
+        r"\bwhy\s+was\s+(?:it|this|that|this\s+item|that\s+item)\s+blocked\b",
+        r"\bwhat'?s\s+stopping\s+the\s+refund\b",
+        r"\bwhat\s+is\s+stopping\s+the\s+refund\b",
+        r"\bwhy\s+can'?t\s+(?:it|this|that|this\s+item|that\s+item)\s+be\s+refunded\b",
+        r"\bwhy\s+is\s+(?:it|this|that|this\s+item|that\s+item)\s+not\s+refund(?:ed|able)\b",
+    )
+    if not any(re.search(pattern, message) for pattern in explanation_patterns):
+        return False
+    if not isinstance(conversation_state, Mapping):
+        return True
+    active_workflow = conversation_state.get("active_workflow")
+    if isinstance(active_workflow, Mapping) and active_workflow.get("kind") in {
+        "refund_eligibility",
+        "refund_mutation",
+    }:
+        return True
+    return isinstance(conversation_state.get("active_refund_context"), Mapping)
+
+
+def _has_policy_to_eligibility_follow_up(
+    message: str,
+    conversation_state: Mapping[str, Any] | None,
+) -> bool:
+    if not isinstance(conversation_state, Mapping):
+        return False
+    active_workflow = conversation_state.get("active_workflow")
+    if not isinstance(active_workflow, Mapping):
+        return False
+    if active_workflow.get("kind") != "refund_policy":
+        return False
+    if not _has_active_purchase_or_result_set(conversation_state):
+        return False
+
+    follow_up_patterns = (
+        r"^yes[.!]?$",
+        r"^yes,?\s+please[.!]?$",
+        r"^yes,?\s+(?:please,?\s+)?(?:let'?s|lets)\s+check[.!]?$",
+        r"^(?:let'?s|lets)\s+check[.!]?$",
+        r"^check\s+(?:it|that|them|those|these)[.!]?$",
+    )
+    return any(re.search(pattern, message) for pattern in follow_up_patterns)
+
+
+def _has_active_purchase_or_result_set(
+    conversation_state: Mapping[str, Any],
+) -> bool:
+    active_result_set = conversation_state.get("active_result_set")
+    if isinstance(active_result_set, Mapping) and active_result_set.get("purchase_ids"):
+        return True
+    active_purchase = conversation_state.get("active_purchase")
+    if isinstance(active_purchase, Mapping) and active_purchase.get("purchase_id"):
+        return True
+    return bool(conversation_state.get("selected_purchase_id"))
 
 
 def _has_refund_policy_operation(message: str) -> bool:

@@ -98,6 +98,7 @@ def create_chat_message(
         model=settings.openai_model,
         graph_ready=ai_response.graph_ready,
         conversation_state=ai_response.conversation_state,
+        side_effects=ai_response.side_effects,
     )
 
     log_trace_step(
