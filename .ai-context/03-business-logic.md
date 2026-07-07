@@ -140,6 +140,10 @@ The AI assistant may:
 * Explain backend decisions.
 * Ask for exact canonical confirmation commands.
 * Execute confirmed refund process actions through backend services.
+* For digital and subscription purchases, execute confirmed refund handling as:
+  prepare, verify prepared state, issue funds, verify issued state.
+* For physical purchases, prepare the return process first; fund issuance remains gated
+  by carrier acceptance.
 
 The AI assistant may not:
 

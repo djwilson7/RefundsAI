@@ -12,8 +12,12 @@ from .fakes import (
     NoToolModelClient,
 )
 
+SUBSCRIPTION_PURCHASE_ID = "40000000-0000-4000-8000-000000000004"
 
-def test_chat_graph_refund_mutation_requires_confirmation_before_prepare(caplog) -> None:
+
+def test_chat_graph_refund_mutation_requires_confirmation_before_digital_issue(
+    caplog,
+) -> None:
     application_service = MutableRefundApplicationService()
     eligibility_result = AIChatService(
         application_service=application_service,
@@ -39,6 +43,7 @@ def test_chat_graph_refund_mutation_requires_confirmation_before_prepare(caplog)
     )
 
     assert application_service.request_refund_requests == []
+    assert application_service.issue_refund_requests == []
     assert "Confirm invalidate code and issue refund" in pending_result.content
     assert pending_result.conversation_state["pending_refund_action"] is None
     assert pending_result.conversation_state["active_refund_context"][
@@ -59,18 +64,18 @@ def test_chat_graph_refund_mutation_requires_confirmation_before_prepare(caplog)
         )
 
     assert application_service.request_refund_requests == [PURCHASE_ID]
+    assert application_service.issue_refund_requests == [PURCHASE_ID]
     assert confirmed_result.content == (
-        "The refund process has started for Design Template Pack. The refund has "
-        "not been released yet."
+        "The refund process has completed. You should see $45.00 reflected to "
+        "your original payment method within 3-10 business days. Do you have "
+        "any other questions, or would you like further assistance?"
     )
     assert_customer_safe_response(confirmed_result.content)
     assert confirmed_result.conversation_state["pending_refund_action"] is None
     assert confirmed_result.conversation_state["active_refund_context"]["stage"] == (
-        "prepared"
+        "issued"
     )
-    assert confirmed_result.conversation_state["active_refund_context"]["next_action"] == (
-        "issue_funds"
-    )
+    assert confirmed_result.conversation_state["active_refund_context"]["next_action"] is None
     assert confirmed_result.side_effects == [
         {
             "type": "purchase_data_changed",
@@ -86,8 +91,55 @@ def test_chat_graph_refund_mutation_requires_confirmation_before_prepare(caplog)
     )
     assert completed_event["data"]["purchase_id"] == PURCHASE_ID
     assert completed_event["data"]["product_name"] == "Design Template Pack"
-    assert completed_event["data"]["mutation_action"] == "request_refund"
-    assert completed_event["data"]["persisted_status_or_stage"] == "prepared"
+    assert completed_event["data"]["mutation_action"] == "issue_refund"
+    assert completed_event["data"]["persisted_status_or_stage"] == "issued"
+
+
+def test_chat_graph_refund_mutation_cancels_subscription_and_issues_refund() -> None:
+    application_service = MutableRefundApplicationService()
+    eligibility_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("This subscription is eligible."),
+    ).create_response(
+        message="Can I refund this subscription?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=SUBSCRIPTION_PURCHASE_ID,
+        page_context={
+            "surface": "purchase_detail",
+            "purchase_id": SUBSCRIPTION_PURCHASE_ID,
+        },
+    )
+
+    assert "Confirm cancel and issue refund" in eligibility_result.content
+
+    confirmed_result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("This response should not be used."),
+    ).create_response(
+        message="Confirm cancel and issue refund.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=SUBSCRIPTION_PURCHASE_ID,
+        page_context={
+            "surface": "purchase_detail",
+            "purchase_id": SUBSCRIPTION_PURCHASE_ID,
+        },
+        conversation_state=eligibility_result.conversation_state,
+    )
+
+    assert application_service.request_refund_requests == [SUBSCRIPTION_PURCHASE_ID]
+    assert application_service.issue_refund_requests == [SUBSCRIPTION_PURCHASE_ID]
+    assert confirmed_result.content == (
+        "The subscription has been canceled and the refund process has completed. "
+        "You should see $9.99 reflected to your original payment method within "
+        "3-10 business days. Do you have any other questions, or would you like "
+        "further assistance?"
+    )
+    assert_customer_safe_response(confirmed_result.content)
+    assert confirmed_result.conversation_state["active_refund_context"]["stage"] == (
+        "issued"
+    )
 
 def test_chat_graph_refund_mutation_validates_persisted_state_before_success() -> None:
     application_service = FailedPersistenceRefundApplicationService()
@@ -115,6 +167,7 @@ def test_chat_graph_refund_mutation_validates_persisted_state_before_success() -
     )
 
     assert application_service.request_refund_requests == [PURCHASE_ID]
+    assert application_service.issue_refund_requests == []
     assert result.content == (
         "I started the refund process, but I could not verify that the preparation "
         "step was saved. I did not issue funds."
@@ -268,6 +321,7 @@ def test_chat_graph_refund_confirmation_command_accepts_punctuation_variation() 
     )
 
     assert application_service.request_refund_requests == [PURCHASE_ID]
+    assert application_service.issue_refund_requests == [PURCHASE_ID]
     assert confirmed_result.conversation_state["pending_refund_action"] is None
 
 def test_chat_graph_generic_reply_after_confirmation_command_does_not_mutate() -> None:

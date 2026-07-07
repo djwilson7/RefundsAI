@@ -438,6 +438,11 @@ Canonical commands:
 | Physical | `Confirm start return and issue label` |
 | Subscription | `Confirm cancel and issue refund` |
 
+For digital and subscription purchases, a matching canonical command runs preparation,
+checks that preparation persisted, issues the refund, and checks that issuance
+persisted before reporting completion. For physical purchases, the canonical command
+prepares the return process only; fund issuance still requires carrier acceptance.
+
 Generic replies such as `yes`, `proceed`, `do it`, or `continue` must not mutate state
 at the command boundary.
 

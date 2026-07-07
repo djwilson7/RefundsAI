@@ -28,6 +28,8 @@ from .state import (
     _validate_refund_mutation_allowed,
 )
 
+AUTO_ISSUE_AFTER_PREPARATION_PURCHASE_TYPES = {"digital", "subscription"}
+
 
 def _execute_confirmed_refund_action(
     runtime: Any,
@@ -36,7 +38,7 @@ def _execute_confirmed_refund_action(
     conversation_state: dict[str, Any],
     pending_action: dict[str, Any],
 ) -> ChatGraphState:
-    """Execute one already-confirmed refund mutation through backend services."""
+    """Execute an already-confirmed refund action through backend services."""
     action = pending_action["action"]
     purchase_id = pending_action["purchase_id"]
     if runtime.application_service is None or context.customer_id is None:
@@ -103,6 +105,199 @@ def _execute_confirmed_refund_action(
         "refundable_amount_cents": workflow.get("refundable_amount_cents"),
         "refund_outcome": workflow.get("refund_outcome"),
     }
+    purchase_id = pending_action["purchase_id"]
+
+    if _should_issue_after_preparation(action, pending_action):
+        return _execute_confirmed_prepare_and_issue_refund(
+            runtime,
+            state,
+            context,
+            conversation_state,
+            pending_action,
+            workflow,
+        )
+
+    return _execute_single_confirmed_refund_action(
+        runtime,
+        state,
+        context,
+        conversation_state,
+        pending_action,
+        workflow,
+    )
+
+
+def _execute_single_confirmed_refund_action(
+    runtime: Any,
+    state: ChatGraphState,
+    context: WorkflowContext,
+    conversation_state: dict[str, Any],
+    pending_action: dict[str, Any],
+    workflow: dict[str, Any],
+) -> ChatGraphState:
+    """Execute and finish one confirmed refund mutation."""
+    action = pending_action["action"]
+    purchase_id = pending_action["purchase_id"]
+    state, result, tool_name, blocked_response = _execute_refund_mutation_step(
+        runtime,
+        state,
+        context,
+        conversation_state,
+        pending_action,
+        workflow,
+    )
+    if blocked_response is not None:
+        return blocked_response
+
+    return _complete_confirmed_refund_action(
+        state,
+        context,
+        conversation_state,
+        action,
+        pending_action,
+        result,
+        tool_name,
+        tool_results=[
+            {
+                "tool_call_id": _forced_tool_call_id(tool_name),
+                "name": tool_name,
+                "result": result,
+            }
+        ],
+        purchase_id=purchase_id,
+    )
+
+
+def _execute_confirmed_prepare_and_issue_refund(
+    runtime: Any,
+    state: ChatGraphState,
+    context: WorkflowContext,
+    conversation_state: dict[str, Any],
+    pending_action: dict[str, Any],
+    workflow: dict[str, Any],
+) -> ChatGraphState:
+    """Prepare, verify, issue, and verify an immediate refund after confirmation."""
+    purchase_id = pending_action["purchase_id"]
+    state, prepared_result, request_tool_name, blocked_response = _execute_refund_mutation_step(
+        runtime,
+        state,
+        context,
+        conversation_state,
+        pending_action,
+        workflow,
+    )
+    if blocked_response is not None:
+        return blocked_response
+
+    mutation_target = {
+        "purchase_id": purchase_id,
+        "product_name": pending_action["product_name"],
+        "purchase_type": pending_action["purchase_type"],
+    }
+    allowed, denial_response = _validate_refund_mutation_allowed(
+        "issue_refund",
+        mutation_target,
+        prepared_result,
+    )
+    if not allowed:
+        next_state = update_conversation_state_for_page_reference(
+            {
+                **conversation_state,
+                "pending_refund_action": None,
+                "active_purchase": {
+                    "purchase_id": purchase_id,
+                    "product_name": pending_action["product_name"],
+                    "purchase_type": pending_action["purchase_type"],
+                },
+                "active_refund_context": _active_refund_context_from_workflow(
+                    pending_action,
+                    prepared_result,
+                ),
+                "active_workflow": _active_mutation_workflow_state(
+                    state,
+                    context,
+                    pending_action["action"],
+                    pending_action,
+                    prepared_result,
+                    last_tool_name=request_tool_name,
+                ),
+            },
+            context.page_reference,
+        )
+        return {
+            **state,
+            "tool_results": [
+                {
+                    "tool_call_id": _forced_tool_call_id(request_tool_name),
+                    "name": request_tool_name,
+                    "result": prepared_result,
+                }
+            ],
+            "assistant_response": denial_response,
+            "conversation_state": next_state,
+            "page_reference": context.page_reference,
+            "side_effects": [
+                {
+                    "type": "purchase_data_changed",
+                    "customer_id": context.customer_id,
+                    "purchase_ids": [purchase_id],
+                    "reason": "refund_mutation_completed",
+                }
+            ],
+        }
+
+    issue_pending_action = {
+        **pending_action,
+        "action": "issue_refund",
+        "required_action": prepared_result.get("required_action"),
+        "refundable_amount_cents": prepared_result.get("refundable_amount_cents"),
+        "refund_outcome": prepared_result.get("refund_outcome"),
+    }
+    state, issued_result, issue_tool_name, blocked_response = _execute_refund_mutation_step(
+        runtime,
+        state,
+        context,
+        conversation_state,
+        issue_pending_action,
+        prepared_result,
+    )
+    if blocked_response is not None:
+        return blocked_response
+
+    return _complete_confirmed_refund_action(
+        state,
+        context,
+        conversation_state,
+        "issue_refund",
+        issue_pending_action,
+        issued_result,
+        issue_tool_name,
+        tool_results=[
+            {
+                "tool_call_id": _forced_tool_call_id(request_tool_name),
+                "name": request_tool_name,
+                "result": prepared_result,
+            },
+            {
+                "tool_call_id": _forced_tool_call_id(issue_tool_name),
+                "name": issue_tool_name,
+                "result": issued_result,
+            },
+        ],
+        purchase_id=purchase_id,
+    )
+
+
+def _execute_refund_mutation_step(
+    runtime: Any,
+    state: ChatGraphState,
+    context: WorkflowContext,
+    conversation_state: dict[str, Any],
+    pending_action: dict[str, Any],
+    workflow: dict[str, Any],
+) -> tuple[ChatGraphState, dict[str, Any], str, ChatGraphState | None]:
+    """Execute one backend mutation and verify the expected persisted stage."""
+    action = pending_action["action"]
     purchase_id = pending_action["purchase_id"]
     expected_stage = _expected_refund_stage_for_mutation(action)
     state = _log_mutation_event(
@@ -178,7 +373,7 @@ def _execute_confirmed_refund_action(
             },
             level=logging.WARNING,
         )
-        return {
+        blocked_response = {
             **state,
             "tool_results": [],
             "assistant_response": (
@@ -188,6 +383,7 @@ def _execute_confirmed_refund_action(
             "conversation_state": next_state,
             "page_reference": context.page_reference,
         }
+        return state, {}, "", blocked_response
 
     state = _log_mutation_event(
         state,
@@ -242,13 +438,14 @@ def _execute_confirmed_refund_action(
             },
             context.page_reference,
         )
-        return {
+        blocked_response = {
             **state,
             "tool_results": [],
             "assistant_response": _build_refund_validation_failed_response(action),
             "conversation_state": next_state,
             "page_reference": context.page_reference,
         }
+        return state, {}, tool_name, blocked_response
 
     state = _log_mutation_event(
         state,
@@ -263,13 +460,33 @@ def _execute_confirmed_refund_action(
         level=logging.INFO,
     )
     result = persisted_result
-    tool_results = [
-        {
-            "tool_call_id": _forced_tool_call_id(tool_name),
-            "name": tool_name,
+    state = log_trace_step(
+        state,
+        message="Confirmed refund workflow mutation completed.",
+        event_type="tool_call.completed",
+        data={
+            "tool_name": tool_name,
             "result": result,
-        }
-    ]
+        },
+    )
+    return state, result, tool_name, None
+
+
+def _complete_confirmed_refund_action(
+    state: ChatGraphState,
+    context: WorkflowContext,
+    conversation_state: dict[str, Any],
+    action: str,
+    pending_action: dict[str, Any],
+    result: dict[str, Any],
+    tool_name: str,
+    *,
+    tool_results: list[dict[str, Any]],
+    purchase_id: str,
+) -> ChatGraphState:
+    """Build final response, state, side effects, and completion traces."""
+    expected_stage = _expected_refund_stage_for_mutation(action)
+    tool_results = [tool_result for tool_result in tool_results if tool_result.get("name")]
     next_state = update_conversation_state_for_page_reference(
         {
             **conversation_state,
@@ -295,15 +512,6 @@ def _execute_confirmed_refund_action(
         context.page_reference,
     )
     response = _build_refund_mutation_success_response(action, pending_action, result)
-    state = log_trace_step(
-        state,
-        message="Confirmed refund workflow mutation completed.",
-        event_type="tool_call.completed",
-        data={
-            "tool_name": tool_name,
-            "result": result,
-        },
-    )
     state = log_trace_step(
         state,
         message="Confirmed refund workflow mutation completed.",
@@ -355,6 +563,15 @@ def _execute_confirmed_refund_action(
             }
         ],
     }
+
+
+def _should_issue_after_preparation(action: str, pending_action: dict[str, Any]) -> bool:
+    """Return whether confirmation should complete issue after verified preparation."""
+    return (
+        action == "request_refund"
+        and pending_action.get("purchase_type") in AUTO_ISSUE_AFTER_PREPARATION_PURCHASE_TYPES
+    )
+
 
 def _blocked_refund_mutation_response(
     state: ChatGraphState,

@@ -313,13 +313,18 @@ Canonical commands:
 
 | Type | Command | Backend action |
 | --- | --- | --- |
-| Digital | `Confirm invalidate code and issue refund` | `request_refund` preparation path |
+| Digital | `Confirm invalidate code and issue refund` | Prepare, verify preparation, issue, verify issuance |
 | Physical | `Confirm start return and issue label` | `request_refund` preparation path |
-| Subscription | `Confirm cancel and issue refund` | `request_refund` preparation path |
+| Subscription | `Confirm cancel and issue refund` | Prepare, verify preparation, issue, verify issuance |
 
 Prepared purchases that can issue funds may be confirmed through active refund context
 for the issuance path. The backend still revalidates current workflow state before
 calling `ApplicationService.issue_refund`.
+
+For digital and subscription purchases, the first confirmed canonical command performs
+that issuance path immediately after the preparation step verifies as persisted. For
+physical purchases, the first confirmed command stops after return preparation because
+fund issuance is gated by carrier acceptance.
 
 Generic replies such as `yes`, `proceed`, `go ahead`, `do it`, or `continue` do not
 mutate state at the canonical-command boundary.

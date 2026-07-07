@@ -903,7 +903,7 @@ def test_chat_graph_group_eligibility_clears_active_refund_context(
 
 def test_chat_graph_overrides_broad_history_tool_for_eligibility_intent(caplog) -> None:
     application_service = FakeApplicationService()
-    model_client = BroadHistoryForDateRangeModelClient("Only backend eligibility was used.")
+    model_client = BroadHistoryForDateRangeModelClient("Only refund eligibility was used.")
     chat_service = AIChatService(
         application_service=application_service,
         model="gpt-5.4-mini",
@@ -917,7 +917,7 @@ def test_chat_graph_overrides_broad_history_tool_for_eligibility_intent(caplog) 
             purchase_id=None,
         )
 
-    assert result.content == "Only backend eligibility was used."
+    assert result.content == "Only refund eligibility was used."
     assert application_service.refund_workflow_requests == [
         PURCHASE_ID,
         "40000000-0000-4000-8000-000000000002",
