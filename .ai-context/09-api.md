@@ -487,6 +487,7 @@ Next.js route handlers proxy browser requests to FastAPI:
 | Frontend route | Backend route |
 | --- | --- |
 | `POST /api/chat` | `POST /api/chat` |
+| `GET /api/admin/audit/events/stream` | `GET /api/admin/audit/events/stream` |
 | `GET /api/purchases/{purchase_id}/refund/eligibility` | `GET /api/purchases/{purchase_id}/refund/eligibility` |
 | `POST /api/purchases/{purchase_id}/refund/request` | `POST /api/purchases/{purchase_id}/refund/request` |
 | `POST /api/purchases/{purchase_id}/refund/issue` | `POST /api/purchases/{purchase_id}/refund/issue` |
@@ -566,7 +567,15 @@ Stream behavior:
 * PostgreSQL broadcasts inserted `model_audit_events` rows through the
   `model_audit_events` notification channel.
 * SSE event name is `model_audit_event`.
-* SSE `data` contains the same event fields returned by the session events read API.
+* SSE `data` contains compact event metadata for realtime UI refresh:
+  `id`, `session_id`, `trace_id`, `sequence_number`, `event_key`, lookup labels,
+  `workflow_kind`, `tool_name`, `summary`, and `created_at`.
+* Full event payloads remain available through
+  `GET /api/admin/audit/sessions/{session_id}/events`.
 * Keepalive comments may be emitted as `: keepalive`.
 
-The frontend admin panel is not wired to this stream yet.
+The admin home screen consumes the stream as an invalidation signal through a
+same-origin Next.js proxy route and refreshes persisted session/event reads after
+new audit event notifications.
+Admin session detail screens use the same proxy with `session_id` filtering to refresh
+the selected session timeline as new events arrive.

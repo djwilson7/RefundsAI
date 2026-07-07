@@ -38,8 +38,8 @@ Routes:
 | --- | --- |
 | `/` | Mock authentication landing page. |
 | `/user-home?customerId=...` | Server-loads customer profile and purchase history. |
-| `/admin-home` | Admin Session Overview: Reverse-chronological feed of captured Model Audit Sessions. |
-| `/admin/sessions/[sessionId]` | Admin Session Details: Live timeline deep-dive replay of execution events for a single session. |
+| `/admin-home` | Admin home screen with compact model-invocation audit cards loaded from persisted audit sessions and events. |
+| `/admin/sessions/[sessionId]` | Admin session detail screen with prompt, final response, tool history, and ordered execution timeline for one persisted audit session. |
 | `/purchase-details/[purchaseId]` | Server-loads purchase detail data and refund workflow state. |
 
 The root layout wraps every page in `ApplicationHelpLayer`. The help layer is only
@@ -286,4 +286,9 @@ Customer Message
   -> Complete or Fail Model Audit Session
 ```
 
-Admin UI timeline rendering remains a later v0.6.0 phase.
+The admin home screen renders model-invocation cards from the persisted audit read APIs.
+It subscribes to the audit SSE stream through a same-origin Next.js proxy and
+refreshes the server-rendered read model when new audit events are inserted.
+Session detail screens render one persisted audit session and subscribe to the same
+SSE stream filtered by `session_id` so active session timelines refresh as new events
+arrive.

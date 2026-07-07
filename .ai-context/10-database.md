@@ -320,6 +320,7 @@ Rules:
 * Backend code writes through `repositories/audit.py` and `services/audit.py`.
 * `/api/chat` creates a session for each valid request, persists ordered graph trace events, and completes or fails the session with token and latency metrics.
 * Migration `015_broadcast_model_audit_events.py` adds an after-insert trigger on `model_audit_events` that publishes event payloads through PostgreSQL `pg_notify`.
+* Migration `016_trim_model_audit_notification_payload.py` keeps realtime notifications compact so large JSON event payloads remain persisted in `model_audit_events` without exceeding PostgreSQL notification limits.
 
 ## Database-Managed Refund Fields
 
@@ -425,11 +426,20 @@ Model audit admin reads:
 3. Join `model_audit_events` to `model_audit_event_lookup` for event labels, categories, descriptions, and display order.
 4. Order event timelines by `sequence_number`.
 
+Model audit writes:
+
+1. The chat route creates audit session handles and enqueues session, event, and
+   completion writes through `NonBlockingModelAuditWriterService`.
+2. A single background worker preserves queued write order so audit persistence
+   does not block the model response path.
+3. Write failures are logged and do not change the customer-facing chat response.
+
 Model audit stream reads:
 
 1. Listen on the `model_audit_events` PostgreSQL notification channel.
-2. Relay notifications through `/api/admin/audit/events/stream` as SSE frames.
-3. Optionally filter relayed notifications by `session_id`.
+2. Relay compact event metadata notifications through `/api/admin/audit/events/stream` as SSE frames.
+3. Read full event JSON payloads through the session events API when detail views need them.
+4. Optionally filter relayed notifications by `session_id`.
 
 ## Migration List
 
@@ -451,6 +461,7 @@ Model audit stream reads:
 | `013_add_refund_confirmation_state` | Detail-level refund confirmation authorization and consumption facts. |
 | `014_create_model_audit_tables` | Model audit session, event timeline, and event lookup tables for v0.6.0. |
 | `015_broadcast_model_audit_events` | PostgreSQL notification trigger for realtime model audit event streams. |
+| `016_trim_model_audit_notification_payload` | Compact PostgreSQL notification payloads for reliable realtime audit streams. |
 
 ## Migration Commands
 
