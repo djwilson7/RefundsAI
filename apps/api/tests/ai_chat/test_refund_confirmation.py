@@ -4,9 +4,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from refunds_ai_api.services.refund_policy import RefundWorkflowError
 from refunds_ai_api.services.refund_confirmation import (
     authorize_persisted_refund_confirmation,
     validate_refund_confirmation,
+    _authorization_denial_reason,
 )
 
 from .fakes import CUSTOMER_ID, PURCHASE_ID, MutableRefundApplicationService
@@ -196,3 +198,193 @@ def test_persisted_refund_authorization_denies_without_validator_grant() -> None
 
     assert authorization.authorized is False
     assert authorization.denial_reason == "confirmation_not_granted"
+
+
+def test_parse_refund_confirmation_command() -> None:
+    from refunds_ai_api.services.refund_confirmation import parse_refund_confirmation_command
+    assert parse_refund_confirmation_command("Confirm invalidate code and issue refund") == "digital"
+    assert parse_refund_confirmation_command("Confirm cancel and issue refund") == "subscription"
+    assert parse_refund_confirmation_command("Confirm start return and issue label") == "physical"
+    assert parse_refund_confirmation_command("invalid") is None
+
+
+def test_validate_refund_confirmation_denies_customer_id_none() -> None:
+    application_service = MutableRefundApplicationService()
+    result = validate_refund_confirmation(
+        application_service=application_service,
+        customer_id=None,
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        user_message=DIGITAL_CONFIRMATION_COMMAND,
+        expected_confirmation_command=DIGITAL_CONFIRMATION_COMMAND,
+        current_refund_stage="eligible",
+        required_action="invalidate_digital_entitlement",
+    )
+    assert result.confirmed is False
+    assert result.denial_reason == "customer_context_required"
+
+
+def test_validate_refund_confirmation_denies_unsupported_purchase_type() -> None:
+    application_service = MutableRefundApplicationService()
+    result = validate_refund_confirmation(
+        application_service=application_service,
+        customer_id=CUSTOMER_ID,
+        purchase_id=PURCHASE_ID,
+        purchase_type="invalid_type",
+        user_message=DIGITAL_CONFIRMATION_COMMAND,
+        expected_confirmation_command=DIGITAL_CONFIRMATION_COMMAND,
+        current_refund_stage="eligible",
+        required_action="invalidate_digital_entitlement",
+    )
+    assert result.confirmed is False
+    assert result.denial_reason == "unsupported_purchase_type"
+
+
+def test_validate_refund_confirmation_denies_purchase_type_mismatch() -> None:
+    application_service = MutableRefundApplicationService()
+    result = validate_refund_confirmation(
+        application_service=application_service,
+        customer_id=CUSTOMER_ID,
+        purchase_id=PURCHASE_ID,
+        purchase_type="physical",
+        user_message="Confirm start return and issue label",
+        expected_confirmation_command="Confirm start return and issue label",
+        current_refund_stage="eligible",
+        required_action="generate_return_label",
+    )
+    assert result.confirmed is False
+    assert result.denial_reason == "purchase_type_mismatch"
+
+
+def test_validate_refund_confirmation_denies_persistence_failure() -> None:
+    class FailingPersistenceService(MutableRefundApplicationService):
+        def record_refund_confirmation(self, **kwargs: Any) -> Any:
+            raise RefundWorkflowError("record error")
+    application_service = FailingPersistenceService()
+    result = validate_refund_confirmation(
+        application_service=application_service,
+        customer_id=CUSTOMER_ID,
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        user_message=DIGITAL_CONFIRMATION_COMMAND,
+        expected_confirmation_command=DIGITAL_CONFIRMATION_COMMAND,
+        current_refund_stage="eligible",
+        required_action="invalidate_digital_entitlement",
+    )
+    assert result.confirmed is False
+    assert result.denial_reason == "confirmation_persistence_failed"
+
+
+def test_authorize_persisted_refund_confirmation_denies_customer_none() -> None:
+    application_service = MutableRefundApplicationService()
+    auth = authorize_persisted_refund_confirmation(
+        application_service=application_service,
+        customer_id=None,
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        expected_confirmation_command=DIGITAL_CONFIRMATION_COMMAND,
+        action="request_refund",
+        current_workflow=application_service.get_refund_workflow(PURCHASE_ID),
+    )
+    assert auth.authorized is False
+    assert auth.denial_reason == "customer_context_required"
+
+
+def test_authorize_persisted_refund_confirmation_mismatches() -> None:
+    application_service = MutableRefundApplicationService()
+    workflow = application_service.get_refund_workflow(PURCHASE_ID)
+    
+    # 1. Valid confirmation base dict
+    confirmation = {
+        "refund_confirmation_granted": True,
+        "refund_confirmation_matched": True,
+        "refund_confirmation_purchase_id": PURCHASE_ID,
+        "refund_confirmation_customer_id": CUSTOMER_ID,
+        "refund_confirmation_expected_command": DIGITAL_CONFIRMATION_COMMAND,
+        "refund_confirmation_consumed_at": None,
+        "refund_confirmation_consumed_by_action": None,
+    }
+    
+    # 2. Test mismatches
+    # customer mismatch
+    reason = _authorization_denial_reason(
+        customer_id="different-customer-id",
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        expected_confirmation_command=DIGITAL_CONFIRMATION_COMMAND,
+        action="request_refund",
+        current_workflow=workflow,
+        confirmation=confirmation,
+    )
+    assert reason == "confirmation_customer_mismatch"
+    
+    # purchase mismatch
+    reason = _authorization_denial_reason(
+        customer_id=CUSTOMER_ID,
+        purchase_id="different-purchase-id",
+        purchase_type="digital",
+        expected_confirmation_command=DIGITAL_CONFIRMATION_COMMAND,
+        action="request_refund",
+        current_workflow=workflow,
+        confirmation=confirmation,
+    )
+    assert reason == "confirmation_purchase_mismatch"
+
+    # expected command mismatch
+    reason = _authorization_denial_reason(
+        customer_id=CUSTOMER_ID,
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        expected_confirmation_command="wrong command",
+        action="request_refund",
+        current_workflow=workflow,
+        confirmation=confirmation,
+    )
+    assert reason == "confirmation_expected_command_mismatch"
+
+    # already consumed
+    consumed_confirmation = {
+        **confirmation,
+        "refund_confirmation_consumed_at": datetime.now(UTC),
+        "refund_confirmation_consumed_by_action": "request_refund",
+    }
+    reason = _authorization_denial_reason(
+        customer_id=CUSTOMER_ID,
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        expected_confirmation_command=DIGITAL_CONFIRMATION_COMMAND,
+        action="request_refund",
+        current_workflow=workflow,
+        confirmation=consumed_confirmation,
+    )
+    assert reason == "confirmation_already_consumed"
+
+    # confirmation command not valid for purchase type
+    reason = _authorization_denial_reason(
+        customer_id=CUSTOMER_ID,
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        expected_confirmation_command="Confirm start return and issue label",
+        action="request_refund",
+        current_workflow=workflow,
+        confirmation={
+            **confirmation,
+            "refund_confirmation_expected_command": "Confirm start return and issue label",
+        },
+    )
+    assert reason == "confirmation_command_not_valid_for_purchase_type"
+
+    # refund stage not mutable
+    blocked_workflow = {**workflow, "refund_stage": "issued"}
+    reason = _authorization_denial_reason(
+        customer_id=CUSTOMER_ID,
+        purchase_id=PURCHASE_ID,
+        purchase_type="digital",
+        expected_confirmation_command=DIGITAL_CONFIRMATION_COMMAND,
+        action="request_refund",
+        current_workflow=blocked_workflow,
+        confirmation=confirmation,
+    )
+    assert reason == "refund_stage_not_mutable"
+
+
