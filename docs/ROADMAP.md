@@ -425,24 +425,27 @@ Example customer question: "Start a refund for the eligible one."
 
 ## Objective
 
-Provide administrators with operational visibility into customer interactions and AI behavior.
+Provide administrators with operational visibility, AI auditability, and live monitoring of customer interactions and agent behavior. The focus is on auditing the AI's reasoning rather than general customer administration.
 
 ### Planned Deliverables
 
-* [ ] Admin dashboard
-* [ ] Customer verification workflow
-* [ ] Customer lookup
-* [ ] AI execution trace viewer
-* [ ] Operational metrics
-* [ ] Support session timeline
-* [ ] Administrative AI assistance
+* [ ] **Audit Session Overview**: Admin interface listing all support sessions in reverse-chronological order.
+* [ ] **Audit Session Details**: Live deep-dive view into a specific session showing:
+  * Customer prompt and assistant response
+  * Selected workflow kind and context resolution details
+  * Executed backend tool calls and validation results
+  * Undergoing mutation status and final outcomes
+  * Token usage metrics and round-trip latency
+* [ ] **Model Audit Session Database Modeling**: Schema migrations for `model_audit_sessions` and `model_audit_events` tables to record structured step events.
+* [ ] **Auditability Lookup Key definitions**: Stable database-to-frontend canonical event mapping keys (e.g. `MESSAGE_RECEIVED`, `TOOL_REQUESTED`, `MUTATION_STARTED`, etc.).
+* [ ] **Realtime Reasoning Stream**: Live WebSockets or SSE pipeline forwarding LangGraph execution events directly from backend to the admin UI.
 
 ### Validation
 
-* [ ] Customer verification workflow functional.
-* [ ] AI traces visible.
-* [ ] Customer history accessible after verification.
-* [ ] Administrative workflows validated.
+* [ ] Graph execution events successfully persisted as structured audit events in real-time.
+* [ ] Live timeline replayed and streamed immediately in the Admin UI without page refreshes.
+* [ ] Historical sessions accessible and inspectable in the Audit Viewer with detailed token usage and latency breakdowns.
+* [ ] Admin UI correctly resolves stable event keys to user-friendly labels and icons.
 
 ---
 

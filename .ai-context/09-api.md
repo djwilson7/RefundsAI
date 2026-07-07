@@ -70,6 +70,9 @@ Failure:
 | `POST` | `/api/purchases/{purchase_id}/refund/issue` | `ApplicationService.issue_refund` | Finalize prepared mock refund. |
 | `POST` | `/api/purchases/{purchase_id}/digital/redeem-code` | `ApplicationService.redeem_digital_code` | Simulate digital code redemption. |
 | `POST` | `/api/purchases/{purchase_id}/physical/confirm-carrier-acceptance` | `ApplicationService.confirm_carrier_acceptance` | Simulate carrier acceptance. |
+| `GET` | `/api/admin/audit-sessions` | `routes/admin.py` | List historical and active audit sessions. |
+| `GET` | `/api/admin/audit-sessions/{session_id}/events` | `routes/admin.py` | Get ordered audit events for a session. |
+| `GET` | `/api/admin/audit-sessions/stream` | `routes/admin.py` | Websocket/SSE live reasoning event stream. |
 
 Authentication is currently mocked. These endpoints do not implement production auth.
 
@@ -475,6 +478,9 @@ Next.js route handlers proxy browser requests to FastAPI:
 | `POST /api/purchases/{purchase_id}/refund/request` | `POST /api/purchases/{purchase_id}/refund/request` |
 | `POST /api/purchases/{purchase_id}/refund/issue` | `POST /api/purchases/{purchase_id}/refund/issue` |
 | `POST /api/purchases/{purchase_id}/physical/confirm-carrier-acceptance` | `POST /api/purchases/{purchase_id}/physical/confirm-carrier-acceptance` |
+| `GET /api/admin/audit-sessions` | `GET /api/admin/audit-sessions` |
+| `GET /api/admin/audit-sessions/{session_id}/events` | `GET /api/admin/audit-sessions/{session_id}/events` |
+| `GET/WS /api/admin/audit-sessions/stream` | `GET/WS /api/admin/audit-sessions/stream` |
 
 Proxy handlers should forward backend status and body. On network failure they return:
 
@@ -495,3 +501,38 @@ Clients must not send these fields as authoritative input:
 * model-generated policy conclusions
 
 Clients may request a command. Backend services decide whether the command is allowed.
+
+## Admin Audit API Details
+
+### `GET /api/admin/audit-sessions`
+
+Returns list of model execution audit sessions in reverse chronological order.
+
+Data shape:
+* `sessions[]`
+  * `id`: UUID of the session
+  * `conversation_id`: LangGraph thread conversation identifier
+  * `customer_id`: Target customer UUID
+  * `message_summary`: Brief snippet of the user prompt
+  * `model_name`: OpenAI model used
+  * `prompt_tokens`: Count
+  * `completion_tokens`: Count
+  * `total_tokens`: Count
+  * `latency_ms`: Total execution time
+  * `success`: boolean status
+  * `created_at`: timestamp
+
+### `GET /api/admin/audit-sessions/{session_id}/events`
+
+Returns the sequential timeline events for a given session.
+
+Data shape:
+* `events[]`
+  * `sequence_number`: 1-based order index
+  * `event_type`: canonical lookup code (e.g. `MESSAGE_RECEIVED`, `TOOL_REQUESTED`, `MUTATION_STARTED`, etc.)
+  * `workflow_kind`: resolved workflow classification
+  * `tool_name`: name of backend tool if applicable
+  * `summary`: human-readable description of step reasoning
+  * `metadata`: JSONB key-value details (e.g. tool arguments, database output, validation status)
+  * `timestamp`: event creation time
+

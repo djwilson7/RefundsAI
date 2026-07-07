@@ -38,7 +38,8 @@ Routes:
 | --- | --- |
 | `/` | Mock authentication landing page. |
 | `/user-home?customerId=...` | Server-loads customer profile and purchase history. |
-| `/admin-home` | Admin placeholder surface. |
+| `/admin-home` | Admin Session Overview: Reverse-chronological feed of captured Model Audit Sessions. |
+| `/admin/sessions/[sessionId]` | Admin Session Details: Live timeline deep-dive replay of execution events for a single session. |
 | `/purchase-details/[purchaseId]` | Server-loads purchase detail data and refund workflow state. |
 
 The root layout wraps every page in `ApplicationHelpLayer`. The help layer is only
@@ -255,3 +256,24 @@ help panel message
 
 The chat request includes compact `page_context` and previous `conversation_state`.
 It does not send full rendered page content or replay the full transcript.
+
+### Model Audit Logging & Observability Stream
+
+Every customer interaction triggers model execution tracing:
+
+```text
+Customer Message
+  -> FastAPI /api/chat
+  -> Create Model Audit Session
+  -> Graph execution begins
+  -> Node/Step execution:
+       - Workflow Classify
+       - Context Resolve
+       - Tool Request / Completion
+       - Mutation Start / Complete
+  -> Persist Audit Event to Database
+  -> Broadcast Event via Websocket/SSE
+  -> Admin UI timeline updates immediately
+```
+
+This streaming design provides live monitoring and audit capability while keeping the model and business operations isolated and transparent.

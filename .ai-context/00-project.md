@@ -63,11 +63,12 @@ Customers can:
 
 ### Admin Dashboard
 
-The admin route currently renders a placeholder dashboard surface.
+The Admin Dashboard is designed to serve as an **AI Auditability and Observability Suite**, rather than a customer account management panel. 
 
-The intended role is operational review: metrics, customer verification, support history,
-AI traces, and escalated cases. Those workflows are not yet implemented as mature
-backend features.
+The primary goal is providing live monitoring and historical review of the AI agent's decision-making process:
+* **Audit Session Overview**: Displays a reverse-chronological timeline of customer-agent chat sessions.
+* **Audit Session Details**: Direct deep-dive visibility into a single chat interaction session, rendering the customer prompt, final response, chosen workflow family, context resolution parameters, token usage metrics, latency, and real-time execution steps.
+* **Realtime Event Streaming**: WebSockets or SSE channels stream LangGraph trace events dynamically to the admin screen, creating a live timeline of the model's reasoning.
 
 ## Technology Stack
 

@@ -33,6 +33,7 @@ Implementation source:
 | Identity | `users`, `roles`, `user_roles` | Mock users and role assignments. |
 | Catalog/history | `products`, `purchases` | Product reference and customer purchase history. |
 | Detail extensions | `digital_purchase_details`, `physical_purchase_details`, `subscription_purchase_details` | Type-specific lifecycle and refund facts. |
+| Model audit | `model_audit_sessions`, `model_audit_events` | AI chat execution trace capture and token/latency metrics. |
 
 ## Identity Layer
 
@@ -301,6 +302,61 @@ Policy use:
 * Prorated refund uses unused time in the current active billing period.
 * Preparation cancels service access and records the refund mode.
 
+### `model_audit_sessions`
+
+Purpose: AI chat interaction session header mapping customer message details and token/latency performance metrics.
+
+Columns:
+
+* `id` (UUID, PK)
+* `conversation_id` (UUID, Index)
+* `customer_id` (UUID, FK to users.id)
+* `message_summary` (TEXT)
+* `model_name` (VARCHAR)
+* `prompt_tokens` (INTEGER)
+* `completion_tokens` (INTEGER)
+* `total_tokens` (INTEGER)
+* `latency_ms` (INTEGER)
+* `success` (BOOLEAN)
+* `created_at` (TIMESTAMP)
+
+Rules:
+
+* `conversation_id` maps to the LangGraph thread identifier.
+* `customer_id` associates the audit trail with the customer context.
+
+### `model_audit_events`
+
+Purpose: Sequential audit logging of intermediate LangGraph steps and backend decision points.
+
+Columns:
+
+* `id` (UUID, PK)
+* `session_id` (UUID, FK to model_audit_sessions.id, cascade delete, index)
+* `sequence_number` (INTEGER)
+* `event_type` (VARCHAR)
+* `workflow_kind` (VARCHAR)
+* `tool_name` (VARCHAR)
+* `summary` (TEXT)
+* `metadata` (JSONB)
+* `timestamp` (TIMESTAMP)
+
+Rules:
+
+* `sequence_number` starts at 1 per session and increments sequentially.
+* `event_type` is constrained to canonical lookup keys:
+  * `MESSAGE_RECEIVED`
+  * `WORKFLOW_CLASSIFIED`
+  * `CONTEXT_RESOLVED`
+  * `TOOL_REQUESTED`
+  * `TOOL_COMPLETED`
+  * `CONFIRMATION_VALIDATED`
+  * `MUTATION_STARTED`
+  * `MUTATION_COMPLETED`
+  * `RESPONSE_GENERATED`
+  * `RESPONSE_RETURNED`
+  * `VALIDATION_FAILED`
+
 ## Database-Managed Refund Fields
 
 Migration `010_add_refund_deadline_triggers.py` creates trigger functions:
@@ -416,6 +472,7 @@ Refund workflow reads:
 | `011_add_refund_workflow_state` | `refund_pending` status and physical label/barcode fields. |
 | `012_add_refund_issued_facts` | Purchase-level refund request and issued refund facts. |
 | `013_add_refund_confirmation_state` | Detail-level refund confirmation authorization and consumption facts. |
+| `[PLANNED] 014_create_model_audit_tables` | Upcoming model audit session and audit event tables for v0.6.0. |
 
 ## Migration Commands
 

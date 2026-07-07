@@ -67,7 +67,7 @@ This endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` whe
 
 ## AI Chat
 
-Configure the OpenAI model used by the read-only LangGraph chat flow:
+Configure the OpenAI model used by the LangGraph chat flow:
 
 ```bash
 OPENAI_API_KEY=sk-...
@@ -80,7 +80,33 @@ Check model connectivity:
 curl http://localhost:8000/health/model
 ```
 
-The `POST /api/chat` endpoint runs read-only tools for purchase-history, amount-threshold, date-range, and refund-policy questions. Requests include compact page context for the all-purchases surface or the active purchase-detail id. Responses include compact conversation state for selected purchase type, selected product, selected purchase id, selected purchase ids, selected policy scope, selected date range, and backend-resolved current page reference so the next request can resolve policy follow-ups without sending the full transcript or full page content. Scoped follow-ups such as "latest one" resolve inside the selected purchase set before falling back to the global most recent purchase. Explicit named product references such as "Developer Toolkit" escape any narrowed selected set, resolve against the full active purchase history, and use the matched purchase's actual purchase type for policy lookup. Named product references must resolve to an actual purchase before product-specific policy lookup; unresolved products get a clarification instead of inferred policy. The backend emits sequential console-visible trace events for model requests, tool selection, tool execution, tool results, blocked responses, and final assistant responses. The chat graph does not evaluate account-specific refund eligibility, capture voice input, persist conversation logs, or mutate refund state.
+The support panel sends user messages to `POST /api/chat`. The orchestration logic operates through several distinct phases:
+
+### 1. Context & Pronoun Resolution
+Requests carry a compact `conversation_state` and `page_context`:
+* **Page Grounding**: Resolves the customer's active purchase-detail page or category view.
+* **Context Resolution Priority**: Matches references against (1) page context, (2) active refund workflow state, (3) explicit product/SKU/order names, (4) active result sets, and (5) global history.
+* **Result Set Scopes**: Stores a `scope_label` (e.g., list/aggregate results) so that ordinal descriptors (*"last one"*, *"oldest"*, *"cheapest"*) evaluate within the active query results.
+
+### 2. Read-Only Backend Tools
+The LangGraph workflow resolves and executes deterministic tools on behalf of the customer:
+* `get_customer_purchase_history`: Fetch all customer purchases.
+* `get_purchase_history_by_date_range`: Search purchases within a date window.
+* `get_purchase_count_by_amount_threshold`: Count purchases above/below a price.
+* `get_refund_policy`: Retrieve deterministic policy rules.
+* `get_refund_eligibility`: Evaluate backend-computed eligibility facts.
+
+### 3. Confirmation-Gated Mutations
+The model never holds the consent authority to mutate database state. Mutations are protected by exact matching commands:
+* **Digital Purchase**: Requires `Confirm invalidate code and issue refund`
+* **Subscription Purchase**: Requires `Confirm cancel and issue refund`
+* **Physical Purchase**: Requires `Confirm start return and issue label`
+
+* **Safety Guards**: Ambiguous confirmations (*"yes"*, *"do it"*, *"proceed"*) are rejected at the mutation boundary; only the exact canonical command grants authorization.
+* **Atomic Transitions**: Digital and subscription validations may trigger preparation and issuance back-to-back, but the backend processes them as distinct database transactions. Physical workflows halt at return preparation until carrier acceptance is logged.
+
+### 4. Trace Events
+The backend emits sequential trace events for model requests, tool selection, tool execution, tool results, blocked responses, and final assistant responses. Real-time tracing and session persistence are captured for administrative audit.
 
 ## Database Migrations
 
@@ -106,7 +132,10 @@ Migration modules live in `src/refunds_ai_api/database/migrations/`. Seed steps 
 
 Mock data fixtures live in `mockdata/`. The identity fixture is `mockdata/identity_seed.json`; the product and purchase fixture is `mockdata/purchase_seed.json`.
 
-Refund lifecycle state is stored in the purchase detail tables, not in a standalone `refunds` table. Backend policy services should load `purchases` plus the matching detail table, evaluate eligibility, and persist approved lifecycle changes back to that detail table. Database triggers compute refund deadline fields and derivable defaults, so service code should send event facts rather than client-computed deadline values.
+### Schema & Lifecycle Strategy
+* **State Isolation**: Refund lifecycle and confirmation states reside within purchase-specific detail tables (e.g. `digital_purchase_details`), not a standalone `refunds` table.
+* **Deterministic Policy**: Backend service helpers calculate eligibility from database facts. The AI model only queries this policy via read-only tools.
+* **Database Triggers**: PostgreSQL triggers handle automatic refund window deadlines (15 days for digital, 30 days for physical, active period for subscription) and defaults, keeping service code simple and client inputs non-authoritative.
 
 ## Lint
 
