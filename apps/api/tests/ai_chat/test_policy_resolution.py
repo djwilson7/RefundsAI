@@ -205,6 +205,80 @@ def test_chat_graph_uses_selected_purchase_type_for_policy_follow_up(caplog) -> 
         "purchase_type": "digital",
     }
 
+def test_chat_graph_digital_items_policy_follow_up_does_not_become_product_reference(
+    caplog,
+) -> None:
+    model_client = NoToolModelClient("Digital products can be refunded within 15 days.")
+    chat_service = AIChatService(
+        application_service=FakeApplicationService(),
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    )
+
+    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+        result = chat_service.create_response(
+            message="Can you explain the refund policy for digital items please.",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            conversation_state={
+                "selected_purchase_type": "digital",
+                "selected_purchase_id": "40000000-0000-4000-8000-000000000031",
+                "selected_product": "Music Collection",
+                "selected_purchase_ids": ["40000000-0000-4000-8000-000000000031"],
+                "selected_refund_purchase_ids": [
+                    "40000000-0000-4000-8000-000000000031"
+                ],
+                "selected_refund_context": "selected_purchase",
+                "active_workflow": {
+                    "kind": "refund_eligibility",
+                    "object_kind": "product_reference",
+                    "object_label": "Music Collection",
+                    "operation": "eligibility",
+                    "last_user_message": (
+                        "Am I able to get a refund for the Music Collection?"
+                    ),
+                    "last_tool_name": "get_refund_eligibility",
+                    "last_tool_result_summary": {
+                        "purchase_id": "40000000-0000-4000-8000-000000000031",
+                        "refund_stage": "blocked",
+                        "required_action": "none",
+                    },
+                },
+                "active_refund_context": {
+                    "purchase_id": "40000000-0000-4000-8000-000000000031",
+                    "product_name": "Music Collection",
+                    "purchase_type": "digital",
+                    "eligible": False,
+                    "stage": "ineligible",
+                    "next_action": None,
+                    "reason_codes": ["code_redeemed"],
+                },
+                "active_purchase": {
+                    "purchase_id": "40000000-0000-4000-8000-000000000031",
+                    "product_name": "Music Collection",
+                    "purchase_type": "digital",
+                },
+            },
+        )
+
+    assert result.content == "Digital products can be refunded within 15 days."
+    assert result.conversation_state["selected_purchase_type"] == "digital"
+    assert result.conversation_state["selected_policy_scope"] == "product_type"
+    assert not any(
+        record.event["type"] == "response.blocked"
+        and record.event["data"].get("reason") == "product_reference_unresolved"
+        for record in caplog.records
+    )
+    forced_event = next(
+        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    )
+    assert forced_event["data"] == {
+        "tool_name": "get_refund_policy",
+        "reason": "policy_lookup_intent",
+        "scope": "product_type",
+        "purchase_type": "digital",
+    }
+
 def test_chat_graph_resolves_product_follow_up_to_policy_type(caplog) -> None:
     model_client = NoToolModelClient("Physical products can be returned within 30 days.")
     chat_service = AIChatService(

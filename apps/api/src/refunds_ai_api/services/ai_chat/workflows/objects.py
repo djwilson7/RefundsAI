@@ -89,6 +89,28 @@ def resolve_conversation_object(
         if referenced_object is not None:
             return referenced_object
 
+    if has_reference_phrase(normalized_message, "that one"):
+        singular_result = _singular_active_result_set_object(normalized_state)
+        if singular_result is not None:
+            return singular_result
+        active_purchase_object = _active_purchase_object(normalized_state)
+        if active_purchase_object is not None:
+            return active_purchase_object
+        page_object = _page_purchase_object(page_context)
+        if page_object is not None:
+            return page_object
+
+    if has_reference_phrase(normalized_message, "it"):
+        active_purchase_object = _active_purchase_object(normalized_state)
+        if active_purchase_object is not None:
+            return active_purchase_object
+        page_object = _page_purchase_object(page_context)
+        if page_object is not None:
+            return page_object
+        singular_result = _singular_active_result_set_object(normalized_state)
+        if singular_result is not None:
+            return singular_result
+
     if _has_demonstrative_product_reference(normalized_message):
         referenced_object = _referenced_conversation_object(
             normalized_state,
@@ -248,6 +270,16 @@ def _active_result_set_object(
     )
 
 
+def _singular_active_result_set_object(
+    conversation_state: Mapping[str, Any],
+) -> ConversationObject | None:
+    """Return active-result context only when it identifies exactly one purchase."""
+    result = _active_result_set_object(conversation_state)
+    if result is None or len(result.purchase_ids) != 1:
+        return None
+    return result
+
+
 def _active_purchase_object(
     conversation_state: Mapping[str, Any],
 ) -> ConversationObject | None:
@@ -316,9 +348,12 @@ def _has_context_reference(message: str) -> bool:
             "it",
             "its",
             "that",
+            "that item",
             "that one",
             "this",
             "this item",
+            "this order",
+            "this product",
             "this purchase",
             "the first",
             "the last",

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from refunds_ai_api.services.ai_chat.dates import parse_date_range_query
+from refunds_ai_api.services.ai_chat.entity_extraction import extract_entity
 from refunds_ai_api.services.ai_chat.parsing import parse_amount_threshold_query
 from refunds_ai_api.services.ai_chat.routing import (
     has_account_fact_intent,
@@ -50,7 +51,7 @@ class WorkflowClassification:
 
 
 def normalize_input_text(text: str) -> str:
-    """Normalize casing, punctuation, spelling, pluralization, and common aliases for classification."""
+    """Normalize casing, punctuation, spelling, plurals, and common aliases."""
     if not text:
         return ""
     # Casing
@@ -62,6 +63,8 @@ def normalize_input_text(text: str) -> str:
     alias_map = {
         "puchase": "purchase",
         "puchases": "purchases",
+        "purhcase": "purchase",
+        "purhcases": "purchases",
         "purches": "purchase",
         "purcheses": "purchases",
         "refun": "refund",
@@ -161,6 +164,30 @@ def classify_workflow(
             WorkflowKind.REFUND_MUTATION,
             "deterministic",
             "pending_refund_action_confirmation",
+            conversation_object,
+            operation,
+        )
+
+    entity_extraction = extract_entity(message)
+    if (
+        entity_extraction.intent == "refund_mutation"
+        and normalized_message.startswith(
+            ("refund ", "return ", "i want to refund ", "i want to return ")
+        )
+        and entity_extraction.entity_kind
+        in {
+            "named_product",
+            "purchase_id",
+            "sku",
+            "contextual_reference",
+            "purchase_type",
+            "none",
+        }
+    ):
+        return WorkflowClassification(
+            WorkflowKind.REFUND_MUTATION,
+            "deterministic",
+            "explicit_refund_action",
             conversation_object,
             operation,
         )

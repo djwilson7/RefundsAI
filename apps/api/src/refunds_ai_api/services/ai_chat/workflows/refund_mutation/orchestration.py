@@ -76,7 +76,7 @@ def _execute_confirmed_refund_action(
         )
 
     workflow = runtime.application_service.get_refund_workflow(purchase_id)
-    allowed, denial_response = _validate_refund_mutation_allowed(
+    allowed, denial_response, explanation_context = _validate_refund_mutation_allowed(
         action,
         {
             "purchase_id": resolved_purchase["id"],
@@ -96,6 +96,7 @@ def _execute_confirmed_refund_action(
             response=denial_response,
             reason=f"{action}_not_allowed",
             workflow=workflow,
+            customer_explanation_context=explanation_context,
         )
 
     pending_action = {
@@ -204,7 +205,7 @@ def _execute_confirmed_prepare_and_issue_refund(
         "product_name": pending_action["product_name"],
         "purchase_type": pending_action["purchase_type"],
     }
-    allowed, denial_response = _validate_refund_mutation_allowed(
+    allowed, denial_response, explanation_context = _validate_refund_mutation_allowed(
         "issue_refund",
         mutation_target,
         prepared_result,
@@ -231,6 +232,7 @@ def _execute_confirmed_prepare_and_issue_refund(
                     prepared_result,
                     last_tool_name=request_tool_name,
                 ),
+                "customer_explanation_context": explanation_context,
             },
             context.page_reference,
         )
@@ -802,6 +804,7 @@ def _blocked_refund_mutation_response(
     response: str,
     reason: str,
     workflow: dict[str, Any] | None = None,
+    customer_explanation_context: dict[str, Any] | None = None,
 ) -> ChatGraphState:
     """Return a deterministic mutation-blocked response."""
     state = log_trace_step(
@@ -812,9 +815,23 @@ def _blocked_refund_mutation_response(
             "kind": context.kind.value,
             "reason": reason,
             "workflow": workflow,
+            "customer_explanation_context": customer_explanation_context,
         },
         level=logging.WARNING,
     )
+    if customer_explanation_context is not None:
+        conversation_state = {
+            **conversation_state,
+            "customer_explanation_context": customer_explanation_context,
+        }
+    conversation_state = {
+        **conversation_state,
+        "entity_extraction_result": (
+            context.entity_extraction_result.as_dict()
+            if context.entity_extraction_result is not None
+            else None
+        ),
+    }
     return {
         **state,
         "tool_results": [],

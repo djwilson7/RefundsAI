@@ -95,6 +95,11 @@ class OpenAIChatCompletionsModelClient:
                 TokenUsage(
                     prompt_tokens=getattr(usage, "prompt_tokens", None),
                     completion_tokens=getattr(usage, "completion_tokens", None),
+                    reasoning_tokens=getattr(
+                        getattr(usage, "completion_tokens_details", None),
+                        "reasoning_tokens",
+                        None,
+                    ),
                     total_tokens=getattr(usage, "total_tokens", None),
                 )
                 if usage is not None

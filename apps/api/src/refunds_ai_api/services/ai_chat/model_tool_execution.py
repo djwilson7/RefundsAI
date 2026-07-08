@@ -225,7 +225,7 @@ def execute_model_requested_tool_calls(
                 data={
                     "tool_name": tool_call.name,
                     "customer_id": customer_id,
-                    "purchase_count": result["aggregates"]["total_purchase_count"],
+                    "purchase_count": result["history_summary"]["total_purchase_count"],
                     "result": result,
                 },
             )

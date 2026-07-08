@@ -11,6 +11,7 @@ from .workflow import (
     refund_confirmation_command_for_purchase_type,
 )
 
+
 class RefundState(StrEnum):
     ELIGIBLE = "Eligible"
     AWAITING_CONFIRMATION = "AwaitingConfirmation"
@@ -24,7 +25,11 @@ class RefundStateMachine:
     """Deterministic, backend-owned transition coordinator for refund stages."""
 
     @classmethod
-    def get_stage(cls, workflow: dict[str, Any], pending_action: dict[str, Any] | None = None) -> RefundState:
+    def get_stage(
+        cls,
+        workflow: dict[str, Any],
+        pending_action: dict[str, Any] | None = None,
+    ) -> RefundState:
         stage = workflow.get("refund_stage")
         required_action = workflow.get("required_action")
         
@@ -106,11 +111,48 @@ def enforce_state_lifetimes(state: dict[str, Any]) -> dict[str, Any]:
     
     if not metadata:
         metadata = {
-            "AccountState": {"owner": "AccountQueryEngine", "created_at": now_str, "updated_at": now_str, "expires_when": "never", "invalidated_by": []},
-            "PurchaseSelectionState": {"owner": "SelectionManager", "created_at": now_str, "updated_at": now_str, "expires_when": "customer switches domain or purchase", "invalidated_by": ["domain_switch"]},
-            "RefundWorkflowState": {"owner": "RefundMutationEngine", "created_at": now_str, "updated_at": now_str, "expires_when": "workflow completed, workflow cancelled, customer switches purchase, customer requests unrelated workflow", "invalidated_by": ["domain_switch", "purchase_switch", "workflow_completed"]},
-            "NavigationState": {"owner": "NavigationManager", "created_at": now_str, "updated_at": now_str, "expires_when": "page context change", "invalidated_by": []},
-            "ConversationMemory": {"owner": "IntentClassifier", "created_at": now_str, "updated_at": now_str, "expires_when": "next turn", "invalidated_by": []}
+            "AccountState": {
+                "owner": "AccountQueryEngine",
+                "created_at": now_str,
+                "updated_at": now_str,
+                "expires_when": "never",
+                "invalidated_by": [],
+            },
+            "PurchaseSelectionState": {
+                "owner": "SelectionManager",
+                "created_at": now_str,
+                "updated_at": now_str,
+                "expires_when": "customer switches domain or purchase",
+                "invalidated_by": ["domain_switch"],
+            },
+            "RefundWorkflowState": {
+                "owner": "RefundMutationEngine",
+                "created_at": now_str,
+                "updated_at": now_str,
+                "expires_when": (
+                    "workflow completed, workflow cancelled, customer switches "
+                    "purchase, customer requests unrelated workflow"
+                ),
+                "invalidated_by": [
+                    "domain_switch",
+                    "purchase_switch",
+                    "workflow_completed",
+                ],
+            },
+            "NavigationState": {
+                "owner": "NavigationManager",
+                "created_at": now_str,
+                "updated_at": now_str,
+                "expires_when": "page context change",
+                "invalidated_by": [],
+            },
+            "ConversationMemory": {
+                "owner": "IntentClassifier",
+                "created_at": now_str,
+                "updated_at": now_str,
+                "expires_when": "next turn",
+                "invalidated_by": [],
+            },
         }
         state["state_metadata"] = metadata
 
@@ -155,6 +197,7 @@ def generate_conversation_snapshot(state: dict[str, Any]) -> dict[str, Any]:
         "current_page": state.get("current_page"),
         "refund_context_status": state.get("refund_context_status"),
         "last_completed_refund": state.get("last_completed_refund"),
+        "customer_explanation_context": state.get("customer_explanation_context"),
         "selection_count": len(selected_purchase_ids),
         "state_metadata": state.get("state_metadata"),
     }
@@ -217,7 +260,11 @@ def validate_context_integrity(
         integrity_failed = True
 
     page_purchase_id = normalize_page_context(page_context).get("purchase_id")
-    if page_purchase_id and active_purchase and active_purchase.get("purchase_id") != page_purchase_id:
+    if (
+        page_purchase_id
+        and active_purchase
+        and active_purchase.get("purchase_id") != page_purchase_id
+    ):
         integrity_failed = True
 
     if integrity_failed:
@@ -247,7 +294,9 @@ def validate_context_integrity(
                 workflow_facts
             )
             state["active_refund_context"] = rebuilt_refund_context
-            state["pending_refund_action"] = _pending_action_from_active_refund_context(rebuilt_refund_context)
+            state["pending_refund_action"] = _pending_action_from_active_refund_context(
+                rebuilt_refund_context
+            )
 
     return state
 
@@ -271,6 +320,8 @@ EMPTY_CONVERSATION_STATE = {
     "pending_refund_product_reference": None,
     "refund_context_status": None,
     "last_completed_refund": None,
+    "customer_explanation_context": None,
+    "entity_extraction_result": None,
     "state_metadata": None,
     "_snapshot": None,
     "_turn_processed": True,
@@ -339,6 +390,12 @@ def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]
     last_completed_refund = normalize_last_completed_refund(
         state.get("last_completed_refund")
     )
+    customer_explanation_context = normalize_customer_explanation_context(
+        state.get("customer_explanation_context")
+    )
+    entity_extraction_result = normalize_entity_extraction_result(
+        state.get("entity_extraction_result")
+    )
     refund_context_status = state.get("refund_context_status")
     if refund_context_status not in {"completed"}:
         refund_context_status = None
@@ -377,7 +434,65 @@ def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]
         "pending_refund_product_reference": pending_refund_product_reference,
         "refund_context_status": refund_context_status,
         "last_completed_refund": last_completed_refund,
+        "customer_explanation_context": customer_explanation_context,
+        "entity_extraction_result": entity_extraction_result,
         "_turn_processed": bool(state.get("_turn_processed", True)),
+    }
+
+
+def normalize_entity_extraction_result(value: Any) -> dict[str, Any] | None:
+    """Return a validated last-turn entity extraction summary."""
+    if not isinstance(value, dict):
+        return None
+    entity_kind = value.get("entity_kind")
+    if entity_kind not in {
+        "named_product",
+        "purchase_id",
+        "sku",
+        "contextual_reference",
+        "purchase_type",
+        "none",
+    }:
+        return None
+    context_resolution_source = value.get("context_resolution_source")
+    if context_resolution_source not in {
+        "active_purchase",
+        "page_reference",
+        "active_result_set",
+        "last_completed_refund",
+        "none",
+    }:
+        context_resolution_source = "none"
+    rejected_candidates = value.get("rejected_entity_candidates")
+    if not isinstance(rejected_candidates, list):
+        rejected_candidates = []
+    return {
+        "intent": value.get("intent") if isinstance(value.get("intent"), str) else "unknown",
+        "raw_entity_text": value.get("raw_entity_text")
+        if isinstance(value.get("raw_entity_text"), str)
+        else None,
+        "entity_kind": entity_kind,
+        "entity_value": value.get("entity_value")
+        if isinstance(value.get("entity_value"), str)
+        else None,
+        "rejected_entity_candidates": [
+            {
+                "text": candidate.get("text"),
+                "reason": candidate.get("reason"),
+            }
+            for candidate in rejected_candidates
+            if isinstance(candidate, dict)
+            and isinstance(candidate.get("text"), str)
+            and candidate.get("reason")
+            in {
+                "action_phrase",
+                "pronoun",
+                "generic_reference",
+                "support_phrase",
+                "too_broad",
+            }
+        ],
+        "context_resolution_source": context_resolution_source,
     }
 
 
@@ -578,6 +693,66 @@ def normalize_last_completed_refund(value: Any) -> dict[str, Any] | None:
         "final_stage": final_stage,
         "required_action": required_action if isinstance(required_action, str) else None,
     }
+
+
+def normalize_customer_explanation_context(value: Any) -> dict[str, Any] | None:
+    """Return bounded customer-facing denial explanation context."""
+    if not isinstance(value, dict):
+        return None
+    message = value.get("message")
+    if not isinstance(message, str) or not message.strip():
+        return None
+    normalized: dict[str, Any] = {"message": message}
+    for key in (
+        "action_attempted",
+        "purchase_type",
+        "refund_stage",
+        "refund_outcome",
+        "refund_lock_reason",
+        "relevant_policy_section",
+        "controlling_reason",
+        "system_shows",
+        "policy_requires",
+        "cannot_proceed",
+        "next_step",
+    ):
+        item = value.get(key)
+        if isinstance(item, str):
+            normalized[key] = item
+        elif item is None and key in {"next_step", "refund_lock_reason"}:
+            normalized[key] = None
+
+    reasons = value.get("reasons")
+    normalized["reasons"] = (
+        [reason for reason in reasons if isinstance(reason, str)]
+        if isinstance(reasons, list)
+        else []
+    )
+    policy_facts = value.get("policy_facts")
+    if isinstance(policy_facts, dict):
+        normalized["policy_facts"] = {
+            key: fact
+            for key, fact in policy_facts.items()
+            if isinstance(key, str)
+            and key
+            in {
+                "purchase_status",
+                "refund_requested_at",
+                "refunded_at",
+                "refund_amount_cents",
+                "refund_outcome",
+                "return_status",
+                "accepted_by_carrier_at",
+                "code_redeemed",
+                "code_redeemed_at",
+                "refund_lock_reason",
+                "period_start",
+                "period_end",
+                "cancelled_at",
+                "service_ended_at",
+            }
+        }
+    return normalized
 
 
 def normalize_active_result_set(value: Any) -> dict[str, Any] | None:

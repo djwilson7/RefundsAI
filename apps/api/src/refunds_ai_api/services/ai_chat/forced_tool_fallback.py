@@ -210,7 +210,7 @@ def apply_deterministic_forced_tool_fallback(
             data={
                 "tool_name": "get_customer_purchase_history",
                 "customer_id": customer_id,
-                "purchase_count": result["aggregates"]["total_purchase_count"],
+                "purchase_count": result["history_summary"]["total_purchase_count"],
                 "result": result,
             },
         )

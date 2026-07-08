@@ -12,6 +12,8 @@ from refunds_ai_api.services.ai_chat.workflow import (
 from refunds_ai_api.services.ai_chat.workflows.context import WorkflowContext
 from refunds_ai_api.services.money import format_cents
 
+from .customer_denials import build_customer_denial_explanation
+
 
 def _pending_action_from_active_refund_context(
     active_refund_context: dict[str, Any],
@@ -51,29 +53,26 @@ def _validate_refund_mutation_allowed(
     action: str,
     mutation_target: dict[str, Any],
     workflow: dict[str, Any],
-) -> tuple[bool, str]:
+) -> tuple[bool, str, dict[str, Any] | None]:
     """Return whether the current backend workflow allows the requested command."""
-    product_name = mutation_target["product_name"]
     if action == "request_refund":
         if workflow.get("can_prepare_refund") is True:
-            return True, ""
-        return (
-            False,
-            (
-                f"I cannot start a refund for {product_name} because the current "
-                "refund status does not allow it."
-            ),
+            return True, "", None
+        explanation = build_customer_denial_explanation(
+            action=action,
+            mutation_target=mutation_target,
+            workflow=workflow,
         )
+        return False, explanation["message"], explanation
 
     if workflow.get("can_issue_funds") is True:
-        return True, ""
-    return (
-        False,
-        (
-            f"I cannot issue the refund for {product_name} because the current "
-            "refund status is not ready to release funds."
-        ),
+        return True, "", None
+    explanation = build_customer_denial_explanation(
+        action=action,
+        mutation_target=mutation_target,
+        workflow=workflow,
     )
+    return False, explanation["message"], explanation
 
 def _expected_refund_stage_for_mutation(action: str) -> str:
     if action == "issue_refund":

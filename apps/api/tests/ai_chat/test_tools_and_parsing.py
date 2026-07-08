@@ -317,6 +317,35 @@ def test_date_range_tool_returns_rows_aggregates_and_display_context() -> None:
     assert result["aggregates"]["total_purchase_count"] == 3
     assert result["aggregates"]["total_amount_cents"] == 20000
     assert result["aggregates"]["total_amount_dollars"] == "200.00"
+    assert result["history_summary"] == {
+        "total_purchase_count": 3,
+        "non_refunded_purchase_count": 3,
+        "refunded_purchase_count": 0,
+        "by_purchase_type": {
+            "digital": {
+                "total_count": 2,
+                "non_refunded_count": 2,
+                "refunded_count": 0,
+            },
+            "physical": {
+                "total_count": 1,
+                "non_refunded_count": 1,
+                "refunded_count": 0,
+            },
+        },
+        "by_status": {
+            "completed": {
+                "total_count": 2,
+                "non_refunded_count": 2,
+                "refunded_count": 0,
+            },
+            "redeemed": {
+                "total_count": 1,
+                "non_refunded_count": 1,
+                "refunded_count": 0,
+            },
+        },
+    }
     assert [purchase["id"] for purchase in result["purchases"]] == [
         PURCHASE_ID,
         "40000000-0000-4000-8000-000000000002",
@@ -336,6 +365,14 @@ def test_date_range_tool_excludes_fully_refunded_purchases_from_aggregates() -> 
     )
 
     assert len(result["purchases"]) == 5
+    assert result["history_summary"]["total_purchase_count"] == 5
+    assert result["history_summary"]["non_refunded_purchase_count"] == 4
+    assert result["history_summary"]["refunded_purchase_count"] == 1
+    assert result["history_summary"]["by_purchase_type"]["digital"] == {
+        "total_count": 3,
+        "non_refunded_count": 2,
+        "refunded_count": 1,
+    }
     assert result["aggregates"]["total_purchase_count"] == 4
     assert result["aggregates"]["total_amount_cents"] == 22000
     assert result["aggregates"]["total_amount_dollars"] == "220.00"
@@ -509,6 +546,45 @@ def test_purchase_history_tool_returns_rows_and_aggregates() -> None:
             },
         },
     }
+    assert result["history_summary"] == {
+        "total_purchase_count": 4,
+        "non_refunded_purchase_count": 4,
+        "refunded_purchase_count": 0,
+        "by_purchase_type": {
+            "digital": {
+                "total_count": 2,
+                "non_refunded_count": 2,
+                "refunded_count": 0,
+            },
+            "physical": {
+                "total_count": 1,
+                "non_refunded_count": 1,
+                "refunded_count": 0,
+            },
+            "subscription": {
+                "total_count": 1,
+                "non_refunded_count": 1,
+                "refunded_count": 0,
+            },
+        },
+        "by_status": {
+            "completed": {
+                "total_count": 2,
+                "non_refunded_count": 2,
+                "refunded_count": 0,
+            },
+            "redeemed": {
+                "total_count": 1,
+                "non_refunded_count": 1,
+                "refunded_count": 0,
+            },
+            "subscribed": {
+                "total_count": 1,
+                "non_refunded_count": 1,
+                "refunded_count": 0,
+            },
+        },
+    }
 
 def test_purchase_history_tool_excludes_fully_refunded_purchases_from_aggregates() -> None:
     result = get_customer_purchase_history(
@@ -517,6 +593,14 @@ def test_purchase_history_tool_excludes_fully_refunded_purchases_from_aggregates
     )
 
     assert len(result["purchases"]) == 6
+    assert result["history_summary"]["total_purchase_count"] == 6
+    assert result["history_summary"]["non_refunded_purchase_count"] == 5
+    assert result["history_summary"]["refunded_purchase_count"] == 1
+    assert result["history_summary"]["by_purchase_type"]["digital"] == {
+        "total_count": 3,
+        "non_refunded_count": 2,
+        "refunded_count": 1,
+    }
     assert result["aggregates"]["total_purchase_count"] == 5
     assert result["aggregates"]["total_amount_cents"] == 22999
     assert result["aggregates"]["total_amount_dollars"] == "229.99"
@@ -526,6 +610,70 @@ def test_purchase_history_tool_excludes_fully_refunded_purchases_from_aggregates
         "total_amount_dollars": "20.00",
     }
     assert "refunded" not in result["aggregates"]["by_status"]
+
+def test_type_count_context_includes_refunded_history_split() -> None:
+    application_service = RefundedAggregateApplicationService()
+    model_client = NoToolModelClient(
+        "You have 3 historical digital purchases: 2 non-refunded and 1 refunded."
+    )
+
+    result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    ).create_response(
+        message="How many digital purchases have I made?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    assert result.content == (
+        "You have 3 historical digital purchases: 2 non-refunded and 1 refunded."
+    )
+    assert result.conversation_state["selected_purchase_ids"] == [
+        PURCHASE_ID,
+        "40000000-0000-4000-8000-000000000002",
+        "40000000-0000-4000-8000-000000000006",
+    ]
+    final_messages = model_client.calls[-1]["messages"]
+    instruction = final_messages[-1]["content"]
+    assert "use history_summary.by_purchase_type" in instruction
+    raw_tool_context = " ".join(message["content"] for message in final_messages)
+    assert '"history_summary"' in raw_tool_context
+    assert '"total_purchase_count": 6' in raw_tool_context
+    assert (
+        '"digital": {"total_count": 3, "non_refunded_count": 2, '
+        '"refunded_count": 1}'
+    ) in raw_tool_context
+
+
+def test_type_count_prompt_omits_uniform_refund_split_and_completed_status() -> None:
+    application_service = FakeApplicationService()
+    model_client = NoToolModelClient(
+        "You have 2 digital purchases. They are Design Template Pack and Icon Set."
+    )
+
+    result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=model_client,
+    ).create_response(
+        message="How many digital purchases have I made?",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    assert result.content == (
+        "You have 2 digital purchases. They are Design Template Pack and Icon Set."
+    )
+    instruction = model_client.calls[-1]["messages"][-1]["content"]
+    assert "list the matching product names" in instruction
+    assert (
+        "If every matching purchase has the same refund state, do not mention "
+        "refunded or non-refunded counts."
+    ) in instruction
+    assert "Do not mention a purchase's completed status" in instruction
+
 
 def test_parse_tool_arguments_handles_missing_invalid_and_non_object_values() -> None:
     assert parse_tool_arguments(None) == {}

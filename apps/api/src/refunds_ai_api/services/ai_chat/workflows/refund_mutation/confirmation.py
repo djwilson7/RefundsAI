@@ -173,7 +173,7 @@ def handle_refund_mutation_workflow(
     workflow = runtime.application_service.get_refund_workflow(
         mutation_target["purchase_id"]
     )
-    allowed, denial_response = _validate_refund_mutation_allowed(
+    allowed, denial_response, explanation_context = _validate_refund_mutation_allowed(
         action,
         mutation_target,
         workflow,
@@ -186,6 +186,7 @@ def handle_refund_mutation_workflow(
             response=denial_response,
             reason=f"{action}_not_allowed",
             workflow=workflow,
+            customer_explanation_context=explanation_context,
         )
 
     active_refund_context = _active_refund_context_from_pending_action(
@@ -598,6 +599,11 @@ def _refund_confirmation_guidance_response(
     next_state = update_conversation_state_for_page_reference(
         {
             **conversation_state,
+            "entity_extraction_result": (
+                context.entity_extraction_result.as_dict()
+                if context.entity_extraction_result is not None
+                else None
+            ),
             "pending_refund_action": None,
             "active_refund_context": active_refund_context,
         },

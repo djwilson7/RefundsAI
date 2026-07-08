@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, UTC
 import logging
-from typing import Any
 import uuid
+from datetime import UTC, date, datetime
+from threading import Lock
+from typing import Any
 
 from refunds_ai_api.services.audit import ModelAuditEventKey, TokenUsage
 
 logger = logging.getLogger("refunds_ai_api.chat")
+_tool_lifecycle_lock = Lock()
+_tool_lifecycle_starts: dict[tuple[str, str], datetime] = {}
 
 
 def record_audit_trace_event(
@@ -25,6 +28,11 @@ def record_audit_trace_event(
 
     event_type = str(event.get("type", ""))
     data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    data = enrich_tool_lifecycle_data(
+        event_type,
+        data,
+        session_id=str(audit_session.id),
+    )
     event_key = audit_event_key_for_trace_type(event_type)
 
     try:
@@ -33,7 +41,9 @@ def record_audit_trace_event(
         tool_name = extract_tool_name(data)
         
         # State before vs after
-        state_before = summarize_conversation_state_dict(data.get("conversation_state") or state.get("conversation_state"))
+        state_before = summarize_conversation_state_dict(
+            data.get("conversation_state") or state.get("conversation_state")
+        )
         state_after = summarize_conversation_state_dict(state.get("conversation_state"))
         
         decision = data.get("reason") or data.get("action")
@@ -59,6 +69,7 @@ def record_audit_trace_event(
             "file": event.get("file"),
             "line": event.get("line"),
             "structured_event": structured_event,
+            "lifecycle": lifecycle_metadata(event_type, data),
         })
 
         audit_writer.record_event(
@@ -88,12 +99,24 @@ def record_audit_trace_event(
 
 
 def sanitize_audit_payload(obj: Any) -> Any:
-    """Recursively clean objects to be JSON-serializable and strip out large payloads, keeping only identifiers and counts."""
+    """Return a JSON-safe audit payload with large domain objects summarized."""
     if isinstance(obj, dict):
         cleaned = {}
         for k, v in obj.items():
+            if k in {"assistant_response", "content"} and isinstance(v, str):
+                cleaned[k] = v
+                continue
             # If the key is likely to contain a large object list or nested payload, summarize it
-            if k in {"purchases", "purchase_history", "messages", "tools", "result", "tool_results", "data", "transitions"}:
+            if k in {
+                "purchases",
+                "purchase_history",
+                "messages",
+                "tools",
+                "result",
+                "tool_results",
+                "data",
+                "transitions",
+            }:
                 if isinstance(v, list):
                     cleaned[k] = {"count": len(v), "ids": [extract_id(item) for item in v[:5]]}
                 elif isinstance(v, dict):
@@ -126,7 +149,14 @@ def extract_id(item: Any) -> str | None:
 
 def summarize_dict(item: dict[str, Any]) -> dict[str, Any]:
     summary = {}
-    for k in ("status", "purchase_type", "amount_cents", "refund_stage", "required_action", "product_name"):
+    for k in (
+        "status",
+        "purchase_type",
+        "amount_cents",
+        "refund_stage",
+        "required_action",
+        "product_name",
+    ):
         if k in item:
             summary[k] = item[k]
     return summary
@@ -155,6 +185,8 @@ def audit_event_key_for_trace_type(event_type: str) -> str:
         return ModelAuditEventKey.RESPONSE_RETURNED
     if event_type == "response.generated":
         return ModelAuditEventKey.RESPONSE_GENERATED
+    if event_type in {"model.completed", "model.failure"}:
+        return ModelAuditEventKey.MODEL_COMPLETED
     if event_type in {"model.failure", "model.invalid_tool_output"}:
         return ModelAuditEventKey.ERROR_RAISED
     if event_type == "model.requested":
@@ -205,20 +237,55 @@ def audit_event_key_for_trace_type(event_type: str) -> str:
 
 def event_payload_for_input(event_type: str, data: dict[str, Any]) -> dict[str, Any] | None:
     """Return the input-side payload for request, model, tool, and validation events."""
+    if event_type == "model.requested":
+        return model_request_payload(data)
     if event_type in {
         "message.received",
-        "model.requested",
         "tool_call.requested",
         "tool_call.executing",
+        "model.completed",
     } or event_type.startswith("workflow."):
         return data
     return None
+
+
+def model_request_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Separate the customer's prompt from backend-provided model context."""
+    messages = data.get("messages")
+    normalized_messages = messages if isinstance(messages, list) else []
+    system_messages = [
+        message
+        for message in normalized_messages
+        if isinstance(message, dict) and message.get("role") == "system"
+    ]
+    user_messages = [
+        message
+        for message in normalized_messages
+        if isinstance(message, dict) and message.get("role") == "user"
+    ]
+    user_prompt = user_messages[0].get("content") if user_messages else None
+    additional_context = user_messages[1:]
+    tools = data.get("tools")
+    return {
+        "model_call_id": data.get("model_call_id"),
+        "model": data.get("model"),
+        "phase": data.get("phase"),
+        "started_at": data.get("started_at"),
+        "user_prompt": user_prompt,
+        "system_instructions": system_messages,
+        "additional_context": additional_context,
+        "has_additional_context": bool(additional_context),
+        "available_tools": tools if isinstance(tools, list) else [],
+        "available_tools_count": len(tools) if isinstance(tools, list) else 0,
+        "model_context": data.get("model_context"),
+    }
 
 
 def event_payload_for_output(event_type: str, data: dict[str, Any]) -> dict[str, Any] | None:
     """Return the output-side payload for completed tool, mutation, and response events."""
     if event_type in {
         "tool_call.completed",
+        "model.completed",
         "response.generated",
         "route.response_returned",
     }:
@@ -230,6 +297,111 @@ def event_payload_for_output(event_type: str, data: dict[str, Any]) -> dict[str,
     }:
         return data
     return None
+
+
+def lifecycle_metadata(
+    event_type: str,
+    data: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return authoritative operation metrics retained without payload summarization."""
+    if event_type == "model.completed":
+        keys = (
+            "model_call_id",
+            "model",
+            "phase",
+            "status",
+            "started_at",
+            "completed_at",
+            "latency_ms",
+            "prompt_tokens",
+            "completion_tokens",
+            "reasoning_tokens",
+            "total_tokens",
+            "workflow",
+            "available_tools_count",
+            "tool_results_provided",
+            "conversation_state_summary",
+        )
+        return {key: data.get(key) for key in keys}
+    if event_type in {"tool_call.executing", "tool_call.completed"}:
+        keys = (
+            "tool_call_id",
+            "tool_name",
+            "status",
+            "started_at",
+            "completed_at",
+            "latency_ms",
+            "source",
+            "operation",
+            "backend_category",
+            "workflow",
+            "purchase_id",
+            "customer_id",
+            "input_summary",
+            "output_summary",
+        )
+        return {key: data.get(key) for key in keys}
+    return None
+
+
+def enrich_tool_lifecycle_data(
+    event_type: str,
+    data: dict[str, Any],
+    *,
+    session_id: str,
+) -> dict[str, Any]:
+    """Pair tool traces so terminal records contain one complete lifecycle."""
+    if not event_type.startswith("tool_call."):
+        return data
+    tool_name = extract_tool_name(data)
+    if tool_name is None:
+        return data
+    call_id = str(data.get("tool_call_id") or data.get("id") or tool_name)
+    key = (session_id, call_id)
+    now = datetime.now(UTC)
+    if event_type in {
+        "tool_call.requested",
+        "tool_call.forced",
+        "tool_call.overridden",
+        "tool_call.executing",
+    }:
+        with _tool_lifecycle_lock:
+            _tool_lifecycle_starts.setdefault(key, now)
+        return data
+    if event_type != "tool_call.completed":
+        return data
+    with _tool_lifecycle_lock:
+        started_at = _tool_lifecycle_starts.pop(key, now)
+    return {
+        **data,
+        "tool_call_id": call_id,
+        "status": "completed",
+        "started_at": started_at.isoformat(),
+        "completed_at": now.isoformat(),
+        "latency_ms": max(
+            0,
+            round((now - started_at).total_seconds() * 1000),
+        ),
+        "source": data.get("source") or "deterministic_backend",
+        "operation": data.get("operation") or tool_name,
+        "backend_category": data.get("backend_category")
+        or infer_backend_category(tool_name),
+        "workflow": data.get("workflow") or data.get("kind"),
+    }
+
+
+def infer_backend_category(tool_name: str) -> str:
+    """Classify backend tool work independently from model usage."""
+    normalized = tool_name.casefold()
+    if any(term in normalized for term in ("validate", "eligibility")):
+        return "backend_validation"
+    if any(term in normalized for term in ("verify", "confirm")):
+        return "backend_verification"
+    if any(term in normalized for term in ("issue", "refund", "cancel", "invalidate")):
+        return "backend_mutation"
+    if "policy" in normalized:
+        return "backend_read"
+    return "backend_read"
 
 
 def extract_workflow_kind(data: dict[str, Any]) -> str | None:
@@ -274,6 +446,10 @@ def merge_token_usage(
         completion_tokens=sum_optional(
             current.completion_tokens,
             additional.completion_tokens,
+        ),
+        reasoning_tokens=sum_optional(
+            current.reasoning_tokens,
+            additional.reasoning_tokens,
         ),
         total_tokens=sum_optional(current.total_tokens, additional.total_tokens),
     )

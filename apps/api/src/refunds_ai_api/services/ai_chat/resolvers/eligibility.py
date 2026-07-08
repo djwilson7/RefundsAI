@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from refunds_ai_api.services.ai_chat.dates import parse_date_range_query
+from refunds_ai_api.services.ai_chat.entity_extraction import (
+    CurrentMessageEntity,
+    extract_entity,
+)
 from refunds_ai_api.services.ai_chat.models import EligibilityResolution
 from refunds_ai_api.services.ai_chat.ranking import has_reference_phrase
 from refunds_ai_api.services.ai_chat.routing import (
@@ -21,9 +25,9 @@ from refunds_ai_api.services.ai_chat.state import (
 from refunds_ai_api.services.ai_chat.tools import get_purchase_history_by_date_range
 from refunds_ai_api.services.application import ApplicationService
 
-from .products import extract_product_reference
 from .purchases import (
     resolve_purchase_by_id,
+    resolve_purchase_from_selected_set,
     resolve_purchase_mention,
     resolve_purchase_reference_for_state,
     resolve_selected_single_purchase,
@@ -37,6 +41,7 @@ def resolve_refund_eligibility_query(
     page_context: dict[str, Any] | None,
     application_service: ApplicationService | None,
     customer_id: str | None,
+    current_message_entity: CurrentMessageEntity | None = None,
 ) -> EligibilityResolution | None:
     """Resolve read-only refund eligibility intent to active-customer purchase ids."""
     normalized_state = normalize_conversation_state(conversation_state)
@@ -48,7 +53,35 @@ def resolve_refund_eligibility_query(
     if application_service is None or customer_id is None:
         return EligibilityResolution([], "customer_context_required")
 
-    product_reference = extract_product_reference(message)
+    entity_result = extract_entity(message)
+    if (
+        current_message_entity is not None
+        and current_message_entity.entity_kind
+        in {"named_product", "purchase_id", "sku"}
+    ):
+        if current_message_entity.matched_purchase_id is None:
+            return EligibilityResolution(
+                [],
+                "product",
+                unresolved_product_reference=current_message_entity.raw_text,
+            )
+        resolved_purchase = resolve_purchase_by_id(
+            application_service,
+            customer_id,
+            current_message_entity.matched_purchase_id,
+        )
+        if resolved_purchase is not None:
+            return EligibilityResolution(
+                [resolved_purchase["id"]],
+                "product",
+                resolved_purchase=resolved_purchase,
+            )
+
+    product_reference = (
+        entity_result.entity_value
+        if entity_result.entity_kind in {"named_product", "purchase_id", "sku"}
+        else None
+    )
     if product_reference is None:
         product_reference = _pending_product_reference_follow_up(
             message,
@@ -92,6 +125,42 @@ def resolve_refund_eligibility_query(
                 resolved_purchase=page_purchase,
             )
 
+        active_purchase = normalized_state.get("active_purchase")
+        if isinstance(active_purchase, dict):
+            resolved_active_purchase = resolve_purchase_by_id(
+                application_service,
+                customer_id,
+                active_purchase.get("purchase_id"),
+            )
+            if resolved_active_purchase is not None:
+                return EligibilityResolution(
+                    [resolved_active_purchase["id"]],
+                    "selected_purchase",
+                    resolved_purchase=resolved_active_purchase,
+                )
+
+        active_result_set = normalized_state.get("active_result_set")
+        if (
+            entity_result.entity_kind == "contextual_reference"
+            and isinstance(active_result_set, dict)
+            and active_result_set.get("purchase_ids")
+        ):
+            selected_from_result_set = resolve_purchase_from_selected_set(
+                application_service,
+                customer_id,
+                message,
+                {
+                    **normalized_state,
+                    "selected_purchase_ids": active_result_set["purchase_ids"],
+                },
+            )
+            if selected_from_result_set is not None:
+                return EligibilityResolution(
+                    [selected_from_result_set["id"]],
+                    "selected_purchase",
+                    resolved_purchase=selected_from_result_set,
+                )
+
         selected_purchase = resolve_selected_single_purchase(
             application_service,
             customer_id,
@@ -133,6 +202,8 @@ def resolve_refund_eligibility_query(
                 "selected_set",
                 resolved_purchase=resolved_purchase,
             )
+        if entity_result.entity_kind == "contextual_reference":
+            return EligibilityResolution([], "entity_required")
 
     policy_follow_up_resolution = resolve_policy_follow_up_eligibility(
         application_service,
@@ -171,12 +242,16 @@ def resolve_refund_eligibility_query(
         )
 
     purchase_mention = resolve_purchase_mention(application_service, customer_id, message)
-    if purchase_mention is not None:
+    if entity_result.entity_kind == "named_product" and purchase_mention is not None:
         return EligibilityResolution(
             [purchase_mention["id"]],
             "product",
             resolved_purchase=purchase_mention,
         )
+
+    if entity_result.rejected_entity_candidates or entity_result.entity_kind == "none":
+        if _has_refund_action_without_entity(message):
+            return EligibilityResolution([], "entity_required")
 
     purchase_ids = [
         str(purchase["id"])
@@ -184,6 +259,12 @@ def resolve_refund_eligibility_query(
         if isinstance(purchase.get("id"), str)
     ]
     return EligibilityResolution(purchase_ids, "all_purchases")
+
+
+def _has_refund_action_without_entity(message: str) -> bool:
+    """Return whether a refund request lacks a searchable or contextual entity."""
+    normalized = message.casefold()
+    return any(term in normalized for term in ("refund", "return", "cancel"))
 
 def _pending_product_reference_follow_up(
     message: str,

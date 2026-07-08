@@ -8,6 +8,7 @@ from refunds_ai_api.services.ai_chat import (
     AIChatService,
     ModelTurn,
 )
+from refunds_ai_api.services.ai_chat.prompts import compact_model_context_payload
 
 from .assertions import assert_customer_safe_response
 from .fakes import (
@@ -136,6 +137,32 @@ class PreparedPhysicalApplicationService(MutableRefundApplicationService):
                     "can_issue_funds": False,
                     "refund_stage": "prepared",
                     "required_action": "await_carrier_acceptance",
+                }
+            )
+        return workflow
+
+
+class AlreadyRefundedSubscriptionApplicationService(MutableRefundApplicationService):
+    def get_refund_workflow(self, purchase_id: str) -> dict[str, Any]:
+        workflow = dict(super().get_refund_workflow(purchase_id))
+        if purchase_id == SUBSCRIPTION_PURCHASE_ID:
+            workflow.update(
+                {
+                    "can_enter_refund_workflow": False,
+                    "can_prepare_refund": False,
+                    "can_issue_funds": False,
+                    "refund_stage": "issued",
+                    "required_action": "none",
+                    "refundable_amount_cents": 999,
+                    "refund_outcome": "full",
+                    "reasons": ["purchase_status_refunded"],
+                    "policy_facts": {
+                        "purchase_status": "refunded",
+                        "refunded_at": "2026-07-02T10:15:00+00:00",
+                        "refund_amount_cents": 999,
+                        "refund_outcome": "full",
+                        "cancelled_at": "2026-07-02T10:00:00+00:00",
+                    },
                 }
             )
         return workflow
@@ -792,6 +819,157 @@ def test_chat_graph_physical_confirmation_for_prepared_return_is_stage_aware() -
     assert "couldn't verify this purchase" not in result.content
     assert application_service.request_refund_requests == []
     assert application_service.issue_refund_requests == []
+
+
+def test_denied_physical_fund_release_before_courier_scan_explains_requirement() -> None:
+    application_service = PreparedPhysicalApplicationService()
+
+    result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("This response should not be used."),
+    ).create_response(
+        message="Please issue the refund now.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=PHYSICAL_PURCHASE_ID,
+        page_context={"surface": "purchase_detail", "purchase_id": PHYSICAL_PURCHASE_ID},
+        conversation_state={
+            "active_refund_context": {
+                "purchase_id": PHYSICAL_PURCHASE_ID,
+                "product_name": "Keyboard",
+                "purchase_type": "physical",
+                "eligible": True,
+                "stage": "prepared",
+                "next_action": "await_carrier_acceptance",
+                "reason_codes": ["return_not_accepted_by_carrier"],
+            },
+            "active_purchase": {
+                "purchase_id": PHYSICAL_PURCHASE_ID,
+                "product_name": "Keyboard",
+                "purchase_type": "physical",
+            },
+        },
+    )
+
+    assert "The system shows the return process has started" in result.content
+    assert "has not been scanned by the courier yet" in result.content
+    assert "funds can be released once the returned package is with the courier" in result.content
+    assert "not ready to release funds" not in result.content
+    assert application_service.issue_refund_requests == []
+    explanation = result.conversation_state["customer_explanation_context"]
+    assert explanation["controlling_reason"] == "physical_return_not_in_transit"
+    assert explanation["relevant_policy_section"] == "funds_release"
+    assert explanation["cannot_proceed"]
+
+
+def test_denied_redeemed_digital_refund_explains_redeemed_code_policy() -> None:
+    application_service = MutableRefundApplicationService()
+
+    result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("This response should not be used."),
+    ).create_response(
+        message="Start a refund for Icon Set.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=None,
+    )
+
+    assert result.content.startswith("The system shows the code was redeemed.")
+    assert "digital items can only be refunded" in result.content
+    assert "code has not been redeemed" in result.content
+    assert "Because this code was redeemed" in result.content
+    assert "refund window ended" not in result.content
+    assert "not ready to release funds" not in result.content
+    assert "cannot issue" not in result.content.lower()
+    assert application_service.request_refund_requests == []
+    explanation = result.conversation_state["customer_explanation_context"]
+    assert explanation["controlling_reason"] == "digital_entitlement_redeemed"
+    assert explanation["system_shows"] == "The system shows the code was redeemed."
+
+
+def test_denied_already_refunded_subscription_explains_prior_refund_amount_and_date() -> None:
+    application_service = AlreadyRefundedSubscriptionApplicationService()
+
+    result = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("This response should not be used."),
+    ).create_response(
+        message="Cancel and refund this subscription.",
+        customer_id=CUSTOMER_ID,
+        purchase_id=SUBSCRIPTION_PURCHASE_ID,
+        page_context={
+            "surface": "purchase_detail",
+            "purchase_id": SUBSCRIPTION_PURCHASE_ID,
+        },
+        conversation_state={
+            "active_refund_context": {
+                "purchase_id": SUBSCRIPTION_PURCHASE_ID,
+                "product_name": "Pro Subscription",
+                "purchase_type": "subscription",
+                "eligible": False,
+                "stage": "issued",
+                "next_action": None,
+                "reason_codes": ["purchase_status_refunded"],
+            },
+            "active_purchase": {
+                "purchase_id": SUBSCRIPTION_PURCHASE_ID,
+                "product_name": "Pro Subscription",
+                "purchase_type": "subscription",
+            },
+        },
+    )
+
+    assert result.content.startswith(
+        "The system shows this subscription was already canceled"
+    )
+    assert "$9.99" in result.content
+    assert "2026-07-02" in result.content
+    assert "There is no additional cancellation or refund action available" in result.content
+    assert "not ready to release funds" not in result.content
+    assert application_service.request_refund_requests == []
+    assert application_service.issue_refund_requests == []
+    explanation = result.conversation_state["customer_explanation_context"]
+    assert explanation["controlling_reason"] == "already_refunded"
+    assert explanation["policy_facts"]["refund_amount_cents"] == 999
+
+
+def test_final_model_context_includes_normalized_customer_denial_reason() -> None:
+    conversation_state = {
+        "customer_explanation_context": {
+            "message": "The system shows the code was redeemed.",
+            "action_attempted": "request_refund",
+            "purchase_type": "digital",
+            "refund_stage": "blocked",
+            "refund_outcome": "none",
+            "refund_lock_reason": "code_redeemed",
+            "reasons": ["code_redeemed"],
+            "policy_facts": {
+                "purchase_status": "redeemed",
+                "code_redeemed": True,
+                "refund_lock_reason": "code_redeemed",
+                "internal_debug": "not customer safe",
+            },
+            "relevant_policy_section": "digital_refund_policy",
+            "controlling_reason": "code_redeemed",
+            "system_shows": "The system shows the code was redeemed.",
+            "policy_requires": "Digital items must be unredeemed.",
+            "cannot_proceed": "Because this code was redeemed, we're unable to issue a refund.",
+            "next_step": "",
+        }
+    }
+
+    payload = compact_model_context_payload({"conversation_state": conversation_state})
+
+    explanation = payload["conversation_state"]["customer_explanation_context"]
+    assert explanation["controlling_reason"] == "code_redeemed"
+    assert explanation["system_shows"] == "The system shows the code was redeemed."
+    assert explanation["policy_facts"] == {
+        "purchase_status": "redeemed",
+        "code_redeemed": True,
+        "refund_lock_reason": "code_redeemed",
+    }
 
 def test_chat_graph_refund_confirmation_requires_customer_context() -> None:
     application_service = MutableRefundApplicationService()

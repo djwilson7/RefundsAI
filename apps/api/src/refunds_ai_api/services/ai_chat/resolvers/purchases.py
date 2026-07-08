@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
 
@@ -17,6 +18,16 @@ from refunds_ai_api.services.ai_chat.ranking import (
 from refunds_ai_api.services.application import ApplicationService
 
 from .products import explicit_purchase_type_word, normalize_match_text
+
+
+@dataclass(frozen=True)
+class PurchaseMatchResult:
+    """A purchase match plus audit-safe candidate diagnostics."""
+
+    purchase: dict[str, Any] | None
+    confidence: float | None
+    candidates: list[dict[str, Any]]
+    reason: str
 
 
 def resolve_purchase_reference(
@@ -88,19 +99,39 @@ def match_purchase_reference(
     purchases: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
     """Match product references by exact, normalized, partial, fuzzy, SKU, or order."""
+    return match_purchase_reference_with_metadata(product_reference, purchases).purchase
+
+
+def match_purchase_reference_with_metadata(
+    product_reference: str,
+    purchases: list[dict[str, Any]],
+) -> PurchaseMatchResult:
+    """Match a reference and retain confidence/candidate data for audit traces."""
     reference = product_reference.strip()
     normalized_reference = normalize_match_text(reference)
     if not normalized_reference:
-        return None
+        return PurchaseMatchResult(None, None, [], "empty_reference")
 
     for purchase in purchases:
         if str(purchase.get("product_name", "")).casefold() == reference.casefold():
-            return build_resolved_purchase(purchase)
+            resolved = build_resolved_purchase(purchase)
+            return PurchaseMatchResult(
+                resolved,
+                1.0,
+                [_match_candidate(resolved, 1.0)],
+                "exact_product_name",
+            )
 
     for purchase in purchases:
         searchable_values = purchase_search_values(purchase)
         if normalized_reference in searchable_values:
-            return build_resolved_purchase(purchase)
+            resolved = build_resolved_purchase(purchase)
+            return PurchaseMatchResult(
+                resolved,
+                1.0,
+                [_match_candidate(resolved, 1.0)],
+                "normalized_identifier",
+            )
 
     partial_matches = [
         purchase
@@ -112,9 +143,23 @@ def match_purchase_reference(
         )
     ]
     if len(partial_matches) == 1:
-        return build_resolved_purchase(partial_matches[0])
+        resolved = build_resolved_purchase(partial_matches[0])
+        return PurchaseMatchResult(
+            resolved,
+            0.95,
+            [_match_candidate(resolved, 0.95)],
+            "unique_partial_match",
+        )
     if len(partial_matches) > 1:
-        return None
+        return PurchaseMatchResult(
+            None,
+            None,
+            [
+                _match_candidate(build_resolved_purchase(purchase), 0.95)
+                for purchase in partial_matches
+            ],
+            "ambiguous_partial_match",
+        )
 
     fuzzy_matches = sorted(
         (
@@ -132,12 +177,32 @@ def match_purchase_reference(
         reverse=True,
         key=lambda match: match[0],
     )
+    candidates = [
+        _match_candidate(build_resolved_purchase(purchase), round(score, 4))
+        for score, purchase in fuzzy_matches[:5]
+    ]
     if fuzzy_matches and fuzzy_matches[0][0] >= 0.78:
         if len(fuzzy_matches) > 1 and fuzzy_matches[1][0] >= 0.74:
-            return None
-        return build_resolved_purchase(fuzzy_matches[0][1])
+            return PurchaseMatchResult(None, None, candidates, "ambiguous_fuzzy_match")
+        return PurchaseMatchResult(
+            build_resolved_purchase(fuzzy_matches[0][1]),
+            round(fuzzy_matches[0][0], 4),
+            candidates,
+            "unique_high_confidence_fuzzy_match",
+        )
 
-    return None
+    return PurchaseMatchResult(None, None, candidates, "no_strong_match")
+
+
+def _match_candidate(
+    purchase: dict[str, Any],
+    confidence: float,
+) -> dict[str, Any]:
+    return {
+        "purchase_id": purchase["id"],
+        "product_name": purchase["product_name"],
+        "confidence": confidence,
+    }
 
 def purchase_search_values(purchase: dict[str, Any]) -> list[str]:
     """Return normalized purchase identifiers for entity resolution."""

@@ -514,29 +514,27 @@ def test_chat_graph_emits_structured_graph_tool_and_response_log_events(caplog) 
     events = [record.event for record in caplog.records]
     assert [event["type"] for event in events] == [
         "graph.started",
-        "model.requested",
-        "tool_call.requested",
         "workflow.classified",
         "workflow.context_resolved",
         "workflow.executing",
-        "workflow.tool_overridden",
-        "tool_call.overridden",
+        "tool_call.forced",
         "tool_call.executing",
         "tool_call.completed",
         "workflow.completed",
         "workflow.state_updated",
         "model.requested",
+        "model.completed",
         "response.generated",
     ]
-    assert [event["step"] for event in events] == list(range(1, 15))
-    assert events[1]["data"]["messages"][0]["content"].startswith(
+    assert [event["step"] for event in events] == list(range(1, 13))
+    assert events[9]["data"]["messages"][0]["content"].startswith(
         "You are RefundsAI's customer support assistant."
     )
-    assert "Do not use Markdown" in events[1]["data"]["messages"][0]["content"]
-    assert "unrelated topics" in events[1]["data"]["messages"][0]["content"]
-    assert events[9]["data"]["result"]["aggregates"]["total_purchase_count"] == 4
-    assert events[13]["data"]["assistant_response"] == (
+    assert "Do not use Markdown" in events[9]["data"]["messages"][0]["content"]
+    assert "unrelated topics" in events[9]["data"]["messages"][0]["content"]
+    assert events[6]["data"]["result"]["aggregates"]["total_purchase_count"] == 4
+    assert events[11]["data"]["assistant_response"] == (
         "You made 2 digital purchases totaling $75.00."
     )
-    assert events[13]["file"].endswith(("services\\ai_chat.py", "services/ai_chat.py"))
-    assert events[13]["line"] > 0
+    assert events[11]["file"].endswith(("services\\ai_chat.py", "services/ai_chat.py"))
+    assert events[11]["line"] > 0

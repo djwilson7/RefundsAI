@@ -138,8 +138,20 @@ def _summarize_workflow_tool_result(
     if not isinstance(result, dict):
         return {}
     if "aggregates" in result and isinstance(result["aggregates"], dict):
+        history_summary = (
+            result.get("history_summary")
+            if isinstance(result.get("history_summary"), dict)
+            else {}
+        )
         return {
-            "purchase_count": result["aggregates"].get("total_purchase_count"),
+            "purchase_count": history_summary.get(
+                "total_purchase_count",
+                result["aggregates"].get("total_purchase_count"),
+            ),
+            "non_refunded_purchase_count": history_summary.get(
+                "non_refunded_purchase_count"
+            ),
+            "refunded_purchase_count": history_summary.get("refunded_purchase_count"),
             "total_amount_dollars": result["aggregates"].get("total_amount_dollars"),
         }
     if "count" in result:

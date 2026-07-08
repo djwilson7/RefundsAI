@@ -80,6 +80,16 @@ def execute_tools_node(runtime: Any, state: ChatGraphState) -> ChatGraphState:
             "resolved_context_purchase": context.resolved_context_purchase,
             "unresolved_product_reference": context.unresolved_product_reference,
             "blocked_refund_intent": context.blocked_refund_intent,
+            "current_message_entity": (
+                context.current_message_entity.as_dict()
+                if context.current_message_entity is not None
+                else None
+            ),
+            "previous_context_scope": context.previous_context_scope,
+            "resolution_scope_used": context.resolution_scope_used,
+            "match_candidates": list(context.match_candidates),
+            "selected_purchase_id": context.selected_purchase_id,
+            "resolution_reason": context.resolution_reason,
         },
     )
 

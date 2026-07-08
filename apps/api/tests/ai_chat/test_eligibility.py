@@ -1929,11 +1929,14 @@ def test_chat_graph_returns_graceful_response_when_final_model_call_fails(caplog
         "purchase": None,
     }
     assert caplog.records[0].event["type"] == "model.failure"
-    assert caplog.records[0].event["data"] == {
-        "reason": "RuntimeError",
-        "detail": "final model offline",
-        "model": "gpt-5.4-mini",
-    }
+    failure_data = caplog.records[0].event["data"]
+    assert failure_data["reason"] == "RuntimeError"
+    assert failure_data["detail"] == "final model offline"
+    assert failure_data["model"] == "gpt-5.4-mini"
+    assert failure_data["status"] == "failed"
+    assert failure_data["phase"] == "final_response"
+    assert failure_data["model_call_id"]
+    assert failure_data["latency_ms"] >= 0
 
 def test_chat_graph_returns_graceful_response_when_tool_execution_fails(caplog) -> None:
     chat_service = AIChatService(

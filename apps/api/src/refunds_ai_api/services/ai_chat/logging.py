@@ -312,8 +312,17 @@ def summarize_tool_result(result: dict[str, Any]) -> str:
     """Return a compact description of model-facing tool output."""
     if "aggregates" in result and isinstance(result["aggregates"], dict):
         aggregates = result["aggregates"]
+        history_summary = (
+            result.get("history_summary")
+            if isinstance(result.get("history_summary"), dict)
+            else {}
+        )
+        total_count = history_summary.get(
+            "total_purchase_count",
+            aggregates.get("total_purchase_count", 0),
+        )
         return (
-            f"{aggregates.get('total_purchase_count', 0)} purchases, "
+            f"{total_count} purchases, "
             f"${aggregates.get('total_amount_dollars', '0.00')}"
         )
     if "purchase_count" in result:

@@ -152,8 +152,10 @@ def get_customer_purchase_history_tool_schema() -> dict[str, Any]:
         "name": "get_customer_purchase_history",
         "description": (
             "Retrieve read-only purchase history and aggregate totals for one customer. "
-            "Fully refunded purchases are excluded from aggregate counts and totals; "
-            "refunds still in progress remain included."
+            "The result includes a history summary that counts all historical "
+            "purchases and splits refunded versus non-refunded purchases. Aggregate "
+            "spend/count fields still exclude fully refunded purchases; refunds "
+            "still in progress remain included."
         ),
         "parameters": {
             "type": "object",
@@ -228,6 +230,7 @@ def get_customer_purchase_history(
     return {
         "customer_id": customer_id,
         "purchases": rows,
+        "history_summary": build_purchase_history_summary(rows),
         "aggregates": build_purchase_history_aggregates(aggregate_rows),
     }
 
@@ -260,6 +263,7 @@ def get_purchase_history_by_date_range(
     return {
         "customer_id": customer_id,
         "date_range": build_date_range_output(date_range),
+        "history_summary": build_purchase_history_summary(rows),
         "aggregates": build_purchase_history_aggregates(aggregate_rows),
         "purchases": rows,
     }
@@ -429,6 +433,34 @@ def build_purchase_history_aggregates(purchases: list[dict[str, Any]]) -> dict[s
     }
 
 
+def build_purchase_history_summary(purchases: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compute historical purchase counts with refunded/non-refunded splits."""
+    by_purchase_type: dict[str, dict[str, Any]] = {}
+    by_status: dict[str, dict[str, Any]] = {}
+    refunded_count = 0
+    non_refunded_count = 0
+
+    for purchase in purchases:
+        status = purchase["status"]
+        purchase_type = purchase["purchase_type"]
+        is_refunded = status == FULLY_REFUNDED_STATUS
+        if is_refunded:
+            refunded_count += 1
+        else:
+            non_refunded_count += 1
+
+        increment_history_bucket(by_purchase_type, purchase_type, is_refunded)
+        increment_history_bucket(by_status, status, is_refunded)
+
+    return {
+        "total_purchase_count": len(purchases),
+        "non_refunded_purchase_count": non_refunded_count,
+        "refunded_purchase_count": refunded_count,
+        "by_purchase_type": by_purchase_type,
+        "by_status": by_status,
+    }
+
+
 def increment_aggregate_bucket(
     buckets: dict[str, dict[str, Any]],
     key: str,
@@ -439,3 +471,24 @@ def increment_aggregate_bucket(
     bucket["count"] += 1
     bucket["total_amount_cents"] += amount_cents
     bucket["total_amount_dollars"] = cents_to_dollar_string(bucket["total_amount_cents"])
+
+
+def increment_history_bucket(
+    buckets: dict[str, dict[str, Any]],
+    key: str,
+    is_refunded: bool,
+) -> None:
+    """Increment one historical count bucket with refund split fields."""
+    bucket = buckets.setdefault(
+        key,
+        {
+            "total_count": 0,
+            "non_refunded_count": 0,
+            "refunded_count": 0,
+        },
+    )
+    bucket["total_count"] += 1
+    if is_refunded:
+        bucket["refunded_count"] += 1
+    else:
+        bucket["non_refunded_count"] += 1

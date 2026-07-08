@@ -338,15 +338,33 @@ def summarize_tool_result(tool_name: str, result: Mapping[str, Any]) -> dict[str
     """Return bounded safe fields for a tool result."""
     if "aggregates" in result and isinstance(result["aggregates"], Mapping):
         aggregates = result["aggregates"]
+        history_summary = (
+            result.get("history_summary")
+            if isinstance(result.get("history_summary"), Mapping)
+            else {}
+        )
+        total_count = history_summary.get(
+            "total_purchase_count",
+            aggregates.get("total_purchase_count", 0),
+        )
         purchases = result.get("purchases")
         return {
             "summary": (
-                f"{aggregates.get('total_purchase_count', 0)} purchases, "
+                f"{total_count} purchases, "
                 f"${aggregates.get('total_amount_dollars', '0.00')}"
             ),
             "aggregates": {
                 "total_purchase_count": aggregates.get("total_purchase_count"),
                 "total_spend": f"${aggregates.get('total_amount_dollars', '0.00')}",
+            },
+            "history_summary": {
+                "total_purchase_count": history_summary.get("total_purchase_count"),
+                "non_refunded_purchase_count": history_summary.get(
+                    "non_refunded_purchase_count"
+                ),
+                "refunded_purchase_count": history_summary.get(
+                    "refunded_purchase_count"
+                ),
             },
             "items_preview": _purchase_items_preview(purchases),
         }

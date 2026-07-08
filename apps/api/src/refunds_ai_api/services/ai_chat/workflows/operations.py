@@ -205,6 +205,8 @@ def _has_refund_eligibility_operation(message: str) -> bool:
     eligibility_patterns = (
         r"\bcan\s+i\s+refund\b",
         r"\bcan\s+i\s+get\s+a\s+refund\s+for\b",
+        r"\bcan\s+you\s+(?:please\s+)?refund\b",
+        r"\bwhy\s+can(?:'|no)?t\s+you\s+refund\b",
         r"\bcould\s+i\s+refund\b",
         r"\bi(?:'d|d| would)\s+like\s+(?:to\s+)?get\s+a\s+refund\b",
         r"\bi(?:'d|d| would)\s+like\s+a\s+refund\b",

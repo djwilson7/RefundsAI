@@ -90,7 +90,7 @@ def block_invalid_workflow_transition(
                 ),
                 "blocked_intent": context.workflow_continuation_intent,
                 "conversation_state": update_conversation_state_for_page_reference(
-                    normalized_state,
+                    _state_with_entity_extraction(normalized_state, context),
                     context.page_reference,
                 ),
                 "page_reference": context.page_reference,
@@ -132,7 +132,7 @@ def block_invalid_workflow_transition(
             "assistant_response": REFUND_WORKFLOW_CONFIRMATION_REQUIRED_RESPONSE,
             "blocked_intent": context.workflow_continuation_intent,
             "conversation_state": update_conversation_state_for_page_reference(
-                normalized_state,
+                _state_with_entity_extraction(normalized_state, context),
                 context.page_reference,
             ),
             "page_reference": context.page_reference,
@@ -181,6 +181,7 @@ def block_invalid_workflow_transition(
                 },
                 "pending_refund_action": None,
                 "active_refund_context": None,
+                "entity_extraction_result": _entity_extraction_dict(context),
             },
             context.page_reference,
         )
@@ -261,6 +262,7 @@ def finalize_workflow_state(
         context=context,
         tool_results=tool_results,
     )
+    conversation_state["entity_extraction_result"] = _entity_extraction_dict(context)
 
     state = {
         **state,
@@ -283,3 +285,20 @@ def finalize_workflow_state(
             "active_purchase": conversation_state.get("active_purchase"),
         },
     )
+
+
+def _entity_extraction_dict(context: WorkflowContext) -> dict[str, Any] | None:
+    """Return the current workflow entity extraction result as a dict."""
+    return (
+        context.entity_extraction_result.as_dict()
+        if context.entity_extraction_result is not None
+        else None
+    )
+
+
+def _state_with_entity_extraction(
+    state: dict[str, Any],
+    context: WorkflowContext,
+) -> dict[str, Any]:
+    """Attach entity extraction to a state update."""
+    return {**state, "entity_extraction_result": _entity_extraction_dict(context)}

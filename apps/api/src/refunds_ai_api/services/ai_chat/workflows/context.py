@@ -2,18 +2,29 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from refunds_ai_api.services.ai_chat.dates import parse_date_range_query
+from refunds_ai_api.services.ai_chat.entity_extraction import (
+    ContextResolutionSource,
+    CurrentMessageEntity,
+    EntityExtractionResult,
+    build_current_message_entity,
+    extract_entity,
+)
 from refunds_ai_api.services.ai_chat.models import ChatGraphState, EligibilityResolution
 from refunds_ai_api.services.ai_chat.parsing import parse_amount_threshold_query
 from refunds_ai_api.services.ai_chat.resolution import (
     resolve_page_reference,
     resolve_purchase_by_id,
     resolve_purchase_fact_context,
+    resolve_purchase_reference_for_state,
     resolve_refund_eligibility_query,
     resolve_refund_policy_query_with_purchase,
+)
+from refunds_ai_api.services.ai_chat.resolvers.purchases import (
+    match_purchase_reference_with_metadata,
 )
 from refunds_ai_api.services.ai_chat.routing import has_account_fact_intent
 from refunds_ai_api.services.ai_chat.workflow import (
@@ -45,6 +56,13 @@ class WorkflowContext:
     blocked_refund_intent: str | None = None
     workflow_continuation_intent: str | None = None
     classification: WorkflowClassification | None = None
+    entity_extraction_result: EntityExtractionResult | None = None
+    current_message_entity: CurrentMessageEntity | None = None
+    previous_context_scope: str | None = None
+    resolution_scope_used: str = "none"
+    match_candidates: tuple[dict[str, Any], ...] = ()
+    selected_purchase_id: str | None = None
+    resolution_reason: str = "no_entity"
 
     def as_legacy_context(self) -> dict[str, Any]:
         """Return the dict shape expected by older execution helpers."""
@@ -60,6 +78,21 @@ class WorkflowContext:
             "page_reference": self.page_reference,
             "blocked_refund_intent": self.blocked_refund_intent,
             "workflow_continuation_intent": self.workflow_continuation_intent,
+            "entity_extraction_result": (
+                self.entity_extraction_result.as_dict()
+                if self.entity_extraction_result is not None
+                else None
+            ),
+            "current_message_entity": (
+                self.current_message_entity.as_dict()
+                if self.current_message_entity is not None
+                else None
+            ),
+            "previous_context_scope": self.previous_context_scope,
+            "resolution_scope_used": self.resolution_scope_used,
+            "match_candidates": list(self.match_candidates),
+            "selected_purchase_id": self.selected_purchase_id,
+            "resolution_reason": self.resolution_reason,
         }
 
 
@@ -76,6 +109,48 @@ def resolve_workflow_context(
         customer_id,
         state.get("page_context"),
     )
+    entity_extraction_result = extract_entity(
+        message,
+        context_resolution_source=_context_resolution_source(
+            state.get("conversation_state"),
+            page_reference,
+            classification,
+        ),
+    )
+    current_message_entity = build_current_message_entity(entity_extraction_result)
+    previous_context_scope = _previous_context_scope(state.get("conversation_state"))
+    match_candidates: list[dict[str, Any]] = []
+    resolution_reason = "no_entity"
+    if (
+        current_message_entity.entity_kind
+        in {"named_product", "purchase_id", "sku"}
+        and runtime.application_service is not None
+        and customer_id is not None
+        and current_message_entity.raw_text is not None
+    ):
+        match_result = match_purchase_reference_with_metadata(
+            current_message_entity.raw_text,
+            runtime.application_service.list_user_purchases(customer_id),
+        )
+        match_candidates = match_result.candidates
+        current_message_entity = replace(
+            current_message_entity,
+            matched_purchase_id=(
+                match_result.purchase["id"]
+                if match_result.purchase is not None
+                else None
+            ),
+            match_confidence=match_result.confidence,
+        )
+        resolution_reason = match_result.reason
+        if previous_context_scope is not None:
+            resolution_reason = f"{match_result.reason};active_result_set_overridden"
+    elif current_message_entity.entity_kind == "contextual_reference":
+        resolution_reason = (
+            f"contextual_reference_used_{current_message_entity.resolution_scope}"
+        )
+    elif current_message_entity.entity_kind == "purchase_type":
+        resolution_reason = "purchase_type_scope"
 
     threshold_query = parse_amount_threshold_query(message)
     date_range_query = parse_date_range_query(message)
@@ -116,6 +191,7 @@ def resolve_workflow_context(
             page_context=state.get("page_context"),
             application_service=runtime.application_service,
             customer_id=customer_id,
+            current_message_entity=current_message_entity,
         )
         if eligibility_resolution is None:
             eligibility_resolution = _resolve_eligibility_from_object(
@@ -173,7 +249,60 @@ def resolve_workflow_context(
         blocked_refund_intent=blocked_refund_intent,
         workflow_continuation_intent=workflow_continuation_intent,
         classification=classification,
+        entity_extraction_result=entity_extraction_result,
+        current_message_entity=current_message_entity,
+        previous_context_scope=previous_context_scope,
+        resolution_scope_used=current_message_entity.resolution_scope,
+        match_candidates=tuple(match_candidates),
+        selected_purchase_id=(
+            eligibility_resolution.purchase_ids[0]
+            if eligibility_resolution is not None
+            and len(eligibility_resolution.purchase_ids) == 1
+            else current_message_entity.matched_purchase_id
+        ),
+        resolution_reason=resolution_reason,
     )
+
+
+def _previous_context_scope(
+    conversation_state: dict[str, Any] | None,
+) -> str | None:
+    """Describe the previous result-set scope for resolution audit logs."""
+    state = conversation_state if isinstance(conversation_state, dict) else {}
+    active_result_set = state.get("active_result_set")
+    if not isinstance(active_result_set, dict) or not active_result_set.get(
+        "purchase_ids"
+    ):
+        return None
+    label = active_result_set.get("label")
+    return str(label) if label else str(active_result_set.get("type") or "active_result_set")
+
+
+def _context_resolution_source(
+    conversation_state: dict[str, Any] | None,
+    page_reference: dict[str, Any] | None,
+    classification: WorkflowClassification,
+) -> ContextResolutionSource:
+    """Return which structured context would ground a contextual entity."""
+    conversation_object = classification.conversation_object
+    if conversation_object is not None:
+        if conversation_object.kind is ConversationObjectKind.ACTIVE_PURCHASE:
+            return "active_purchase"
+        if conversation_object.kind is ConversationObjectKind.PAGE_PURCHASE:
+            return "page_reference"
+        if conversation_object.kind is ConversationObjectKind.ACTIVE_RESULT_SET:
+            return "active_result_set"
+    if isinstance(page_reference, dict) and page_reference.get("purchase") is not None:
+        return "page_reference"
+    state = conversation_state if isinstance(conversation_state, dict) else {}
+    if isinstance(state.get("active_purchase"), dict):
+        return "active_purchase"
+    active_result_set = state.get("active_result_set")
+    if isinstance(active_result_set, dict) and active_result_set.get("purchase_ids"):
+        return "active_result_set"
+    if isinstance(state.get("last_completed_refund"), dict):
+        return "last_completed_refund"
+    return "none"
 
 
 def _resolve_eligibility_from_object(
@@ -228,6 +357,30 @@ def _resolve_eligibility_from_object(
         return EligibilityResolution(
             purchase_ids,
             conversation_object.purchase_type or "purchase_type",
+        )
+
+    if (
+        conversation_object.kind is ConversationObjectKind.PRODUCT_REFERENCE
+        and conversation_object.product_reference is not None
+    ):
+        resolved_purchase, unresolved_reference = resolve_purchase_reference_for_state(
+            runtime.application_service,
+            customer_id,
+            conversation_object.product_reference,
+            {},
+        )
+        if resolved_purchase is not None:
+            return EligibilityResolution(
+                [resolved_purchase["id"]],
+                "product",
+                resolved_purchase=resolved_purchase,
+            )
+        return EligibilityResolution(
+            [],
+            "product",
+            unresolved_product_reference=(
+                unresolved_reference or conversation_object.product_reference
+            ),
         )
 
     if conversation_object.kind is ConversationObjectKind.FULL_PURCHASE_HISTORY:

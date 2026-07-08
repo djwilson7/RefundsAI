@@ -135,6 +135,10 @@ def compact_model_context_payload(
             if key in pending_refund_action
         }
 
+    customer_explanation_context = conversation_state.get("customer_explanation_context")
+    if isinstance(customer_explanation_context, dict):
+        compact_state["customer_explanation_context"] = customer_explanation_context
+
     current_page = page_reference or conversation_state.get("current_page")
     if isinstance(current_page, dict) and current_page.get("surface") == "purchase_detail":
         current_page_purchase = current_page.get("purchase")
