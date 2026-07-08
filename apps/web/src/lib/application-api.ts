@@ -129,6 +129,10 @@ type ApiModelAuditSession = Readonly<{
   total_reasoning_tokens?: number;
   total_model_latency_ms?: number;
   total_tool_latency_ms?: number;
+  total_model_input_tokens_estimated?: number;
+  total_model_output_tokens_estimated?: number;
+  total_tool_input_tokens_estimated?: number;
+  total_tool_output_tokens_estimated?: number;
   total_workflow_latency_ms?: number | null;
   total_workflow_steps?: number;
   created_at: string;
@@ -165,6 +169,10 @@ type ApiModelAuditEvent = Readonly<{
   source?: string | null;
   operation?: string | null;
   backend_category?: string | null;
+  input_tokens_estimated?: number | null;
+  output_tokens_estimated?: number | null;
+  tokenizer?: string | null;
+  token_budget?: Record<string, unknown> | null;
   input_summary?: string | null;
   output_summary?: string | null;
   customer_id?: string | null;
@@ -294,6 +302,9 @@ export type ModelAuditToolCall = Readonly<{
   workflow: string;
   inputSummary: string;
   outputSummary: string;
+  inputTokensEstimated: number | null;
+  outputTokensEstimated: number | null;
+  tokenizer: string | null;
   backendCategory: string;
   customerId: string | null;
   purchaseId: string | null;
@@ -327,6 +338,8 @@ export type ModelAuditSessionMetrics = Readonly<{
   completionTokens: number;
   reasoningTokens: number;
   totalTokens: number;
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
   modelLatency: string;
   toolLatency: string;
   workflowLatency: string;
@@ -739,6 +752,12 @@ export function mapApiModelAuditSessionToDetail(
         session.total_completion_tokens ?? session.completion_tokens ?? 0,
       reasoningTokens: session.total_reasoning_tokens ?? 0,
       totalTokens: session.total_tokens ?? 0,
+      estimatedInputTokens:
+        (session.total_model_input_tokens_estimated ?? 0) +
+        (session.total_tool_input_tokens_estimated ?? 0),
+      estimatedOutputTokens:
+        (session.total_model_output_tokens_estimated ?? 0) +
+        (session.total_tool_output_tokens_estimated ?? 0),
       modelLatency: formatDuration(session.total_model_latency_ms ?? null),
       toolLatency: formatDuration(session.total_tool_latency_ms ?? null),
       workflowLatency: formatDuration(
@@ -858,6 +877,9 @@ function mapApiModelAuditEventToToolCall(
       event.input_summary ?? summarizeAuditPayload(event.input_json),
     outputSummary:
       event.output_summary ?? summarizeAuditPayload(event.output_json),
+    inputTokensEstimated: event.input_tokens_estimated ?? null,
+    outputTokensEstimated: event.output_tokens_estimated ?? null,
+    tokenizer: event.tokenizer ?? null,
     backendCategory: event.backend_category ?? "Unavailable",
     customerId: event.customer_id ?? null,
     purchaseId: event.purchase_id ?? null,
@@ -896,7 +918,9 @@ function mapApiModelAuditEventToTimelineEvent(
       event.latency_ms === null || event.latency_ms === undefined
         ? null
         : formatDuration(event.latency_ms),
-    tokenCount: event.total_tokens ?? null,
+    tokenCount:
+      event.total_tokens ??
+      sumNullable(event.input_tokens_estimated, event.output_tokens_estimated),
     workflow: event.workflow_kind,
     operation: event.operation ?? null,
     rawPayload:
@@ -1271,6 +1295,21 @@ function formatDuration(durationMs: number | null) {
   }
 
   return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+function sumNullable(
+  first: number | null | undefined,
+  second: number | null | undefined,
+) {
+  if (first === null && second === null) {
+    return null;
+  }
+
+  if (first === undefined && second === undefined) {
+    return null;
+  }
+
+  return (first ?? 0) + (second ?? 0);
 }
 
 export function formatCentsAsDollars(amountCents: number) {

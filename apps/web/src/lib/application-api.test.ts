@@ -372,6 +372,9 @@ describe("application API client", () => {
       source: "deterministic_forced",
       operation: "list",
       backend_category: "backend_read",
+      input_tokens_estimated: 3,
+      output_tokens_estimated: 240,
+      tokenizer: "tiktoken:cl100k_base",
       input_summary: "customer purchase history",
       output_summary: "4 purchases, $209.99",
     };
@@ -400,8 +403,15 @@ describe("application API client", () => {
       operation: "list",
       inputSummary: "customer purchase history",
       outputSummary: "4 purchases, $209.99",
+      inputTokensEstimated: 3,
+      outputTokensEstimated: 240,
+      tokenizer: "tiktoken:cl100k_base",
       backendCategory: "backend_read",
     });
+    expect(
+      detail.timelineEvents.find((event) => event.title === "Tool completed")
+        ?.tokenCount,
+    ).toBe(243);
   });
 
   it("prefers the exact response returned to the user", () => {

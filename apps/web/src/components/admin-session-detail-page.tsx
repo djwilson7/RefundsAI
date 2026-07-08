@@ -86,6 +86,14 @@ export function AdminSessionDetailPage({
               <dd>{detail.metrics.totalTokens.toLocaleString()}</dd>
             </div>
             <div>
+              <dt>Estimated Input Tokens</dt>
+              <dd>{(detail.metrics.estimatedInputTokens ?? 0).toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>Estimated Output Tokens</dt>
+              <dd>{(detail.metrics.estimatedOutputTokens ?? 0).toLocaleString()}</dd>
+            </div>
+            <div>
               <dt>Model Latency</dt>
               <dd>{detail.metrics.modelLatency}</dd>
             </div>
@@ -142,6 +150,21 @@ export function AdminSessionDetailPage({
                   <div><dt>Workflow</dt><dd>{toolCall.workflow}</dd></div>
                   <div><dt>Operation</dt><dd>{toolCall.operation}</dd></div>
                   <div><dt>Category</dt><dd>{toolCall.backendCategory}</dd></div>
+                  {toolCall.inputTokensEstimated != null ? (
+                    <div>
+                      <dt>Input Tokens</dt>
+                      <dd>{toolCall.inputTokensEstimated.toLocaleString()}</dd>
+                    </div>
+                  ) : null}
+                  {toolCall.outputTokensEstimated != null ? (
+                    <div>
+                      <dt>Output Tokens</dt>
+                      <dd>{toolCall.outputTokensEstimated.toLocaleString()}</dd>
+                    </div>
+                  ) : null}
+                  {toolCall.tokenizer ? (
+                    <div><dt>Tokenizer</dt><dd>{toolCall.tokenizer}</dd></div>
+                  ) : null}
                   <div><dt>Input</dt><dd>{toolCall.inputSummary}</dd></div>
                   <div><dt>Output</dt><dd>{toolCall.outputSummary}</dd></div>
                   {toolCall.customerId ? (

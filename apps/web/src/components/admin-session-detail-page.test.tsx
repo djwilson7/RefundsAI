@@ -36,6 +36,8 @@ const detail: ModelAuditSessionDetail = {
     completionTokens: 312,
     reasoningTokens: 0,
     totalTokens: 812,
+    estimatedInputTokens: 1_240,
+    estimatedOutputTokens: 312,
     modelLatency: "2.4s",
     toolLatency: "18ms",
     workflowLatency: "3.2s",
@@ -58,6 +60,9 @@ const detail: ModelAuditSessionDetail = {
       workflow: "refund_eligibility",
       inputSummary: "2 recorded fields",
       outputSummary: "1 policy result",
+      inputTokensEstimated: 12,
+      outputTokensEstimated: 180,
+      tokenizer: "tiktoken:cl100k_base",
       backendCategory: "backend_validation",
       customerId: "20000000-0000-4000-8000-000000000001",
       purchaseId: "40000000-0000-4000-8000-000000000001",
@@ -121,6 +126,11 @@ describe("AdminSessionDetailPage", () => {
     expect(screen.getAllByText("get_refund_eligibility")).toHaveLength(2);
     expect(screen.getByText("Model Calls")).toBeInTheDocument();
     expect(screen.getByText("Reasoning Tokens")).toBeInTheDocument();
+    expect(screen.getByText("Estimated Input Tokens")).toBeInTheDocument();
+    expect(screen.getByText("1,240")).toBeInTheDocument();
+    expect(screen.getByText("Input Tokens")).toBeInTheDocument();
+    expect(screen.getByText("Output Tokens")).toBeInTheDocument();
+    expect(screen.getByText("tiktoken:cl100k_base")).toBeInTheDocument();
     expect(screen.getAllByText("18ms")).toHaveLength(2);
     expect(screen.getByText("Request received")).toBeInTheDocument();
     expect(
