@@ -1,8 +1,17 @@
 import { AdminHomePage } from "@/components/admin-home-page";
-import { getModelAuditInvocations } from "@/lib/application-api";
+import { getModelAuditInvocationPage } from "@/lib/application-api";
+
+const auditSessionPageSize = 10;
 
 export default async function AdminHome() {
-  const invocations = (await getModelAuditInvocations()) ?? [];
+  const auditPage = await getModelAuditInvocationPage({
+    limit: auditSessionPageSize,
+  });
 
-  return <AdminHomePage invocations={invocations} />;
+  return (
+    <AdminHomePage
+      hasMoreInvocations={auditPage?.hasMore ?? false}
+      invocations={auditPage?.invocations ?? []}
+    />
+  );
 }

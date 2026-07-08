@@ -97,20 +97,7 @@ describe("ApplicationHelpLayer", () => {
 
   it("refreshes purchase data after a chat purchase-data side effect", async () => {
     setMockedPathname("/purchase-details/40000000-0000-4000-8000-000000000001");
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: {
-              can_issue_funds: false,
-              can_prepare_refund: true,
-            },
-          }),
-      })
-      .mockResolvedValueOnce({
+    const fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: () =>
           Promise.resolve({
@@ -132,17 +119,6 @@ describe("ApplicationHelpLayer", () => {
                   reason: "refund_mutation_completed",
                 },
               ],
-            },
-          }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: {
-              can_issue_funds: true,
-              can_prepare_refund: false,
             },
           }),
       });
@@ -168,13 +144,13 @@ describe("ApplicationHelpLayer", () => {
       screen.getByText("Confirm invalidate code and issue refund"),
     ).toBeInTheDocument();
     await waitFor(() => expect(getNavigationRefreshMock()).toHaveBeenCalledTimes(1));
-    expect(fetch).toHaveBeenNthCalledWith(
-      3,
-      "/api/purchases/40000000-0000-4000-8000-000000000001/refund/eligibility",
-      { cache: "no-store" },
-    );
-    expect(screen.getByRole("button", { name: "Prep Refund" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Issue Refund" })).toBeEnabled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: "Prep Refund" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Issue Refund" }),
+    ).not.toBeInTheDocument();
   });
 
   it("scrolls the chat transcript as turns are added", async () => {
@@ -413,20 +389,7 @@ describe("ApplicationHelpLayer", () => {
         lastName: "Collins",
       }),
     );
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: {
-              can_issue_funds: false,
-              can_prepare_refund: false,
-            },
-          }),
-      })
-      .mockResolvedValueOnce({
+    const fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: () =>
           Promise.resolve({
@@ -454,8 +417,7 @@ describe("ApplicationHelpLayer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     await screen.findByText("You made 4 purchases.");
-    expect(fetch).toHaveBeenNthCalledWith(
-      2,
+    expect(fetch).toHaveBeenCalledWith(
       "/api/chat",
       {
         method: "POST",

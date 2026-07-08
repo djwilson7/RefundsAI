@@ -41,48 +41,82 @@ export function AdminSessionDetailPage({
         <div className={styles.header}>
           <div>
             <h1 className={styles.heading}>{detail.invocation.title}</h1>
-            <p className={styles.summary}>{detail.prompt}</p>
           </div>
           <span className={getStatusClassName(detail.invocation.status)}>
             {detail.invocation.status}
           </span>
         </div>
 
-        <dl className={styles.metaGrid}>
-          <div>
-            <dt>Model</dt>
-            <dd>{detail.modelName}</dd>
-          </div>
-          <div>
-            <dt>Trace</dt>
-            <dd>{detail.traceId}</dd>
-          </div>
-          <div>
-            <dt>Request</dt>
-            <dd>{detail.requestId}</dd>
-          </div>
-          <div>
-            <dt>Events</dt>
-            <dd>{detail.invocation.eventCount}</dd>
-          </div>
-          <div>
-            <dt>Tools</dt>
-            <dd>{detail.invocation.toolCount}</dd>
-          </div>
-          <div>
-            <dt>Tokens</dt>
-            <dd>{detail.invocation.totalTokens}</dd>
-          </div>
-          <div>
-            <dt>Latency</dt>
-            <dd>{detail.invocation.latency}</dd>
-          </div>
-          <div>
-            <dt>TTR</dt>
-            <dd>{detail.invocation.timeToResponse}</dd>
-          </div>
-        </dl>
+        <div className={styles.metaLayout}>
+          <dl className={styles.primaryMetaGrid}>
+            <div>
+              <dt>Model</dt>
+              <dd>{detail.modelName}</dd>
+            </div>
+            <div>
+              <dt>Session Duration</dt>
+              <dd>{detail.metrics.duration}</dd>
+            </div>
+            <div>
+              <dt>Workflow Steps</dt>
+              <dd>{detail.metrics.workflowSteps}</dd>
+            </div>
+            <div>
+              <dt>Model Calls</dt>
+              <dd>{detail.metrics.modelCalls}</dd>
+            </div>
+            <div>
+              <dt>Tool Calls</dt>
+              <dd>{detail.metrics.toolCalls}</dd>
+            </div>
+            <div>
+              <dt>Prompt Tokens</dt>
+              <dd>{detail.metrics.promptTokens.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>Completion Tokens</dt>
+              <dd>{detail.metrics.completionTokens.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>Reasoning Tokens</dt>
+              <dd>{detail.metrics.reasoningTokens.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>Total Tokens</dt>
+              <dd>{detail.metrics.totalTokens.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>Model Latency</dt>
+              <dd>{detail.metrics.modelLatency}</dd>
+            </div>
+            <div>
+              <dt>Tool Latency</dt>
+              <dd>{detail.metrics.toolLatency}</dd>
+            </div>
+            <div>
+              <dt>Workflow Latency</dt>
+              <dd>{detail.metrics.workflowLatency}</dd>
+            </div>
+          </dl>
+          <dl className={styles.identifierMetaGrid}>
+            <div>
+              <dt>Trace</dt>
+              <dd>{detail.traceId}</dd>
+            </div>
+            <div>
+              <dt>Request</dt>
+              <dd>{detail.requestId}</dd>
+            </div>
+          </dl>
+        </div>
       </AppCard>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>User Prompt</h2>
+        <article className={styles.panel}>
+          <p className={styles.responseText}>{detail.prompt}</p>
+        </article>
+      </section>
 
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Model Response</h2>
@@ -102,6 +136,21 @@ export function AdminSessionDetailPage({
                   <span>{toolCall.status}</span>
                 </div>
                 <p>{toolCall.summary}</p>
+                <dl className={styles.toolDetails}>
+                  <div><dt>Latency</dt><dd>{toolCall.latency}</dd></div>
+                  <div><dt>Source</dt><dd>{toolCall.source}</dd></div>
+                  <div><dt>Workflow</dt><dd>{toolCall.workflow}</dd></div>
+                  <div><dt>Operation</dt><dd>{toolCall.operation}</dd></div>
+                  <div><dt>Category</dt><dd>{toolCall.backendCategory}</dd></div>
+                  <div><dt>Input</dt><dd>{toolCall.inputSummary}</dd></div>
+                  <div><dt>Output</dt><dd>{toolCall.outputSummary}</dd></div>
+                  {toolCall.customerId ? (
+                    <div><dt>Customer</dt><dd>{toolCall.customerId}</dd></div>
+                  ) : null}
+                  {toolCall.purchaseId ? (
+                    <div><dt>Purchase</dt><dd>{toolCall.purchaseId}</dd></div>
+                  ) : null}
+                </dl>
                 <p className={styles.timestamp}>{toolCall.occurredAt}</p>
               </article>
             ))}
@@ -120,9 +169,33 @@ export function AdminSessionDetailPage({
               <div>
                 <div className={styles.timelineHeader}>
                   <h3>{event.title}</h3>
-                  <span>{event.category}</span>
+                  <div className={styles.badges}>
+                    <span>{event.status ?? event.category}</span>
+                    {event.latency ? <span>{event.latency}</span> : null}
+                    {event.tokenCount !== null ? (
+                      <span>{event.tokenCount.toLocaleString()} tokens</span>
+                    ) : null}
+                    {event.workflow ? <span>{event.workflow}</span> : null}
+                    {event.operation ? <span>{event.operation}</span> : null}
+                  </div>
                 </div>
                 <p>{event.summary}</p>
+                {event.details.length > 0 ? (
+                  <dl className={styles.timelineDetails}>
+                    {event.details.map((detail) => (
+                      <div key={`${detail.label}-${detail.value}`}>
+                        <dt>{detail.label}</dt>
+                        <dd>{detail.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+                {event.rawPayload ? (
+                  <details className={styles.payloadDetails}>
+                    <summary>Recorded payload</summary>
+                    <pre>{event.rawPayload}</pre>
+                  </details>
+                ) : null}
                 <p className={styles.timestamp}>{event.occurredAt}</p>
               </div>
             </li>

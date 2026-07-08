@@ -13,8 +13,7 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { updatePurchaseDetailsSummaryStatus } from "@/lib/purchase-details-data";
-import { ArrowUpIcon, MicrophoneIcon } from "./icons";
+import { ArrowUpIcon } from "./icons";
 import { loadSelectedMockCustomerId } from "./mock-auth-session";
 import styles from "./application-help-layer.module.css";
 
@@ -27,24 +26,6 @@ type ApplicationHelpContextValue = Readonly<{
   isOpen: boolean;
   panelId: string;
   toggle: () => void;
-}>;
-
-type RefundWorkflow = Readonly<{
-  canIssueFunds: boolean;
-  canPrepareRefund: boolean;
-}>;
-
-type RefundWorkflowLoad = Readonly<{
-  purchaseId: string | null;
-  state:
-    | "idle"
-    | "ready"
-    | "preparing"
-    | "prepared"
-    | "issuing"
-    | "issued"
-    | "error";
-  workflow: RefundWorkflow | null;
 }>;
 
 type ChatMessage = Readonly<{
@@ -84,7 +65,6 @@ type PageContext = Readonly<{
 
 const ApplicationHelpContext =
   createContext<ApplicationHelpContextValue | null>(null);
-const refundWorkflowUpdatedEvent = "refunds-ai:refund-workflow-updated";
 const initialChatMessages: ChatMessage[] = [
   {
     id: "welcome",
@@ -106,25 +86,11 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   const [chatState, setChatState] = useState<"idle" | "sending" | "error">(
     "idle",
   );
-  const [workflowLoad, setWorkflowLoad] = useState<RefundWorkflowLoad>({
-    purchaseId: null,
-    state: "idle",
-    workflow: null,
-  });
   const panelId = useId();
   const pathname = usePathname();
   const router = useRouter();
   const isAvailable = isHelpAvailable(pathname);
   const purchaseId = getPurchaseIdFromPathname(pathname);
-  const workflow =
-    workflowLoad.purchaseId === purchaseId ? workflowLoad.workflow : null;
-  const workflowState =
-    workflowLoad.purchaseId === purchaseId ? workflowLoad.state : "idle";
-  const isPurchaseDetailsRoute = Boolean(
-    pathname?.startsWith("/purchase-details/"),
-  );
-  const commandDisabled =
-    workflowState === "preparing" || workflowState === "issuing";
   const contextValue = useMemo<ApplicationHelpContextValue>(
     () => ({
       isAvailable,
@@ -134,42 +100,6 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     }),
     [isAvailable, isOpen, panelId],
   );
-
-  useEffect(() => {
-    if (!purchaseId) {
-      return;
-    }
-
-    let ignoreResult = false;
-
-    void loadRefundWorkflow(purchaseId)
-      .then((nextWorkflow) => {
-        if (ignoreResult) {
-          return;
-        }
-
-        setWorkflowLoad({
-          purchaseId,
-          state: "ready",
-          workflow: nextWorkflow,
-        });
-      })
-      .catch(() => {
-        if (ignoreResult) {
-          return;
-        }
-
-        setWorkflowLoad({
-          purchaseId,
-          state: "error",
-          workflow: null,
-        });
-      });
-
-    return () => {
-      ignoreResult = true;
-    };
-  }, [purchaseId]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -192,97 +122,6 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
 
     transcript.scrollTop = transcript.scrollHeight;
   }, [chatMessages.length, isOpen]);
-
-  useEffect(() => {
-    function handleRefundWorkflowUpdated(event: Event) {
-      const detail = (event as CustomEvent<{
-        purchaseId?: string;
-        workflow?: RefundWorkflow;
-      }>).detail;
-
-      if (!detail?.purchaseId || detail.purchaseId !== purchaseId) {
-        return;
-      }
-
-      setWorkflowLoad({
-        purchaseId: detail.purchaseId,
-        state: "ready",
-        workflow: detail.workflow ?? null,
-      });
-    }
-
-    window.addEventListener(
-      refundWorkflowUpdatedEvent,
-      handleRefundWorkflowUpdated,
-    );
-
-    return () => {
-      window.removeEventListener(
-        refundWorkflowUpdatedEvent,
-        handleRefundWorkflowUpdated,
-      );
-    };
-  }, [purchaseId]);
-
-  async function handlePrepareRefund() {
-    if (!purchaseId || !workflow?.canPrepareRefund || commandDisabled) {
-      return;
-    }
-
-    setWorkflowLoad({
-      purchaseId,
-      state: "preparing",
-      workflow,
-    });
-
-    try {
-      const nextWorkflow = await prepareRefund(purchaseId);
-
-      setWorkflowLoad({
-        purchaseId,
-        state: "prepared",
-        workflow: nextWorkflow,
-      });
-      updatePurchaseDetailsSummaryStatus(purchaseId, "Refund Pending");
-      router.refresh();
-    } catch {
-      setWorkflowLoad({
-        purchaseId,
-        state: "error",
-        workflow,
-      });
-    }
-  }
-
-  async function handleIssueRefund() {
-    if (!purchaseId || !workflow?.canIssueFunds || commandDisabled) {
-      return;
-    }
-
-    setWorkflowLoad({
-      purchaseId,
-      state: "issuing",
-      workflow,
-    });
-
-    try {
-      const nextWorkflow = await issueRefund(purchaseId);
-
-      setWorkflowLoad({
-        purchaseId,
-        state: "issued",
-        workflow: nextWorkflow,
-      });
-      updatePurchaseDetailsSummaryStatus(purchaseId, "Refunded");
-      router.refresh();
-    } catch {
-      setWorkflowLoad({
-        purchaseId,
-        state: "error",
-        workflow,
-      });
-    }
-  }
 
   async function submitChatMessage() {
     const message = chatInput.trim();
@@ -346,23 +185,6 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
       return;
     }
 
-    if (purchaseId) {
-      try {
-        const nextWorkflow = await loadRefundWorkflow(purchaseId);
-        setWorkflowLoad({
-          purchaseId,
-          state: "ready",
-          workflow: nextWorkflow,
-        });
-      } catch {
-        setWorkflowLoad({
-          purchaseId,
-          state: "error",
-          workflow: null,
-        });
-      }
-    }
-
     router.refresh();
   }
 
@@ -407,26 +229,6 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
               <p className={styles.title}>Help</p>
             </header>
             <div className={styles.body}>
-              {isPurchaseDetailsRoute ? (
-                <div className={styles.commandStack}>
-                  <button
-                    className={styles.actionButton}
-                    disabled={!workflow?.canPrepareRefund || commandDisabled}
-                    onClick={handlePrepareRefund}
-                    type="button"
-                  >
-                    Prep Refund
-                  </button>
-                  <button
-                    className={styles.actionButton}
-                    disabled={!workflow?.canIssueFunds || commandDisabled}
-                    onClick={handleIssueRefund}
-                    type="button"
-                  >
-                    Issue Refund
-                  </button>
-                </div>
-              ) : null}
               <div className={styles.chatSurface}>
                 <div
                   aria-label="Chat transcript"
@@ -483,15 +285,6 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
                   />
                   <div className={styles.inputActions}>
                     <button
-                      aria-label="Voice input coming soon"
-                      className={styles.iconAction}
-                      disabled
-                      title="Voice input coming soon"
-                      type="button"
-                    >
-                      <MicrophoneIcon size={18} />
-                    </button>
-                    <button
                       aria-label="Send message"
                       className={styles.iconAction}
                       disabled={!chatInput.trim() || chatState === "sending"}
@@ -547,39 +340,12 @@ function nextChatMessageId(
   return `${prefix}-${counterRef.current}`;
 }
 
-async function loadRefundWorkflow(purchaseId: string) {
-  const response = await fetch(
-    `/api/purchases/${purchaseId}/refund/eligibility`,
-    {
-      cache: "no-store",
-    },
-  );
-
-  return parseRefundWorkflowResponse(response);
-}
-
-async function prepareRefund(purchaseId: string) {
-  const response = await fetch(`/api/purchases/${purchaseId}/refund/request`, {
-    method: "POST",
-  });
-
-  return parseRefundWorkflowResponse(response);
-}
-
 function getCustomerIdFromCurrentUrl() {
   if (typeof window === "undefined") {
     return null;
   }
 
   return new URLSearchParams(window.location.search).get("customerId");
-}
-
-async function issueRefund(purchaseId: string) {
-  const response = await fetch(`/api/purchases/${purchaseId}/refund/issue`, {
-    method: "POST",
-  });
-
-  return parseRefundWorkflowResponse(response);
 }
 
 async function sendChatMessage(
@@ -643,25 +409,3 @@ function buildPageContext(pathname: string | null, purchaseId: string | null): P
   };
 }
 
-async function parseRefundWorkflowResponse(response: Response) {
-  if (!response.ok) {
-    throw new Error("Refund workflow request failed.");
-  }
-
-  const body = (await response.json()) as {
-    success?: boolean;
-    data?: {
-      can_issue_funds?: boolean;
-      can_prepare_refund?: boolean;
-    } | null;
-  };
-
-  if (!body.success || !body.data) {
-    throw new Error("Refund workflow response was unsuccessful.");
-  }
-
-  return {
-    canIssueFunds: body.data.can_issue_funds === true,
-    canPrepareRefund: body.data.can_prepare_refund === true,
-  };
-}

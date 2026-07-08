@@ -54,8 +54,8 @@ describe("ApplicationHelpLayer", () => {
       screen.getByLabelText("Message the AI assistant"),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Voice input coming soon" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Voice input coming soon" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Send message" }),
     ).toBeDisabled();

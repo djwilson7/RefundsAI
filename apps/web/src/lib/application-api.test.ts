@@ -4,6 +4,7 @@ import {
   formatPurchaseDate,
   formatPurchaseStatus,
   getPurchaseDetails,
+  getModelAuditInvocationPage,
   getModelAuditInvocations,
   getModelAuditSessionDetail,
   getRefundWorkflow,
@@ -130,7 +131,14 @@ const apiModelAuditEvents = [
     tool_name: "get_refund_eligibility",
     summary: "Backend refund-eligibility tool completed.",
     input_json: null,
-    output_json: {},
+    output_json: {
+      tool: "get_refund_eligibility",
+      summary: "refund eligible, next=request_refund",
+      result: {
+        refund_stage: "eligible",
+        required_action: "request_refund",
+      },
+    },
     metadata_json: { trace_event_type: "tool_call.completed" },
     created_at: "2026-07-07T16:18:01Z",
   },
@@ -148,7 +156,9 @@ const apiModelAuditEvents = [
     tool_name: null,
     summary: "The assistant response was generated.",
     input_json: null,
-    output_json: {},
+    output_json: {
+      assistant_response: "Yes, the purchase is eligible for a refund.",
+    },
     metadata_json: { trace_event_type: "response.generated" },
     created_at: "2026-07-07T16:18:03Z",
   },
@@ -300,6 +310,7 @@ describe("application API client", () => {
       ),
     ).toEqual({
       id: "70000000-0000-4000-8000-000000000001",
+      startedAt: "2026-07-07T16:18:00Z",
       title: "July 7, 2026",
       lastActive: "Last active 4:18 PM",
       description:
@@ -323,7 +334,7 @@ describe("application API client", () => {
       requestId: "req-123",
       prompt:
         "Can you check whether my wireless headphones are eligible for a refund?",
-      finalResponse: "The assistant response was generated.",
+      finalResponse: "Yes, the purchase is eligible for a refund.",
       toolCalls: [
         expect.objectContaining({
           toolName: "get_refund_eligibility",
@@ -334,9 +345,115 @@ describe("application API client", () => {
         expect.objectContaining({
           title: "Request received",
           category: "request",
+          summary:
+            'Received customer request: "Can you check whether my wireless headphones are eligible for a refund?"',
+        }),
+        expect.objectContaining({
+          title: "Tool completed",
+          summary:
+            "get refund eligibility completed: refund eligible, next=request_refund.",
+          details: expect.arrayContaining([
+            {
+              label: "Result / Result / Refund Stage",
+              value: "eligible",
+            },
+          ]),
         }),
       ]),
     });
+  });
+
+  it("consolidates tool started and completed events by lifecycle id", () => {
+    const completed = {
+      ...apiModelAuditEvents[1],
+      tool_call_id: "tool-call-1",
+      status: "completed",
+      latency_ms: 18,
+      source: "deterministic_forced",
+      operation: "list",
+      backend_category: "backend_read",
+      input_summary: "customer purchase history",
+      output_summary: "4 purchases, $209.99",
+    };
+    const started = {
+      ...completed,
+      id: "73000000-0000-4000-8000-000000000099",
+      sequence_number: 5,
+      event_key: "TOOL_STARTED",
+      display_name: "Tool started",
+      status: "started",
+      latency_ms: null,
+      output_summary: null,
+    };
+
+    const detail = mapApiModelAuditSessionToDetail(
+      apiModelAuditSession,
+      [apiModelAuditEvents[0], started, completed, apiModelAuditEvents[2]],
+    );
+
+    expect(detail.toolCalls).toHaveLength(1);
+    expect(detail.toolCalls[0]).toMatchObject({
+      toolName: "get_refund_eligibility",
+      status: "completed",
+      latency: "18ms",
+      source: "deterministic_forced",
+      operation: "list",
+      inputSummary: "customer purchase history",
+      outputSummary: "4 purchases, $209.99",
+      backendCategory: "backend_read",
+    });
+  });
+
+  it("prefers the exact response returned to the user", () => {
+    const responseReturnedEvent = {
+      ...apiModelAuditEvents[2],
+      id: "73000000-0000-4000-8000-000000000004",
+      sequence_number: 13,
+      event_key: "RESPONSE_RETURNED",
+      display_name: "Route response returned",
+      summary: "FastAPI chat route returning assistant response payload.",
+      output_json: {
+        response: {
+          message: {
+            role: "assistant",
+            content: "This is the exact response delivered to the user.",
+          },
+        },
+      },
+    };
+
+    expect(
+      mapApiModelAuditSessionToDetail(apiModelAuditSession, [
+        ...apiModelAuditEvents,
+        responseReturnedEvent,
+      ]).finalResponse,
+    ).toBe("This is the exact response delivered to the user.");
+  });
+
+  it("preserves repeated completed tool calls in session history", () => {
+    const repeatedToolEvent = {
+      ...apiModelAuditEvents[1],
+      id: "73000000-0000-4000-8000-000000000099",
+      sequence_number: 10,
+      summary: "A second refund-eligibility tool call completed.",
+      created_at: "2026-07-07T16:18:02Z",
+    };
+
+    expect(
+      mapApiModelAuditSessionToDetail(apiModelAuditSession, [
+        ...apiModelAuditEvents,
+        repeatedToolEvent,
+      ]).toolCalls,
+    ).toEqual([
+      expect.objectContaining({
+        id: "73000000-0000-4000-8000-000000000002",
+        toolName: "get_refund_eligibility",
+      }),
+      expect.objectContaining({
+        id: "73000000-0000-4000-8000-000000000099",
+        toolName: "get_refund_eligibility",
+      }),
+    ]);
   });
 
   it("counts deterministic tool usage from persisted tool request events", () => {
@@ -530,12 +647,94 @@ describe("application API client", () => {
     ]);
     expect(fetch).toHaveBeenNthCalledWith(
       1,
-      "http://localhost:8000/api/admin/audit/sessions?limit=1",
+      "/api/admin/audit/sessions?limit=2",
       { cache: "no-store" },
     );
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      "http://localhost:8000/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001/events",
+      "/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001/events",
+      { cache: "no-store" },
+    );
+  });
+
+  it("loads all model audit invocations when no limit is supplied", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { sessions: [apiModelAuditSession] },
+            error: null,
+            meta: {},
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { events: apiModelAuditEvents },
+            error: null,
+            meta: {},
+          }),
+      });
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(getModelAuditInvocations()).resolves.toHaveLength(1);
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/admin/audit/sessions",
+      { cache: "no-store" },
+    );
+  });
+
+  it("loads paged model audit invocations with offset and has-more state", async () => {
+    const secondApiModelAuditSession = {
+      ...apiModelAuditSession,
+      id: "70000000-0000-4000-8000-000000000002",
+      started_at: "2026-07-07T15:18:00Z",
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              sessions: [apiModelAuditSession, secondApiModelAuditSession],
+            },
+            error: null,
+            meta: {},
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { events: apiModelAuditEvents },
+            error: null,
+            meta: {},
+          }),
+      });
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(
+      getModelAuditInvocationPage({ limit: 1, offset: 10 }),
+    ).resolves.toMatchObject({
+      hasMore: true,
+      invocations: [
+        expect.objectContaining({
+          id: "70000000-0000-4000-8000-000000000001",
+        }),
+      ],
+    });
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/admin/audit/sessions?limit=2&offset=10",
       { cache: "no-store" },
     );
   });
@@ -577,12 +776,12 @@ describe("application API client", () => {
     });
     expect(fetch).toHaveBeenNthCalledWith(
       1,
-      "http://localhost:8000/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001",
+      "/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001",
       { cache: "no-store" },
     );
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      "http://localhost:8000/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001/events",
+      "/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001/events",
       { cache: "no-store" },
     );
   });

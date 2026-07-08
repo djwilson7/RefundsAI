@@ -73,49 +73,6 @@
   min-height: 0;
 }
 
-.commandStack {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.actionButton {
-  width: 100%;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  background: var(--accent);
-  color: #ffffff;
-  cursor: pointer;
-  font-size: 0.9375rem;
-  font-weight: 800;
-  padding: 12px 14px;
-  transition:
-    background 160ms ease,
-    border-color 160ms ease;
-}
-
-.actionButton:hover,
-.actionButton:focus-visible {
-  border-color: var(--accent-strong);
-  background: var(--accent-strong);
-}
-
-.actionButton:focus-visible {
-  outline: 3px solid rgb(11 107 203 / 18%);
-}
-
-.actionButton:disabled {
-  border-color: #cbd5e1;
-  background: #dbe2ea;
-  color: #7b8794;
-  cursor: not-allowed;
-}
-
-.actionButton:disabled:hover {
-  border-color: #cbd5e1;
-  background: #dbe2ea;
-}
-
 .chatSurface {
   display: flex;
   flex: 1;

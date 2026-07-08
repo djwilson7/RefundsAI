@@ -116,11 +116,21 @@ type ApiModelAuditSession = Readonly<{
   status: string;
   prompt_tokens: number | null;
   completion_tokens: number | null;
+  reasoning_tokens?: number | null;
   total_tokens: number | null;
   started_at: string;
   completed_at: string | null;
   latency_ms: number | null;
   event_count: number;
+  total_model_calls?: number;
+  total_tool_calls?: number;
+  total_prompt_tokens?: number;
+  total_completion_tokens?: number;
+  total_reasoning_tokens?: number;
+  total_model_latency_ms?: number;
+  total_tool_latency_ms?: number;
+  total_workflow_latency_ms?: number | null;
+  total_workflow_steps?: number;
   created_at: string;
   updated_at: string;
 }>;
@@ -141,6 +151,24 @@ type ApiModelAuditEvent = Readonly<{
   input_json: Record<string, unknown> | null;
   output_json: Record<string, unknown> | null;
   metadata_json: Record<string, unknown> | null;
+  model_call_id?: string | null;
+  phase?: string | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  reasoning_tokens?: number | null;
+  total_tokens?: number | null;
+  latency_ms?: number | null;
+  status?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  tool_call_id?: string | null;
+  source?: string | null;
+  operation?: string | null;
+  backend_category?: string | null;
+  input_summary?: string | null;
+  output_summary?: string | null;
+  customer_id?: string | null;
+  purchase_id?: string | null;
   created_at: string;
 }>;
 
@@ -239,6 +267,7 @@ export type RefundWorkflow = Readonly<{
 
 export type ModelAuditInvocation = Readonly<{
   id: string;
+  startedAt: string;
   title: string;
   lastActive: string;
   description: string;
@@ -259,6 +288,15 @@ export type ModelAuditToolCall = Readonly<{
   summary: string;
   occurredAt: string;
   status: "completed" | "started" | "requested" | "failed";
+  latency: string;
+  source: string;
+  operation: string;
+  workflow: string;
+  inputSummary: string;
+  outputSummary: string;
+  backendCategory: string;
+  customerId: string | null;
+  purchaseId: string | null;
 }>;
 
 export type ModelAuditTimelineEvent = Readonly<{
@@ -267,7 +305,31 @@ export type ModelAuditTimelineEvent = Readonly<{
   title: string;
   category: string;
   summary: string;
+  details: readonly Readonly<{
+    label: string;
+    value: string;
+  }>[];
   occurredAt: string;
+  status: string | null;
+  latency: string | null;
+  tokenCount: number | null;
+  workflow: string | null;
+  operation: string | null;
+  rawPayload: string | null;
+}>;
+
+export type ModelAuditSessionMetrics = Readonly<{
+  duration: string;
+  workflowSteps: number;
+  modelCalls: number;
+  toolCalls: number;
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  modelLatency: string;
+  toolLatency: string;
+  workflowLatency: string;
 }>;
 
 export type ModelAuditSessionDetail = Readonly<{
@@ -275,6 +337,7 @@ export type ModelAuditSessionDetail = Readonly<{
   modelName: string;
   traceId: string;
   requestId: string;
+  metrics: ModelAuditSessionMetrics;
   prompt: string;
   finalResponse: string;
   toolCalls: readonly ModelAuditToolCall[];
@@ -283,6 +346,10 @@ export type ModelAuditSessionDetail = Readonly<{
 
 function getApiBaseUrl() {
   return process.env.REFUNDS_AI_API_BASE_URL ?? defaultApiBaseUrl;
+}
+
+function getAuditReadBaseUrl() {
+  return typeof window === "undefined" ? getApiBaseUrl() : "";
 }
 
 export async function getUserProfile(userId: string) {
@@ -381,10 +448,34 @@ export async function getRefundWorkflow(purchaseId: string) {
   }
 }
 
-export async function getModelAuditInvocations(limit = 4) {
+export async function getModelAuditInvocations(limit?: number) {
+  const page = await getModelAuditInvocationPage({ limit });
+
+  return page?.invocations ?? null;
+}
+
+export async function getModelAuditInvocationPage({
+  limit,
+  offset = 0,
+}: {
+  limit?: number;
+  offset?: number;
+} = {}) {
   try {
+    const requestedLimit = limit === undefined ? undefined : limit + 1;
+    const query = new URLSearchParams();
+
+    if (requestedLimit !== undefined) {
+      query.set("limit", String(requestedLimit));
+    }
+
+    if (offset > 0) {
+      query.set("offset", String(offset));
+    }
+
+    const queryString = query.toString() ? `?${query.toString()}` : "";
     const response = await fetch(
-      `${getApiBaseUrl()}/api/admin/audit/sessions?limit=${limit}`,
+      `${getAuditReadBaseUrl()}/api/admin/audit/sessions${queryString}`,
       {
         cache: "no-store",
       },
@@ -402,15 +493,37 @@ export async function getModelAuditInvocations(limit = 4) {
       return null;
     }
 
+    const sessions =
+      limit === undefined ? body.data.sessions : body.data.sessions.slice(0, limit);
     const invocations = await Promise.all(
-      body.data.sessions.map(async (session) => {
+      sessions.map(async (session) => {
         const events = await getModelAuditSessionEvents(session.id);
 
         return mapApiModelAuditSessionToInvocation(session, events ?? []);
       }),
     );
 
-    return invocations;
+    return {
+      invocations,
+      hasMore: limit === undefined ? false : body.data.sessions.length > limit,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getModelAuditInvocation(sessionId: string) {
+  try {
+    const [session, events] = await Promise.all([
+      getModelAuditSession(sessionId),
+      getModelAuditSessionEvents(sessionId),
+    ]);
+
+    if (!session || !events) {
+      return null;
+    }
+
+    return mapApiModelAuditSessionToInvocation(session, events);
   } catch {
     return null;
   }
@@ -436,7 +549,7 @@ export async function getModelAuditSessionDetail(sessionId: string) {
 async function getModelAuditSession(sessionId: string) {
   try {
     const response = await fetch(
-      `${getApiBaseUrl()}/api/admin/audit/sessions/${sessionId}`,
+      `${getAuditReadBaseUrl()}/api/admin/audit/sessions/${sessionId}`,
       {
         cache: "no-store",
       },
@@ -463,7 +576,7 @@ async function getModelAuditSession(sessionId: string) {
 async function getModelAuditSessionEvents(sessionId: string) {
   try {
     const response = await fetch(
-      `${getApiBaseUrl()}/api/admin/audit/sessions/${sessionId}/events`,
+      `${getAuditReadBaseUrl()}/api/admin/audit/sessions/${sessionId}/events`,
       {
         cache: "no-store",
       },
@@ -593,6 +706,7 @@ export function mapApiModelAuditSessionToInvocation(
 ): ModelAuditInvocation {
   return {
     id: session.id,
+    startedAt: session.started_at,
     title: formatAuditDate(session.started_at),
     lastActive: formatAuditLastActive(session.completed_at ?? session.updated_at),
     description: getOriginalPrompt(events),
@@ -615,6 +729,22 @@ export function mapApiModelAuditSessionToDetail(
     modelName: session.model_name,
     traceId: session.trace_id,
     requestId: session.request_id ?? "Unavailable",
+    metrics: {
+      duration: formatDuration(session.latency_ms),
+      workflowSteps: session.total_workflow_steps ?? session.event_count,
+      modelCalls: session.total_model_calls ?? 0,
+      toolCalls: session.total_tool_calls ?? countToolInvocations(events),
+      promptTokens: session.total_prompt_tokens ?? session.prompt_tokens ?? 0,
+      completionTokens:
+        session.total_completion_tokens ?? session.completion_tokens ?? 0,
+      reasoningTokens: session.total_reasoning_tokens ?? 0,
+      totalTokens: session.total_tokens ?? 0,
+      modelLatency: formatDuration(session.total_model_latency_ms ?? null),
+      toolLatency: formatDuration(session.total_tool_latency_ms ?? null),
+      workflowLatency: formatDuration(
+        session.total_workflow_latency_ms ?? session.latency_ms,
+      ),
+    },
     prompt: getOriginalPrompt(events),
     finalResponse: getFinalResponse(events),
     toolCalls: getToolCalls(events),
@@ -623,11 +753,38 @@ export function mapApiModelAuditSessionToDetail(
 }
 
 function getFinalResponse(events: readonly ApiModelAuditEvent[]) {
-  const responseEvent =
-    events.find((event) => event.event_key === "RESPONSE_GENERATED") ??
-    events.find((event) => event.event_key === "RESPONSE_RETURNED");
-  const response = responseEvent?.output_json?.response;
+  const responseEvents = [
+    events.find((event) => event.event_key === "RESPONSE_RETURNED"),
+    events.find((event) => event.event_key === "RESPONSE_GENERATED"),
+  ];
 
+  for (const event of responseEvents) {
+    const response = getResponseText(event?.output_json);
+
+    if (response) {
+      return response;
+    }
+  }
+
+  return (
+    responseEvents.find((event) => event?.summary)?.summary ??
+    "Final response unavailable"
+  );
+}
+
+function getResponseText(payload: Record<string, unknown> | null | undefined) {
+  if (!payload) {
+    return null;
+  }
+
+  if (
+    typeof payload.assistant_response === "string" &&
+    payload.assistant_response.trim()
+  ) {
+    return payload.assistant_response;
+  }
+
+  const response = payload.response;
   if (typeof response === "string" && response.trim()) {
     return response;
   }
@@ -635,17 +792,23 @@ function getFinalResponse(events: readonly ApiModelAuditEvent[]) {
   if (isRecord(response)) {
     const message = response.message;
 
-    if (isRecord(message) && typeof message.content === "string") {
+    if (
+      isRecord(message) &&
+      typeof message.content === "string" &&
+      message.content.trim()
+    ) {
       return message.content;
     }
   }
 
-  return responseEvent?.summary ?? "Final response unavailable";
+  return null;
 }
 
 function getToolCalls(events: readonly ApiModelAuditEvent[]) {
-  const toolEvents = events.filter((event) => getEventToolName(event));
-  const callsByTool = new Map<string, ModelAuditToolCall>();
+  const toolEvents = events.filter(
+    (event) => event.tool_call_id || isTerminalToolEvent(event),
+  );
+  const callsById = new Map<string, ModelAuditToolCall>();
 
   for (const event of toolEvents) {
     const toolName = getEventToolName(event);
@@ -654,19 +817,24 @@ function getToolCalls(events: readonly ApiModelAuditEvent[]) {
       continue;
     }
 
-    const currentCall = callsByTool.get(toolName);
-    const nextCall = mapApiModelAuditEventToToolCall(event, toolName);
-
-    if (
-      currentCall === undefined ||
-      toolStatusRank(nextCall.status) >= toolStatusRank(currentCall.status)
-    ) {
-      callsByTool.set(toolName, nextCall);
-    }
+    const lifecycleId = event.tool_call_id ?? `legacy:${event.id}`;
+    callsById.set(
+      lifecycleId,
+      mapApiModelAuditEventToToolCall(event, toolName),
+    );
   }
 
-  return [...callsByTool.values()].sort(
+  return [...callsById.values()].sort(
     (first, second) => first.sequenceNumber - second.sequenceNumber,
+  );
+}
+
+function isTerminalToolEvent(event: ApiModelAuditEvent) {
+  return (
+    event.event_key === "TOOL_COMPLETED" ||
+    event.event_key === "MUTATION_COMPLETED" ||
+    event.event_key === "ERROR_RAISED" ||
+    event.category === "error"
   );
 }
 
@@ -682,6 +850,17 @@ function mapApiModelAuditEventToToolCall(
     summary: event.summary ?? event.description ?? "Tool event recorded.",
     occurredAt: formatAuditTime(event.created_at),
     status: getToolStatus(event),
+    latency: formatDuration(event.latency_ms ?? null),
+    source: event.source ?? "Unavailable",
+    operation: event.operation ?? "Unavailable",
+    workflow: event.workflow_kind ?? "Unavailable",
+    inputSummary:
+      event.input_summary ?? summarizeAuditPayload(event.input_json),
+    outputSummary:
+      event.output_summary ?? summarizeAuditPayload(event.output_json),
+    backendCategory: event.backend_category ?? "Unavailable",
+    customerId: event.customer_id ?? null,
+    purchaseId: event.purchase_id ?? null,
   };
 }
 
@@ -701,15 +880,6 @@ function getToolStatus(event: ApiModelAuditEvent): ModelAuditToolCall["status"] 
   return "requested";
 }
 
-function toolStatusRank(status: ModelAuditToolCall["status"]) {
-  return {
-    failed: 4,
-    completed: 3,
-    started: 2,
-    requested: 1,
-  }[status];
-}
-
 function mapApiModelAuditEventToTimelineEvent(
   event: ApiModelAuditEvent,
 ): ModelAuditTimelineEvent {
@@ -718,9 +888,209 @@ function mapApiModelAuditEventToTimelineEvent(
     sequenceNumber: event.sequence_number,
     title: event.display_name,
     category: event.category,
-    summary: event.summary ?? event.description ?? "Audit event recorded.",
+    summary: getTimelineEventSummary(event),
+    details: getTimelineEventDetails(event),
     occurredAt: formatAuditTime(event.created_at),
+    status: event.status ?? null,
+    latency:
+      event.latency_ms === null || event.latency_ms === undefined
+        ? null
+        : formatDuration(event.latency_ms),
+    tokenCount: event.total_tokens ?? null,
+    workflow: event.workflow_kind,
+    operation: event.operation ?? null,
+    rawPayload:
+      event.input_json || event.output_json || event.metadata_json
+        ? JSON.stringify(
+            {
+              input: event.input_json,
+              output: event.output_json,
+              metadata: event.metadata_json,
+            },
+            null,
+            2,
+          )
+        : null,
   };
+}
+
+function summarizeAuditPayload(payload: Record<string, unknown> | null) {
+  if (!payload) {
+    return "Not recorded";
+  }
+  const summary = findStringValue(payload, "summary");
+  return summary ?? `${Object.keys(payload).length} recorded fields`;
+}
+
+function getTimelineEventSummary(event: ApiModelAuditEvent) {
+  const toolName = getEventToolName(event);
+  const message = event.input_json?.message;
+
+  if (
+    event.event_key === "REQUEST_RECEIVED" &&
+    typeof message === "string" &&
+    message.trim()
+  ) {
+    return `Received customer request: "${message}"`;
+  }
+
+  if (toolName) {
+    const resultSummary = findStringValue(event.output_json, "summary");
+
+    if (event.event_key === "TOOL_COMPLETED" && resultSummary) {
+      return `${formatEventValue(toolName)} completed: ${resultSummary}.`;
+    }
+
+    const action =
+      event.event_key === "TOOL_COMPLETED"
+        ? "completed"
+        : event.event_key === "TOOL_STARTED"
+          ? "started"
+          : "selected";
+    return `${formatEventValue(toolName)} ${action}.`;
+  }
+
+  const workflow =
+    findStringValue(event.input_json, "kind") ??
+    findStringValue(event.input_json, "workflow");
+  const reason = findStringValue(event.input_json, "reason");
+
+  if (event.event_key === "WORKFLOW_CLASSIFIED" && workflow) {
+    return reason
+      ? `Classified the request as ${formatEventValue(workflow)} because ${reason}.`
+      : `Classified the request as ${formatEventValue(workflow)}.`;
+  }
+
+  if (
+    event.event_key === "RESPONSE_GENERATED" ||
+    event.event_key === "RESPONSE_RETURNED"
+  ) {
+    const response = getResponseText(event.output_json);
+    return response
+      ? `${event.event_key === "RESPONSE_RETURNED" ? "Returned" : "Generated"} a ${response.length}-character response for the customer.`
+      : (event.summary ?? event.description ?? "Assistant response recorded.");
+  }
+
+  return event.summary ?? event.description ?? "Audit event recorded.";
+}
+
+function getTimelineEventDetails(event: ApiModelAuditEvent) {
+  const details: Array<{ label: string; value: string }> = [];
+  const seen = new Set<string>();
+  const ignoredKeys = new Set([
+    "assistant_response",
+    "content",
+    "message",
+    "response_preview",
+    "trace_event_type",
+  ]);
+
+  for (const [source, payload] of [
+    ["Input", event.input_json],
+    ["Result", event.output_json],
+    ["Metadata", isRecord(event.metadata_json?.data) ? event.metadata_json.data : null],
+  ] as const) {
+    collectTimelineFacts(payload, source, details, seen, ignoredKeys);
+  }
+
+  return details.slice(0, 8);
+}
+
+function collectTimelineFacts(
+  value: unknown,
+  path: string,
+  details: Array<{ label: string; value: string }>,
+  seen: Set<string>,
+  ignoredKeys: ReadonlySet<string>,
+) {
+  if (details.length >= 8 || value === null || value === undefined) {
+    return;
+  }
+
+  if (isRecord(value)) {
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (!ignoredKeys.has(key)) {
+        collectTimelineFacts(
+          nestedValue,
+          `${path} / ${formatEventLabel(key)}`,
+          details,
+          seen,
+          ignoredKeys,
+        );
+      }
+    }
+    return;
+  }
+
+  const formattedValue = formatTimelineFactValue(value);
+  if (!formattedValue) {
+    return;
+  }
+
+  const fingerprint = `${path}:${formattedValue}`;
+  if (!seen.has(fingerprint)) {
+    seen.add(fingerprint);
+    details.push({ label: path, value: formattedValue });
+  }
+}
+
+function formatTimelineFactValue(value: unknown) {
+  if (typeof value === "string") {
+    return value.trim() || null;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const scalarValues = value.filter(
+      (item) =>
+        typeof item === "string" ||
+        typeof item === "number" ||
+        typeof item === "boolean",
+    );
+    return scalarValues.length === value.length && value.length > 0
+      ? scalarValues.map(String).join(", ")
+      : value.length > 0
+        ? `${value.length} items`
+        : null;
+  }
+
+  return null;
+}
+
+function findStringValue(
+  value: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const directValue = value[key];
+  if (typeof directValue === "string" && directValue.trim()) {
+    return directValue;
+  }
+
+  for (const nestedValue of Object.values(value)) {
+    if (isRecord(nestedValue)) {
+      const match = findStringValue(nestedValue, key);
+      if (match) {
+        return match;
+      }
+    }
+  }
+
+  return null;
+}
+
+function formatEventLabel(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatEventValue(value: string) {
+  return value.replaceAll("_", " ");
 }
 
 function getOriginalPrompt(events: readonly ApiModelAuditEvent[]) {

@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({
 const invocations: readonly ModelAuditInvocation[] = [
   {
     id: "70000000-0000-4000-8000-000000000001",
+    startedAt: "2026-07-07T16:18:00Z",
     title: "July 7, 2026",
     lastActive: "Last active 4:18 PM",
     description:
@@ -26,6 +27,7 @@ const invocations: readonly ModelAuditInvocation[] = [
   },
   {
     id: "70000000-0000-4000-8000-000000000002",
+    startedAt: "2026-07-07T15:42:00Z",
     title: "July 7, 2026",
     lastActive: "Last active 3:42 PM",
     description:
@@ -40,6 +42,7 @@ const invocations: readonly ModelAuditInvocation[] = [
   },
   {
     id: "70000000-0000-4000-8000-000000000003",
+    startedAt: "2026-07-06T17:09:00Z",
     title: "July 6, 2026",
     lastActive: "Last active 5:09 PM",
     description:
@@ -54,6 +57,7 @@ const invocations: readonly ModelAuditInvocation[] = [
   },
   {
     id: "70000000-0000-4000-8000-000000000004",
+    startedAt: "2026-07-06T14:27:00Z",
     title: "July 6, 2026",
     lastActive: "Last active 2:27 PM",
     description:
@@ -70,7 +74,7 @@ const invocations: readonly ModelAuditInvocation[] = [
 
 describe("AdminHomePage", () => {
   it("renders the shared admin home header", () => {
-    render(<AdminHomePage invocations={invocations} />);
+    render(<AdminHomePage hasMoreInvocations={false} invocations={invocations} />);
 
     expect(
       screen.getByText("Agentic Refund Model History"),
@@ -90,7 +94,7 @@ describe("AdminHomePage", () => {
   });
 
   it("renders model invocation cards with prompt descriptions and meta rows", () => {
-    render(<AdminHomePage invocations={invocations} />);
+    render(<AdminHomePage hasMoreInvocations={false} invocations={invocations} />);
 
     expect(
       screen.getByRole("heading", {
@@ -142,7 +146,7 @@ describe("AdminHomePage", () => {
   });
 
   it("renders an empty state when no model invocations are available", () => {
-    render(<AdminHomePage invocations={[]} />);
+    render(<AdminHomePage hasMoreInvocations={false} invocations={[]} />);
 
     expect(
       screen.getByText("No model invocations captured yet."),
