@@ -135,6 +135,19 @@ content or replay the full transcript as a substitute for structured state.
 actions so the model can explain the exact customer-facing reason without relying on
 raw workflow status, lock reason, or mutation terms.
 
+Final-response model calls receive a request-specific projection of backend tool
+results, not raw purchase-history payloads by default. The projection keeps backend
+state references authoritative while sending only the rows, summaries, and eligibility
+fields needed for the current request category. Compact purchase rows used for model
+wording omit internal ids and order numbers unless that identifier is directly needed
+for the customer-facing answer. Projection diagnostics record raw-context tokens,
+projected-context tokens, estimated savings, request category, and projection reason
+on model lifecycle audit events.
+
+Response instructions are composed from small request-category modules. This keeps the
+final-response prompt specific to count, list, policy, eligibility, confirmation,
+execution, or fallback behavior without changing deterministic routing authority.
+
 Resolution precedence:
 
 1. Exact canonical refund confirmation command boundary.
@@ -166,8 +179,26 @@ result set was used or overridden without making audit metadata authoritative.
 Each backend tool invocation has one lifecycle id shared by its start and completion
 events. Timeline views may show both events, while Tool History and session metrics
 merge them into one call. Tool totals count unique lifecycle ids; model totals count
-unique model-call ids. Tool latency remains separate from model latency and backend
-tools add no tokens unless the tool itself invokes a model.
+unique model-call ids. Tool latency remains separate from model latency. Tool lifecycle
+records expose estimated input/output token counts for the serialized deterministic
+arguments and results so backend payload growth is visible, but backend tools add no
+provider model tokens unless the tool itself invokes a model.
+
+Each backend model invocation also emits a token-budget diagnostic log and stores the
+same estimate on the model lifecycle audit event. It uses the pinned OpenAI `tiktoken`
+package for the model encoding when available and a clearly labeled character
+approximation only if tokenization fails. The report counts the exact assembled
+messages and tool schemas by safe component category, including system/developer
+prompts, current user message, conversation/workflow state, policy, customer and
+purchase context, tool definitions, tool results, other messages, and the returned
+model text. This diagnostic estimate does not replace provider-reported usage in
+authoritative audit totals.
+
+Refund confirmation-command prompts and successful refund mutation responses may be
+deterministic backend-authored responses that intentionally skip a final model call.
+Those response events record zero provider tokens plus estimated deterministic output
+tokens and request-category/projection diagnostics. Provider token totals remain
+limited to actual model calls.
 
 ## Active Result Sets and Ranking
 
@@ -216,9 +247,12 @@ Outputs:
 Rules:
 
 * Count questions such as "how many purchases have I made" should answer from
-  `history_summary` and state the refunded/non-refunded split.
+  `history_summary`.
 * Purchase-type count questions such as digital, physical, or subscription counts
-  should answer from `history_summary.by_purchase_type` and state that type's split.
+  should answer from `history_summary.by_purchase_type`.
+* When every purchase in the requested group is aligned on one refunded/non-refunded
+  aspect, do not spell out the split or mention "completed"; state the count and list
+  the product names when the model has the projected rows.
 * Aggregate counts and spend totals exclude fully refunded purchases with
   `status = 'refunded'`.
 * Purchases still in the refund process, such as `refund_pending`, remain included in
@@ -443,6 +477,23 @@ including:
 
 Customer-facing content should describe overall handling as "the refund process".
 For physical return label and carrier steps, use "the return process".
+
+## Tool Schema Exposure
+
+The OpenAI-facing tool schema list is narrowed before each tool-selection model call.
+Deterministic workflow classification controls the available schema set:
+
+* account validation requests expose only `validate_customer_account`
+* refund policy requests expose only `get_refund_policy`
+* refund eligibility requests expose only `get_refund_eligibility`
+* amount-threshold account facts expose only `get_purchase_count_by_amount_threshold`
+* date-range account facts expose only `get_purchase_history_by_date_range`
+* other account facts expose only `get_customer_purchase_history`
+* off-domain, fallback, and refund mutation flows expose no read-only tools
+
+When no OpenAI-facing tools are relevant, the graph skips the tool-selection model call
+instead of sending an empty or irrelevant schema bundle. This optimization must not
+change workflow classification, refund mutation behavior, or response wording.
 
 ## Logging and Trace Events
 

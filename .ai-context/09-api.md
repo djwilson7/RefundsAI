@@ -423,13 +423,23 @@ structured state from the previous turn. Model-request audit payloads distinguis
 `user_prompt` from `system_instructions`, `additional_context`, available tools, and
 compact backend model context. Provider-reported token usage and measured per-call
 latency are stored on dedicated model lifecycle events and aggregated by the audit read
-service without estimation.
+service as authoritative model totals. Model lifecycle events also expose diagnostic
+estimated input/output token counts, tokenizer name, and component breakdowns so prompt
+budget changes can be reviewed before provider totals alone explain the cause.
+For final-response calls, the compact backend model context is a request-specific
+projection of deterministic tool results. Lifecycle metadata includes `request_category`,
+`projection_reason`, `raw_context_tokens`, `projected_context_tokens`,
+`token_savings_estimated`, `prompt_module_tokens`, `tool_schema_tokens`,
+`tool_result_tokens`, and `conversation_state_tokens` when available.
 
 Backend tools emit paired `TOOL_STARTED` and `TOOL_COMPLETED` timeline events with a
 shared `tool_call_id`. Tool History and session totals consolidate those records by
 that id, so one backend invocation counts once. Completion records carry source,
 workflow, operation, latency, input/output summaries, backend category, and available
-customer or purchase identifiers. Backend tools do not contribute model token usage.
+customer or purchase identifiers. Tool lifecycle records also carry estimated input
+and output token counts for the serialized backend arguments/results shown to the
+workflow. Backend tools do not contribute provider model token usage unless they invoke
+a model internally.
 
 Response data:
 
@@ -471,6 +481,13 @@ The endpoint may use these OpenAI-facing read-only tools:
 * `get_purchase_count_by_amount_threshold`
 * `get_refund_policy`
 * `get_refund_eligibility`
+
+The backend narrows this available schema list per request before tool selection. For
+example, refund policy requests expose only `get_refund_policy`, refund eligibility
+requests expose only `get_refund_eligibility`, and ordinary purchase-history facts
+expose only the matching account-fact read tool. Off-domain, fallback, and refund
+mutation flows expose no read-only tool schemas and may skip the tool-selection model
+call entirely.
 
 Refund process mutations are not OpenAI-facing tools. They execute only when:
 

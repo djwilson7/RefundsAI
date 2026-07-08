@@ -302,6 +302,22 @@ curl http://localhost:8000/health/database
 
 The database health check endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` when database configuration is missing or connectivity checks fail. It validates connectivity only; schema, migrations, seed data, and business tables remain part of the next milestone.
 
+Apply migrations and seed demo data from `apps/api`:
+
+```bash
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator apply
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator seed
+```
+
+For a destructive clean demo reset, apply migrations and reseed from today's UTC date:
+
+```bash
+$env:REFUNDSAI_ALLOW_DEMO_DB_RESET = "true"
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator reset-demo
+```
+
+`reset-demo` clears seeded users, roles, products, purchases, purchase details, audit sessions, and audit events before reseeding. It is development/demo-only and is blocked unless the explicit reset flag is set.
+
 ### AI Chat Configuration
 
 The AI chat flow uses OpenAI and LangGraph for purchase intelligence, policy lookup, backend-evaluated refund eligibility, and confirmation-gated refund workflow actions.

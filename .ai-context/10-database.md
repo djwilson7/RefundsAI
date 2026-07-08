@@ -382,8 +382,13 @@ Purchase seed:
 * 180 deterministic purchases across 15 customers.
 * 12 purchases per customer.
 * Distribution: 90 physical, 54 digital, 36 subscription.
-* Purchase dates generally span `2026-05-20` through `2026-07-03`.
-* Digital purchases are constrained to `2026-06-20` through `2026-07-04`.
+* Purchase dates are generated relative to the seed run date.
+* All purchases fall within the last 45 days.
+* Digital purchases fall within the last 20 days so demos include in-window and
+  out-of-window digital refund examples.
+* Digital purchases with redeemed codes are seeded with `status = 'redeemed'`;
+  subscriptions are seeded with `status = 'subscribed'`; other clean purchases use
+  `status = 'completed'`.
 
 Detail seed:
 
@@ -400,6 +405,8 @@ Seed validators confirm:
 * Redeemed digital codes include redemption timestamps.
 * Physical delivery timestamps obey delivery-window rules.
 * Subscription periods are ordered correctly.
+* Destructive demo reset leaves no accidental `refund_pending`, cancellation,
+  confirmation, return, or issued-refund state.
 
 ## Query Patterns
 
@@ -472,6 +479,20 @@ $env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator status
 $env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator apply
 $env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator seed
 ```
+
+Destructive demo reset:
+
+```bash
+$env:REFUNDSAI_ALLOW_DEMO_DB_RESET = "true"
+$env:PYTHONPATH = "src"; python -m refunds_ai_api.database.migrator reset-demo
+```
+
+`reset-demo` is development/demo-only. It applies pending migrations first, then
+truncates seeded users, roles, products, purchases, detail rows, audit sessions, and
+audit events before reseeding from the current UTC date. It preserves migration
+metadata and `model_audit_event_lookup`. The command is blocked unless
+`REFUNDSAI_ALLOW_DEMO_DB_RESET=true` is present and the environment is not marked
+`production`.
 
 Migration modules expose:
 
