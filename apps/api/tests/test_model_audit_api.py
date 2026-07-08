@@ -67,13 +67,20 @@ class StubModelAuditService:
     def __init__(self, *, error: Exception | None = None) -> None:
         self.error = error
         self.limit: int | None = None
+        self.offset = 0
         self.session_requests: list[UUID] = []
         self.event_requests: list[UUID] = []
 
-    def list_sessions(self, *, limit: int = 50) -> list[dict[str, Any]]:
+    def list_sessions(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         if self.error:
             raise self.error
         self.limit = limit
+        self.offset = offset
         return [session_row()]
 
     def get_session(self, session_id: UUID) -> dict[str, Any]:
@@ -116,11 +123,34 @@ def test_list_audit_sessions_returns_recent_sessions() -> None:
     body = response.json()
     assert body["success"] is True
     assert service.limit == 10
+    assert service.offset == 0
     assert body["data"]["sessions"][0]["id"] == str(SESSION_ID)
     assert body["data"]["sessions"][0]["event_count"] == 2
     assert body["data"]["sessions"][0]["total_tokens"] == 23
     assert body["error"] is None
     assert "timestamp" in body["meta"]
+
+
+def test_list_audit_sessions_accepts_offset() -> None:
+    service = StubModelAuditService()
+    client = build_client(service)
+
+    response = client.get("/api/admin/audit/sessions?limit=10&offset=20")
+
+    assert response.status_code == 200
+    assert service.limit == 10
+    assert service.offset == 20
+
+
+def test_list_audit_sessions_without_limit_returns_all_sessions() -> None:
+    service = StubModelAuditService()
+    client = build_client(service)
+
+    response = client.get("/api/admin/audit/sessions")
+
+    assert response.status_code == 200
+    assert service.limit is None
+    assert response.json()["data"]["sessions"][0]["id"] == str(SESSION_ID)
 
 
 def test_get_audit_session_returns_one_session() -> None:

@@ -17,6 +17,7 @@ from refunds_ai_api.repositories.audit import (
     ModelAuditRepository,
     serialize_json_value,
 )
+from refunds_ai_api.services.ai_chat.audit_instrumentation import model_request_payload
 from refunds_ai_api.services.audit import (
     AuditQueueFullError,
     ModelAuditEventKey,
@@ -25,6 +26,7 @@ from refunds_ai_api.services.audit import (
     NonBlockingModelAuditWriterService,
     TokenUsage,
 )
+from refunds_ai_api.services.model_audit import enrich_session_summary
 
 SESSION_ID = UUID("70000000-0000-4000-8000-000000000001")
 TRACE_ID = UUID("71000000-0000-4000-8000-000000000001")
@@ -194,6 +196,96 @@ def wait_for_condition(predicate) -> None:  # type: ignore[no-untyped-def]
         sleep(0.01)
 
     raise AssertionError("Timed out waiting for queued audit writes.")
+
+
+def test_session_summary_sums_lifecycle_events_without_double_counting() -> None:
+    events = [
+        {
+            "event_key": "TOOL_STARTED",
+            "metadata_json": {"trace_event_type": "tool_call.executing"},
+        },
+        {
+            "event_key": "RESPONSE_GENERATED",
+            "metadata_json": {
+                "trace_event_type": "model.completed",
+                "lifecycle": {
+                    "model_call_id": "model-1",
+                    "prompt_tokens": 412,
+                    "completion_tokens": 31,
+                    "reasoning_tokens": 7,
+                    "total_tokens": 450,
+                    "latency_ms": 620,
+                    "status": "completed",
+                },
+            },
+        },
+        {
+            "event_key": "TOOL_COMPLETED",
+            "metadata_json": {
+                "trace_event_type": "tool_call.completed",
+                "lifecycle": {
+                    "tool_call_id": "tool-1",
+                    "status": "completed",
+                    "latency_ms": 18,
+                    "backend_category": "backend_read",
+                },
+            },
+        },
+        {
+            "event_key": "RESPONSE_GENERATED",
+            "metadata_json": {
+                "trace_event_type": "model.completed",
+                "lifecycle": {
+                    "model_call_id": "model-2",
+                    "prompt_tokens": 872,
+                    "completion_tokens": 129,
+                    "reasoning_tokens": 0,
+                    "total_tokens": 1001,
+                    "latency_ms": 800,
+                    "status": "completed",
+                },
+            },
+        },
+    ]
+
+    summary = enrich_session_summary(
+        {"latency_ms": 2080},
+        events,
+    )
+
+    assert summary["total_model_calls"] == 2
+    assert summary["total_tool_calls"] == 1
+    assert summary["total_prompt_tokens"] == 1284
+    assert summary["total_completion_tokens"] == 160
+    assert summary["total_reasoning_tokens"] == 7
+    assert summary["total_tokens"] == 1451
+    assert summary["total_model_latency_ms"] == 1420
+    assert summary["total_tool_latency_ms"] == 18
+    assert summary["total_workflow_latency_ms"] == 2080
+    assert summary["backend_read_count"] == 1
+
+
+def test_model_request_payload_separates_prompt_from_injected_context() -> None:
+    payload = model_request_payload(
+        {
+            "model_call_id": "model-1",
+            "model": "gpt-5.4-mini",
+            "phase": "final_response",
+            "messages": [
+                {"role": "system", "content": "System instructions"},
+                {"role": "user", "content": "From those, give me the first one"},
+                {"role": "user", "content": "Prior result set: three purchases"},
+            ],
+            "tools": [{"name": "get_customer_purchase_history"}],
+        }
+    )
+
+    assert payload["user_prompt"] == "From those, give me the first one"
+    assert payload["has_additional_context"] is True
+    assert payload["additional_context"] == [
+        {"role": "user", "content": "Prior result set: three purchases"}
+    ]
+    assert payload["available_tools_count"] == 1
 
 
 def test_model_audit_writer_creates_session_event_and_completion() -> None:
@@ -559,6 +651,32 @@ def test_model_audit_repository_lists_sessions() -> None:
     assert "left join public.model_audit_events" in query_sql.lower()
     assert "order by s.started_at desc" in query_sql.lower()
     assert query_params == (25,)
+    assert sessions == [connection.session_row]
+
+
+def test_model_audit_repository_lists_sessions_with_offset() -> None:
+    connection = StubConnection()
+    repository = ModelAuditRepository(StubConnectionProvider(connection))
+
+    sessions = repository.list_sessions(limit=10, offset=20)
+
+    query_sql, query_params = connection.executed[0]
+    assert "limit %s offset %s" in " ".join(query_sql.lower().split())
+    assert query_params == (10, 20)
+    assert sessions == [connection.session_row]
+
+
+def test_model_audit_repository_lists_all_sessions_without_limit() -> None:
+    connection = StubConnection()
+    repository = ModelAuditRepository(StubConnectionProvider(connection))
+
+    sessions = repository.list_sessions()
+
+    query_sql, query_params = connection.executed[0]
+    assert "from public.model_audit_sessions" in query_sql.lower()
+    assert "order by s.started_at desc" in query_sql.lower()
+    assert "limit %s" not in query_sql.lower()
+    assert query_params == ()
     assert sessions == [connection.session_row]
 
 

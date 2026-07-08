@@ -42,13 +42,14 @@ def get_model_audit_service() -> ModelAuditReadService:
 def list_audit_sessions(
     service: Annotated[ModelAuditReadService, Depends(get_model_audit_service)],
     response: Response,
-    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    limit: Annotated[int | None, Query(ge=1, le=100)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> ApiResponse:
-    """Return recent model audit sessions."""
+    """Return persisted model audit sessions."""
     try:
         sessions = [
             ModelAuditSessionRead.model_validate(session).model_dump(mode="json")
-            for session in service.list_sessions(limit=limit)
+            for session in service.list_sessions(limit=limit, offset=offset)
         ]
     except RepositoryConfigurationError as exc:
         return service_unavailable_response(response, "DATABASE_NOT_CONFIGURED", str(exc))

@@ -81,6 +81,7 @@ class ModelAuditEventKey:
     VALIDATION_FAILED = "VALIDATION_FAILED"
     MUTATION_STARTED = "MUTATION_STARTED"
     MUTATION_COMPLETED = "MUTATION_COMPLETED"
+    MODEL_COMPLETED = "MODEL_COMPLETED"
     RESPONSE_GENERATED = "RESPONSE_GENERATED"
     RESPONSE_RETURNED = "RESPONSE_RETURNED"
     ERROR_RAISED = "ERROR_RAISED"
@@ -110,6 +111,7 @@ class TokenUsage:
 
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
     total_tokens: int | None = None
 
 

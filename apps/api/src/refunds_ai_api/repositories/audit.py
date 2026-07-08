@@ -244,12 +244,16 @@ class ModelAuditRepository:
                 if cursor.rowcount != 1:
                     raise RepositoryConflictError("Model audit session could not be completed.")
 
-    def list_sessions(self, *, limit: int = 50) -> list[dict[str, Any]]:
-        """Return recent audit sessions for the admin audit list."""
+    def list_sessions(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Return audit sessions for the admin audit list."""
         with self.connection_provider.open() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    """
+                statement = """
                     select
                         s.id,
                         s.trace_id,
@@ -271,10 +275,15 @@ class ModelAuditRepository:
                     left join public.model_audit_events e on e.session_id = s.id
                     group by s.id
                     order by s.started_at desc
-                    limit %s
-                    """,
-                    (limit,),
-                )
+                    """
+                params: tuple[Any, ...] = ()
+                if limit is not None:
+                    statement += " limit %s"
+                    params = (limit,)
+                if offset > 0:
+                    statement += " offset %s"
+                    params = (*params, offset)
+                cursor.execute(statement, params)
                 return list(cursor.fetchall())
 
     def get_session(self, session_id: UUID) -> dict[str, Any]:
