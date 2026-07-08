@@ -19,6 +19,8 @@ from refunds_ai_api.services.money import cents_to_dollar_string, format_cents
 
 from .parsing import amount_matches_threshold
 
+FULLY_REFUNDED_STATUS = "refunded"
+
 
 def get_purchase_count_by_amount_threshold_tool_schema() -> dict[str, Any]:
     """Return the OpenAI tool schema for deterministic threshold purchase counts."""
@@ -26,7 +28,8 @@ def get_purchase_count_by_amount_threshold_tool_schema() -> dict[str, Any]:
         "name": "get_purchase_count_by_amount_threshold",
         "description": (
             "Count a customer's purchases that match an amount threshold using "
-            "backend purchase data."
+            "backend purchase data. Fully refunded purchases are excluded from "
+            "aggregate counts and totals; refunds still in progress remain included."
         ),
         "parameters": {
             "type": "object",
@@ -54,7 +57,8 @@ def get_purchase_history_by_date_range_tool_schema() -> dict[str, Any]:
         "name": "get_purchase_history_by_date_range",
         "description": (
             "Retrieve a customer's purchases and aggregate totals for an inclusive "
-            "local date range."
+            "local date range. Fully refunded purchases are excluded from aggregate "
+            "counts and totals; refunds still in progress remain included."
         ),
         "parameters": {
             "type": "object",
@@ -147,7 +151,9 @@ def get_customer_purchase_history_tool_schema() -> dict[str, Any]:
     return {
         "name": "get_customer_purchase_history",
         "description": (
-            "Retrieve read-only purchase history and aggregate totals for one customer."
+            "Retrieve read-only purchase history and aggregate totals for one customer. "
+            "Fully refunded purchases are excluded from aggregate counts and totals; "
+            "refunds still in progress remain included."
         ),
         "parameters": {
             "type": "object",
@@ -217,11 +223,12 @@ def get_customer_purchase_history(
     purchases = application_service.list_user_purchases(customer_id)
     timezone = get_timezone(DEFAULT_CUSTOMER_TIMEZONE)
     rows = [build_purchase_tool_row(purchase, timezone) for purchase in purchases]
+    aggregate_rows = filter_aggregate_eligible_purchase_rows(rows)
 
     return {
         "customer_id": customer_id,
         "purchases": rows,
-        "aggregates": build_purchase_history_aggregates(rows),
+        "aggregates": build_purchase_history_aggregates(aggregate_rows),
     }
 
 
@@ -248,11 +255,12 @@ def get_purchase_history_by_date_range(
         for purchase in purchases
         if is_datetime_in_inclusive_date_range(purchase["purchased_at"], date_range)
     ]
+    aggregate_rows = filter_aggregate_eligible_purchase_rows(rows)
 
     return {
         "customer_id": customer_id,
         "date_range": build_date_range_output(date_range),
-        "aggregates": build_purchase_history_aggregates(rows),
+        "aggregates": build_purchase_history_aggregates(aggregate_rows),
         "purchases": rows,
     }
 
@@ -269,7 +277,8 @@ def get_purchase_count_by_amount_threshold(
     matching_purchases = [
         purchase
         for purchase in purchases
-        if amount_matches_threshold(
+        if is_purchase_aggregate_eligible(purchase)
+        and amount_matches_threshold(
             int(purchase["amount_cents"]),
             threshold_cents,
             comparison,
@@ -374,6 +383,18 @@ def build_purchase_tool_row(
         "purchased_date_display": format_date(purchased_at, timezone),
         "status": purchase["status"],
     }
+
+
+def is_purchase_aggregate_eligible(purchase: dict[str, Any]) -> bool:
+    """Return whether a purchase should contribute to count and spend aggregates."""
+    return purchase.get("status") != FULLY_REFUNDED_STATUS
+
+
+def filter_aggregate_eligible_purchase_rows(
+    purchases: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return purchase rows that should contribute to count and spend aggregates."""
+    return [purchase for purchase in purchases if is_purchase_aggregate_eligible(purchase)]
 
 
 def build_date_range_output(date_range: InclusiveDateRange) -> dict[str, str]:

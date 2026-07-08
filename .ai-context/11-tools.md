@@ -187,6 +187,13 @@ Outputs:
 * counts/totals by purchase status
 * cent values and display dollar strings
 
+Rules:
+
+* Aggregate counts and spend totals exclude fully refunded purchases with
+  `status = 'refunded'`.
+* Purchases still in the refund process, such as `refund_pending`, remain included in
+  aggregate counts and spend totals.
+
 Errors:
 
 * `CUSTOMER_NOT_FOUND`
@@ -233,6 +240,8 @@ Rules:
 * Dates are interpreted in the customer timezone.
 * Queries use a half-open timestamp range: start inclusive, day-after-end exclusive.
 * Business weeks run Sunday through Saturday.
+* Aggregate counts and spend totals exclude fully refunded purchases with
+  `status = 'refunded'`; refund-in-progress purchases remain included.
 
 Errors:
 
@@ -260,6 +269,8 @@ Rules:
 
 * User dollar amounts are converted to cents at the chat boundary.
 * Comparisons run against `amount_cents`.
+* Fully refunded purchases with `status = 'refunded'` are excluded from the count,
+  matching ids, and total amount; refund-in-progress purchases remain included.
 
 Errors:
 

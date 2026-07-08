@@ -27,13 +27,14 @@ export function CustomerMainScreen({
 }: CustomerMainScreenProps) {
   const customerName = getIdentityDisplayName(customer);
   const customerSince = formatCustomerSinceYear(customer.createdAt);
-  const totalSpentCents = purchases.reduce(
+  const aggregatePurchases = purchases.filter(isPurchaseAggregateEligible);
+  const totalSpentCents = aggregatePurchases.reduce(
     (total, purchase) => total + purchase.amountCents,
     0,
   );
   const customerMetrics = [
     { title: "Customer Since", value: customerSince },
-    { title: "Items Purchased", value: purchases.length.toString() },
+    { title: "Items Purchased", value: aggregatePurchases.length.toString() },
     { title: "Total Spent", value: formatCentsAsDollars(totalSpentCents) },
   ];
 
@@ -87,4 +88,8 @@ export function formatCustomerSinceYear(createdAt: string) {
   }
 
   return parsedDate.getUTCFullYear().toString();
+}
+
+export function isPurchaseAggregateEligible(purchase: CustomerPurchase) {
+  return purchase.status !== "refunded";
 }

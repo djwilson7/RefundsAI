@@ -98,6 +98,10 @@ Already-issued refunds read `purchases.refund_amount_cents` and
 `purchases.refund_outcome`. They must not recompute amount or outcome after
 `purchases.status` becomes `refunded`.
 
+Customer account count/spend aggregates exclude purchases only after the refund is fully
+issued and `purchases.status = 'refunded'`. Purchases still in the refund process, such
+as `refund_pending`, continue to count as purchased items and total spend until issuance.
+
 Money is stored and compared in cents. Dollar strings are display values.
 
 ## Database-Managed Derived Fields

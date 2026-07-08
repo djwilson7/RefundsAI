@@ -16,6 +16,7 @@ from .routing import (
     parse_purchase_type_filter,
 )
 from .state import normalize_conversation_state
+from .tools import is_purchase_aggregate_eligible
 from .workflow import refund_confirmation_command_for_purchase_type
 
 
@@ -27,8 +28,10 @@ def selected_purchase_ids_for_refund_context(
 ) -> list[str]:
     """Resolve selected purchase ids for eligibility pronoun follow-ups."""
     normalized_message = message.casefold()
-    selected_ids = conversation_state.get("selected_refund_purchase_ids") or conversation_state.get(
-        "selected_purchase_ids"
+    selected_ids = conversation_state.get(
+        "selected_refund_purchase_ids",
+    ) or conversation_state.get(
+        "selected_purchase_ids",
     )
     if not selected_ids:
         return []
@@ -147,6 +150,7 @@ def update_conversation_state(
                 str(purchase["id"])
                 for purchase in result.get("purchases", [])
                 if isinstance(purchase.get("id"), str)
+                and is_purchase_aggregate_eligible(purchase)
             ]
             next_state["selected_scope_label"] = build_date_range_scope_label(date_range)
             next_state["selected_policy_scope"] = None
@@ -160,6 +164,7 @@ def update_conversation_state(
                     purchase
                     for purchase in result.get("purchases", [])
                     if purchase.get("purchase_type") == selected_type
+                    and is_purchase_aggregate_eligible(purchase)
                 ]
                 next_state["selected_purchase_ids"] = [
                     str(purchase["id"])
