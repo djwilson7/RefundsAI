@@ -73,20 +73,24 @@ class AIChatService:
                     }
                 },
             )
+            err_conv_state = normalize_conversation_state(conversation_state)
+            err_conv_state["_turn_processed"] = True
             return AIChatResult(
                 content=CHAT_UNAVAILABLE_RESPONSE,
                 graph_ready=self.model_client is not None,
-                conversation_state=normalize_conversation_state(conversation_state),
+                conversation_state=err_conv_state,
                 side_effects=[],
                 next_trace_step=trace_step_start,
                 audit_failed=True,
             )
 
+        final_conv_state = state.get("conversation_state") or normalize_conversation_state(conversation_state)
+        final_conv_state["_turn_processed"] = True
+
         return AIChatResult(
             content=state.get("assistant_response") or CHAT_UNAVAILABLE_RESPONSE,
             graph_ready=self.model_client is not None,
-            conversation_state=state.get("conversation_state")
-            or normalize_conversation_state(conversation_state),
+            conversation_state=final_conv_state,
             side_effects=[
                 side_effect
                 for side_effect in state.get("side_effects", [])

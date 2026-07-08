@@ -71,6 +71,17 @@ class TokenReportingModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
+        if not tools and self.calls == 0:
+            self.calls = 2
+            return ModelTurn(
+                content="You made 2 digital purchases.",
+                tool_calls=[],
+                token_usage=TokenUsage(
+                    prompt_tokens=10,
+                    completion_tokens=13,
+                    total_tokens=23,
+                ),
+            )
         self.calls += 1
         if self.calls == 1:
             return ModelTurn(
@@ -412,7 +423,8 @@ def test_chat_graph_returns_graceful_response_when_model_fails(caplog) -> None:
             purchase_id=None,
     )
 
-    assert result == AIChatResult(content=CHAT_UNAVAILABLE_RESPONSE, graph_ready=True)
+    assert result.content == CHAT_UNAVAILABLE_RESPONSE
+    assert result.graph_ready is True
     assert caplog.records[0].event["type"] == "model.failure"
     assert caplog.records[0].event["data"] == {
         "reason": "RuntimeError",

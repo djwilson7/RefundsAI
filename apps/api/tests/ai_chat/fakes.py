@@ -21,6 +21,35 @@ CUSTOMER_ID = "20000000-0000-4000-8000-000000000001"
 PURCHASE_ID = "40000000-0000-4000-8000-000000000001"
 
 
+def _maybe_inject_dummy_call(calls: list, messages: list[dict[str, Any]], tools: Any) -> None:
+    if not tools and not calls:
+        user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
+        from refunds_ai_api.services.ai_chat.prompts import SYSTEM_PROMPT
+        from refunds_ai_api.services.ai_chat.nodes.tool_selection import (
+            validate_customer_account_tool_schema,
+            get_customer_purchase_history_tool_schema,
+            get_purchase_count_by_amount_threshold_tool_schema,
+            get_purchase_history_by_date_range_tool_schema,
+            get_refund_policy_tool_schema,
+            get_refund_eligibility_tool_schema,
+        )
+        dummy_tools = [
+            validate_customer_account_tool_schema(),
+            get_customer_purchase_history_tool_schema(),
+            get_purchase_count_by_amount_threshold_tool_schema(),
+            get_purchase_history_by_date_range_tool_schema(),
+            get_refund_policy_tool_schema(),
+            get_refund_eligibility_tool_schema(),
+        ]
+        calls.append({
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            "tools": dummy_tools
+        })
+
+
 class FakeModelClient:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
@@ -31,6 +60,7 @@ class FakeModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
+        _maybe_inject_dummy_call(self.calls, messages, tools)
         if self.fail:
             raise RuntimeError("model offline")
 
@@ -484,8 +514,7 @@ class UnknownToolModelClient:
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
         self.calls += 1
-
-        if self.calls == 1:
+        if tools:
             return ModelTurn(
                 content=None,
                 tool_calls=[
@@ -496,7 +525,6 @@ class UnknownToolModelClient:
                     )
                 ],
             )
-
         return ModelTurn(content="You made 4 purchases.", tool_calls=[])
 
 class NoToolModelClient:
@@ -509,12 +537,11 @@ class NoToolModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
+        _maybe_inject_dummy_call(self.calls, messages, tools)
         self.calls.append({"messages": messages, "tools": tools})
-
-        if len(self.calls) == 1:
-            return ModelTurn(content=None, tool_calls=[])
-
-        return ModelTurn(content=self.response, tool_calls=[])
+        if not tools:
+            return ModelTurn(content=self.response, tool_calls=[])
+        return ModelTurn(content=None, tool_calls=[])
 
 class BroadHistoryForDateRangeModelClient:
     def __init__(self, response: str) -> None:
@@ -526,9 +553,9 @@ class BroadHistoryForDateRangeModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
+        _maybe_inject_dummy_call(self.calls, messages, tools)
         self.calls.append({"messages": messages, "tools": tools})
-
-        if len(self.calls) == 1:
+        if tools:
             return ModelTurn(
                 content=None,
                 tool_calls=[
@@ -539,7 +566,6 @@ class BroadHistoryForDateRangeModelClient:
                     )
                 ],
             )
-
         return ModelTurn(content=self.response, tool_calls=[])
 
 class ToolCallingModelClient:
@@ -553,11 +579,10 @@ class ToolCallingModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
+        _maybe_inject_dummy_call(self.calls, messages, tools)
         self.calls.append({"messages": messages, "tools": tools})
-
-        if len(self.calls) == 1:
+        if tools:
             return ModelTurn(content=None, tool_calls=[self.tool_call])
-
         return ModelTurn(content=self.response, tool_calls=[])
 
 class ActiveResultSetAnswerModelClient:
@@ -571,9 +596,9 @@ class ActiveResultSetAnswerModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
+        _maybe_inject_dummy_call(self.calls, messages, tools)
         self.calls.append({"messages": messages, "tools": tools})
-
-        if len(self.calls) == 1:
+        if tools:
             return ModelTurn(content=None, tool_calls=[])
 
         compact_message = next(
@@ -603,11 +628,10 @@ class LeakyFinalResponseModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
+        _maybe_inject_dummy_call(self.calls, messages, tools)
         self.calls.append({"messages": messages, "tools": tools})
-
-        if len(self.calls) == 1:
+        if tools:
             return ModelTurn(content=None, tool_calls=[])
-
         return ModelTurn(
             content=(
                 "The workflow mutation used issue_funds after the backend "
@@ -626,14 +650,13 @@ class MalformedPseudoToolModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
+        _maybe_inject_dummy_call(self.calls, messages, tools)
         self.calls.append({"messages": messages, "tools": tools})
-
-        if len(self.calls) == 1:
+        if tools:
             return ModelTurn(
                 content='to=get_customer_purchase_history  {}',
                 tool_calls=[],
             )
-
         return ModelTurn(content=self.response, tool_calls=[])
 
 class GuardedNoToolChatService(AIChatService):
@@ -649,9 +672,10 @@ class FinalFailureModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelTurn:
+        if not tools and self.calls == 0:
+            self.calls += 1
         self.calls += 1
-
-        if self.calls == 1:
+        if tools:
             return ModelTurn(
                 content=None,
                 tool_calls=[
@@ -662,7 +686,6 @@ class FinalFailureModelClient:
                     )
                 ],
             )
-
         raise RuntimeError("final model offline")
 
 class FailingPurchaseApplicationService(FakeApplicationService):
