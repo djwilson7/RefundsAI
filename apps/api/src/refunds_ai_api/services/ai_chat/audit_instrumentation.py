@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, UTC
 import logging
 from typing import Any
+import uuid
 
 from refunds_ai_api.services.audit import ModelAuditEventKey, TokenUsage
 
@@ -26,21 +28,49 @@ def record_audit_trace_event(
     event_key = audit_event_key_for_trace_type(event_type)
 
     try:
+        # Build structured event fields as requested by Objective 10
+        workflow_name = extract_workflow_kind(data) or state.get("workflow_kind")
+        tool_name = extract_tool_name(data)
+        
+        # State before vs after
+        state_before = summarize_conversation_state_dict(data.get("conversation_state") or state.get("conversation_state"))
+        state_after = summarize_conversation_state_dict(state.get("conversation_state"))
+        
+        decision = data.get("reason") or data.get("action")
+        reason = data.get("reason")
+
+        structured_event = {
+            "event_id": str(uuid.uuid4()),
+            "timestamp": datetime.now(UTC).isoformat(),
+            "workflow": workflow_name,
+            "intent": event_type,
+            "tool": tool_name,
+            "state_before": state_before,
+            "state_after": state_after,
+            "decision": decision,
+            "reason": reason,
+        }
+
+        # Clean payloads to store identifiers instead of entire objects
+        input_payload = sanitize_audit_payload(event_payload_for_input(event_type, data))
+        output_payload = sanitize_audit_payload(event_payload_for_output(event_type, data))
+        metadata_payload = sanitize_audit_payload({
+            "trace_event_type": event_type,
+            "file": event.get("file"),
+            "line": event.get("line"),
+            "structured_event": structured_event,
+        })
+
         audit_writer.record_event(
             session=audit_session,
             sequence_number=int(event.get("step", 1)),
             event_key=event_key,
-            workflow_kind=extract_workflow_kind(data),
-            tool_name=extract_tool_name(data),
+            workflow_kind=workflow_name,
+            tool_name=tool_name,
             summary=str(event.get("message") or "") or None,
-            input_json=event_payload_for_input(event_type, data),
-            output_json=event_payload_for_output(event_type, data),
-            metadata_json={
-                "trace_event_type": event_type,
-                "file": event.get("file"),
-                "line": event.get("line"),
-                "data": data,
-            },
+            input_json=input_payload,
+            output_json=output_payload,
+            metadata_json=metadata_payload,
         )
     except Exception as exc:
         logger.warning(
@@ -55,6 +85,64 @@ def record_audit_trace_event(
                 }
             },
         )
+
+
+def sanitize_audit_payload(obj: Any) -> Any:
+    """Recursively clean objects to be JSON-serializable and strip out large payloads, keeping only identifiers and counts."""
+    if isinstance(obj, dict):
+        cleaned = {}
+        for k, v in obj.items():
+            # If the key is likely to contain a large object list or nested payload, summarize it
+            if k in {"purchases", "purchase_history", "messages", "tools", "result", "tool_results", "data", "transitions"}:
+                if isinstance(v, list):
+                    cleaned[k] = {"count": len(v), "ids": [extract_id(item) for item in v[:5]]}
+                elif isinstance(v, dict):
+                    cleaned[k] = {"id": extract_id(v), "summary": summarize_dict(v)}
+                else:
+                    cleaned[k] = str(v)[:200]
+            elif k in {"conversation_state", "model_context"}:
+                cleaned[k] = summarize_conversation_state_dict(v)
+            else:
+                cleaned[k] = sanitize_audit_payload(v)
+        return cleaned
+    if isinstance(obj, list):
+        return [sanitize_audit_payload(item) for item in obj[:10]]
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    if isinstance(obj, (int, float, bool)) or obj is None:
+        return obj
+    return str(obj)[:500]
+
+
+def extract_id(item: Any) -> str | None:
+    if isinstance(item, dict):
+        for k in ("id", "purchase_id", "customer_id", "session_id"):
+            if k in item and item[k]:
+                return str(item[k])
+    return None
+
+
+def summarize_dict(item: dict[str, Any]) -> dict[str, Any]:
+    summary = {}
+    for k in ("status", "purchase_type", "amount_cents", "refund_stage", "required_action", "product_name"):
+        if k in item:
+            summary[k] = item[k]
+    return summary
+
+
+def summarize_conversation_state_dict(v: Any) -> dict[str, Any]:
+    if not isinstance(v, dict):
+        return {}
+    return {
+        "selected_purchase_id": v.get("selected_purchase_id"),
+        "selected_purchase_ids": v.get("selected_purchase_ids"),
+        "active_purchase": v.get("active_purchase"),
+        "active_refund_context": v.get("active_refund_context"),
+        "pending_refund_action": v.get("pending_refund_action"),
+        "current_page": v.get("current_page"),
+    }
 
 
 def audit_event_key_for_trace_type(event_type: str) -> str:
