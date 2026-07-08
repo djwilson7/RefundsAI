@@ -27,6 +27,15 @@ def execute_tools_node(runtime: Any, state: ChatGraphState) -> ChatGraphState:
         page_context=state.get("page_context"),
         model_intent={"tool_calls": state.get("tool_calls", [])},
     )
+    from refunds_ai_api.services.ai_chat.state import (
+        determine_chat_domain,
+        generate_conversation_snapshot,
+        invalidate_incompatible_state,
+    )
+    domain = determine_chat_domain(classification.kind.value, state["message"])
+    normalized_state = invalidate_incompatible_state(normalized_state, domain)
+    state = {**state, "conversation_state": normalized_state}
+
     state = log_trace_step(
         state,
         message="Classified chat workflow before tool execution.",
@@ -80,4 +89,8 @@ def execute_tools_node(runtime: Any, state: ChatGraphState) -> ChatGraphState:
 
     state, tool_results = execute_workflow(runtime, state, context)
 
-    return finalize_workflow_state(state, context, tool_results)
+    finalized_state = finalize_workflow_state(state, context, tool_results)
+    conv_state = finalized_state.get("conversation_state") or {}
+    conv_state["_snapshot"] = generate_conversation_snapshot(conv_state)
+    finalized_state["conversation_state"] = conv_state
+    return finalized_state

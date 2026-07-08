@@ -98,4 +98,17 @@ def validate_context_node(runtime: Any, state: ChatGraphState) -> ChatGraphState
             "error": "missing_openai_api_key",
         }
 
+    from refunds_ai_api.services.ai_chat.workflows.classification import classify_workflow
+    classification = classify_workflow(
+        state["message"],
+        conversation_state=state.get("conversation_state"),
+        page_context=state.get("page_context"),
+    )
+    state = {
+        **state,
+        "workflow_kind": classification.kind.value,
+        "workflow_classification_confidence": classification.confidence,
+        "workflow_classification_reason": classification.reason,
+    }
+
     return state

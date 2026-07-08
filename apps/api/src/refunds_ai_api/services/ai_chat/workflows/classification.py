@@ -49,6 +49,59 @@ class WorkflowClassification:
     operation: OperationResolution | None = None
 
 
+def normalize_input_text(text: str) -> str:
+    """Normalize casing, punctuation, spelling, pluralization, and common aliases for classification."""
+    if not text:
+        return ""
+    # Casing
+    text = text.lower().strip()
+    # Punctuation (remove common punctuation but keep spaces)
+    import re
+    text = re.sub(r'[^\w\s\-\:\>]', '', text)
+    # Common spelling corrections / aliases / shorthand
+    alias_map = {
+        "puchase": "purchase",
+        "puchases": "purchases",
+        "purches": "purchase",
+        "purcheses": "purchases",
+        "refun": "refund",
+        "refnd": "refund",
+        "subscritpion": "subscription",
+        "subscritpions": "subscriptions",
+        "subs": "subscriptions",
+        "sub": "subscription",
+        "orde": "order",
+        "orderes": "orders",
+        "physicall": "physical",
+        "digitall": "digital",
+        "cancle": "cancel",
+        "cancell": "cancel",
+        "canceling": "cancelling",
+        "retur": "return",
+        "retrn": "return",
+        "retrns": "returns",
+        "shiping": "shipping",
+        "shippment": "shipment",
+        "shippments": "shipments",
+    }
+    words = text.split()
+    normalized_words = []
+    for word in words:
+        corrected = alias_map.get(word, word)
+        # Map specific common plurals:
+        plural_map = {
+            "purchases": "purchase",
+            "subscriptions": "subscription",
+            "orders": "order",
+            "refunds": "refund",
+            "returns": "return",
+            "shipments": "shipment",
+        }
+        corrected = plural_map.get(corrected, corrected)
+        normalized_words.append(corrected)
+    return " ".join(normalized_words)
+
+
 def classify_workflow(
     message: str,
     *,
@@ -57,6 +110,7 @@ def classify_workflow(
     model_intent: Mapping[str, Any] | None = None,
 ) -> WorkflowClassification:
     """Classify a user message into the deterministic workflow to execute."""
+    normalized_message = normalize_input_text(message)
     normalized_state = normalize_conversation_state(
         dict(conversation_state) if conversation_state is not None else None
     )
@@ -66,7 +120,7 @@ def classify_workflow(
         page_context=page_context,
     )
     operation = resolve_operation(
-        message,
+        normalized_message,
         conversation_state=normalized_state,
         model_intent=model_intent,
     )
@@ -75,7 +129,7 @@ def classify_workflow(
     if (
         normalized_state.get("pending_refund_action") is None
         and normalized_state.get("last_completed_refund") is not None
-        and is_generic_refund_confirmation_reply(message)
+        and is_generic_refund_confirmation_reply(normalized_message)
     ):
         return WorkflowClassification(
             WorkflowKind.REFUND_MUTATION,
@@ -99,8 +153,8 @@ def classify_workflow(
     if (
         normalized_state.get("pending_refund_action") is not None
         and (
-            parse_refund_workflow_confirmation_intent(message)
-            or parse_refund_workflow_decline_intent(message)
+            parse_refund_workflow_confirmation_intent(normalized_message)
+            or parse_refund_workflow_decline_intent(normalized_message)
         )
     ):
         return WorkflowClassification(
@@ -120,7 +174,7 @@ def classify_workflow(
             operation,
         )
 
-    if parse_refund_workflow_continuation_intent(message) is not None:
+    if parse_refund_workflow_continuation_intent(normalized_message) is not None:
         return WorkflowClassification(
             WorkflowKind.REFUND_MUTATION,
             "deterministic",
@@ -129,7 +183,7 @@ def classify_workflow(
             operation,
         )
 
-    if parse_refund_workflow_mutation_intent(message) is not None:
+    if parse_refund_workflow_mutation_intent(normalized_message) is not None:
         return WorkflowClassification(
             WorkflowKind.REFUND_MUTATION,
             "deterministic",
@@ -139,7 +193,7 @@ def classify_workflow(
         )
 
     if has_refund_eligibility_intent(
-        message,
+        normalized_message,
         conversation_state=normalized_state,
     ):
         return WorkflowClassification(
@@ -151,7 +205,7 @@ def classify_workflow(
         )
 
     policy_query = parse_refund_policy_query(
-        message,
+        normalized_message,
         conversation_state=normalized_state,
     )
     if policy_query is not None:
@@ -163,7 +217,7 @@ def classify_workflow(
             operation,
         )
 
-    if has_policy_follow_up_intent(message, normalized_state):
+    if has_policy_follow_up_intent(normalized_message, normalized_state):
         return WorkflowClassification(
             WorkflowKind.REFUND_POLICY,
             "deterministic",
@@ -172,7 +226,7 @@ def classify_workflow(
             operation,
         )
 
-    if parse_amount_threshold_query(message) is not None:
+    if parse_amount_threshold_query(normalized_message) is not None:
         return WorkflowClassification(
             WorkflowKind.ACCOUNT_FACT,
             "deterministic",
@@ -181,7 +235,7 @@ def classify_workflow(
             operation,
         )
 
-    if parse_date_range_query(message) is not None:
+    if parse_date_range_query(normalized_message) is not None:
         return WorkflowClassification(
             WorkflowKind.ACCOUNT_FACT,
             "deterministic",
@@ -190,7 +244,7 @@ def classify_workflow(
             operation,
         )
 
-    if has_account_fact_intent(message):
+    if has_account_fact_intent(normalized_message):
         return WorkflowClassification(
             WorkflowKind.ACCOUNT_FACT,
             "deterministic",
@@ -199,7 +253,7 @@ def classify_workflow(
             operation,
         )
 
-    if _has_follow_up_purchase_context(message, normalized_state):
+    if _has_follow_up_purchase_context(normalized_message, normalized_state):
         return WorkflowClassification(
             WorkflowKind.ACCOUNT_FACT,
             "deterministic",

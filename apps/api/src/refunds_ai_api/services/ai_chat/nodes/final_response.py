@@ -32,6 +32,16 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
     if state.get("assistant_response"):
         return state
 
+    from refunds_ai_api.services.ai_chat.state import validate_context_integrity
+    conv_state = state.get("conversation_state") or {}
+    validated_state = validate_context_integrity(
+        runtime.application_service,
+        state.get("customer_id") or state.get("effective_customer_id"),
+        conv_state,
+        state.get("page_context")
+    )
+    state["conversation_state"] = validated_state
+
     tool_results = state.get("tool_results", [])
     if state.get("account_fact_intent") and not tool_results:
         state = log_trace_step(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from langgraph.graph import END, StateGraph
 
 from .models import ChatGraphState
-from .routing import should_continue
+from .routing import route_from_validation, should_continue
 
 
 def build_chat_graph(service):
@@ -32,8 +32,8 @@ def build_chat_graph(service):
     graph_builder.set_entry_point("validate_context")
     graph_builder.add_conditional_edges(
         "validate_context",
-        should_continue,
-        {"continue": "request_tool_call", "stop": END},
+        route_from_validation,
+        {"execute_tools": "execute_tools", "request_tool_call": "request_tool_call", "stop": END},
     )
     graph_builder.add_conditional_edges(
         "request_tool_call",
