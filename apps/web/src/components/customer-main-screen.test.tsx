@@ -66,7 +66,29 @@ describe("CustomerMainScreen", () => {
   });
 
   it("renders customer summary metrics from purchases", () => {
-    renderCustomerMainScreen();
+    renderCustomerMainScreen({
+      purchases: [
+        ...purchases,
+        {
+          id: "40000000-0000-4000-8000-000000000004",
+          orderNumber: "RAI-10004",
+          purchaseType: "physical" as const,
+          productName: "Standing desk mat",
+          amountCents: 4000,
+          purchasedAt: "2026-06-15T14:30:00Z",
+          status: "refund_pending",
+        },
+        {
+          id: "40000000-0000-4000-8000-000000000005",
+          orderNumber: "RAI-10005",
+          purchaseType: "digital" as const,
+          productName: "Refunded icon pack",
+          amountCents: 6000,
+          purchasedAt: "2026-06-16T14:30:00Z",
+          status: "refunded",
+        },
+      ],
+    });
 
     expect(
       screen.getByRole("region", { name: "Customer summary metrics" }),
@@ -74,9 +96,9 @@ describe("CustomerMainScreen", () => {
     expect(screen.getByText("Customer Since")).toBeInTheDocument();
     expect(screen.getByText("2026")).toBeInTheDocument();
     expect(screen.getByText("Items Purchased")).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
     expect(screen.getByText("Total Spent")).toBeInTheDocument();
-    expect(screen.getByText("$213.98")).toBeInTheDocument();
+    expect(screen.getByText("$253.98")).toBeInTheDocument();
   });
 
   it("renders purchase history cards from purchases", () => {

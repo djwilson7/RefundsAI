@@ -37,6 +37,35 @@ from .fakes import (
 )
 
 
+class RefundedAggregateApplicationService(FakeApplicationService):
+    def list_user_purchases(self, user_id: str) -> list[dict[str, object]]:
+        return [
+            *super().list_user_purchases(user_id),
+            {
+                "id": "40000000-0000-4000-8000-000000000005",
+                "order_number": "RAI-10005",
+                "purchase_type": "physical",
+                "product_name": "Pending Return",
+                "sku": "PHY-PENDING-001",
+                "amount_cents": 2000,
+                "purchased_at": datetime(2026, 6, 21, 16, 30, tzinfo=UTC),
+                "status": "refund_pending",
+                "details_url": "/api/purchases/40000000-0000-4000-8000-000000000005/details",
+            },
+            {
+                "id": "40000000-0000-4000-8000-000000000006",
+                "order_number": "RAI-10006",
+                "purchase_type": "digital",
+                "product_name": "Refunded Template Pack",
+                "sku": "DIG-REFUNDED-001",
+                "amount_cents": 20000,
+                "purchased_at": datetime(2026, 6, 21, 18, 30, tzinfo=UTC),
+                "status": "refunded",
+                "details_url": "/api/purchases/40000000-0000-4000-8000-000000000006/details",
+            },
+        ]
+
+
 def test_threshold_tool_returns_count_ids_total_and_threshold_context() -> None:
     result = get_purchase_count_by_amount_threshold(
         FakeApplicationService(),
@@ -54,6 +83,21 @@ def test_threshold_tool_returns_count_ids_total_and_threshold_context() -> None:
         "threshold_dollars": "100.00",
         "comparison": "gt",
     }
+
+def test_threshold_tool_excludes_fully_refunded_purchases_from_count() -> None:
+    result = get_purchase_count_by_amount_threshold(
+        RefundedAggregateApplicationService(),
+        CUSTOMER_ID,
+        threshold_cents=10000,
+        comparison="gt",
+    )
+
+    assert result["count"] == 1
+    assert result["matching_purchase_ids"] == [
+        "40000000-0000-4000-8000-000000000003"
+    ]
+    assert result["total_amount_cents"] == 12500
+    assert result["total_amount_dollars"] == "125.00"
 
 def test_refund_eligibility_tool_returns_backend_workflow_results() -> None:
     application_service = FakeApplicationService()
@@ -281,6 +325,21 @@ def test_date_range_tool_returns_rows_aggregates_and_display_context() -> None:
     assert result["purchases"][2]["amount_display"] == "$125.00"
     assert result["purchases"][2]["purchased_date_display"] == "June 22, 2026"
 
+def test_date_range_tool_excludes_fully_refunded_purchases_from_aggregates() -> None:
+    result = get_purchase_history_by_date_range(
+        RefundedAggregateApplicationService(),
+        CUSTOMER_ID,
+        start_date="2026-06-20",
+        end_date="2026-06-22",
+        timezone_name="America/Chicago",
+        label="June 20, 2026 through June 22, 2026",
+    )
+
+    assert len(result["purchases"]) == 5
+    assert result["aggregates"]["total_purchase_count"] == 4
+    assert result["aggregates"]["total_amount_cents"] == 22000
+    assert result["aggregates"]["total_amount_dollars"] == "220.00"
+
 def test_chat_graph_forces_date_range_tool_for_date_range_intent(caplog) -> None:
     application_service = FakeApplicationService()
     model_client = NoToolModelClient("You made 3 purchases from June 20 through June 22.")
@@ -450,6 +509,23 @@ def test_purchase_history_tool_returns_rows_and_aggregates() -> None:
             },
         },
     }
+
+def test_purchase_history_tool_excludes_fully_refunded_purchases_from_aggregates() -> None:
+    result = get_customer_purchase_history(
+        RefundedAggregateApplicationService(),
+        CUSTOMER_ID,
+    )
+
+    assert len(result["purchases"]) == 6
+    assert result["aggregates"]["total_purchase_count"] == 5
+    assert result["aggregates"]["total_amount_cents"] == 22999
+    assert result["aggregates"]["total_amount_dollars"] == "229.99"
+    assert result["aggregates"]["by_status"]["refund_pending"] == {
+        "count": 1,
+        "total_amount_cents": 2000,
+        "total_amount_dollars": "20.00",
+    }
+    assert "refunded" not in result["aggregates"]["by_status"]
 
 def test_parse_tool_arguments_handles_missing_invalid_and_non_object_values() -> None:
     assert parse_tool_arguments(None) == {}
