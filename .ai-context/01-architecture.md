@@ -228,21 +228,22 @@ PostgreSQL triggers derive refund deadlines and selected defaults:
   -> type-specific detail components
 ```
 
-### Manual Refund Commands
+### Refund Workflow Refresh
 
 ```text
-help panel command
+chat refund side effect or physical carrier validation control
   -> Next.js same-origin proxy
-  -> FastAPI refund endpoint
+  -> FastAPI refund or workflow endpoint
   -> ApplicationService
   -> refund policy evaluation
   -> guarded repository mutation
   -> route refresh
 ```
 
-Manual `Prep Refund` and `Issue Refund` buttons are temporary validation controls.
-The target product behavior is for chat to own refund initiation and issuance while
-detail pages visualize state.
+The help panel no longer exposes manual `Prep Refund` or `Issue Refund` buttons.
+Chat owns refund initiation and issuance through confirmation-gated backend workflow
+actions. Purchase detail pages visualize backend state and keep the physical carrier
+acceptance control for local workflow validation.
 
 ### Chat
 
@@ -265,7 +266,10 @@ and migrations `014_create_model_audit_tables.py` and
 `015_broadcast_model_audit_events.py`. `/api/chat` starts an audit session for
 each valid chat request and carries the session through graph state.
 `log_trace_step` persists each graph trace as an ordered audit event when a writer
-is present. PostgreSQL broadcasts inserted audit events through `pg_notify`.
+is present. One audit session represents one user prompt and its resulting workflow,
+not the full conversation. Follow-up prompts create new sessions; model-request events
+separate the new user prompt from system instructions and prior-turn context injected
+by the backend. PostgreSQL broadcasts inserted audit events through `pg_notify`.
 
 Current persistence flow:
 
@@ -286,9 +290,10 @@ Customer Message
   -> Complete or Fail Model Audit Session
 ```
 
-The admin home screen renders model-invocation cards from the persisted audit read APIs.
-It subscribes to the audit SSE stream through a same-origin Next.js proxy and
-refreshes the server-rendered read model when new audit events are inserted.
+The admin home screen renders the first page of model-invocation cards from the
+persisted audit read APIs, then lazy-loads older session pages as the user scrolls.
+It subscribes to the audit SSE stream through a same-origin Next.js proxy and upserts
+streamed session updates into the visible client-side list.
 Session detail screens render one persisted audit session and subscribe to the same
 SSE stream filtered by `session_id` so active session timelines refresh as new events
 arrive.

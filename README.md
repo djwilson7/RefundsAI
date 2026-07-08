@@ -6,6 +6,8 @@ RefundsAI is a production-inspired AI customer support platform. It demonstrates
 
 Instead of allowing the language model to independently decide on or execute refunds, RefundsAI isolates AI to context-gathering and tool-based orchestration. Authoritative business policy remains strictly on the backend.
 
+The current core implementation is complete through the text-based customer support agent, confirmation-gated refund workflow execution, and administrative model-audit experience. Further work is expected to be polish: improving model behavior, tuning the user experience, strengthening validation, or selectively promoting deferred production features.
+
 ---
 
 ## Project Goals
@@ -28,7 +30,7 @@ RefundsAI demonstrates:
 * Customer dashboard and purchase history overview
 * Type-specific purchase detail pages (Digital, Physical, Subscription)
 * AI support panel with conversational history and active result grounding
-* Integrated manual refund controls for dev/validation
+* Chat-driven refund workflow controls with backend confirmation gates
 
 ### Admin Dashboard (AI Auditability)
 
@@ -109,7 +111,8 @@ Deterministic Services
 
 * LangGraph (graph-based conversational state and agent orchestration)
 * OpenAI APIs (structured completions and function calling)
-* OpenAI Whisper (voice transcription interface)
+
+Voice-agent support is deferred and is not part of the current implemented surface.
 
 #### Development
 

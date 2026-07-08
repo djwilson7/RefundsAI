@@ -1,6 +1,8 @@
 # RefundsAI API
 
-FastAPI backend for RefundsAI's customer, purchase, refund workflow, and Phase 1 read-only AI chat surfaces.
+FastAPI backend for RefundsAI's customer, purchase, refund workflow, text AI chat, and administrative model-audit surfaces.
+
+The current backend scope is complete for the core technical challenge: deterministic refund services, confirmation-gated chat mutations, persisted model audit sessions/events, and realtime audit streaming are implemented. Future backend work should be treated as polish, model-quality tuning, UX support, or deferred production hardening unless scope changes.
 
 ## Local Setup
 

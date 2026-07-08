@@ -113,3 +113,16 @@ authoritative purchase scope, policy scope, eligibility target, and mutation gat
 Consequence: Keep OpenAI-facing tools read-only. Route account facts, policy, eligibility,
 and refund process actions through `services/ai_chat/workflows/`. Refund mutations require
 backend eligibility plus the exact canonical confirmation command.
+
+### Decision 010: Core Scope Stops At Text Agent And Auditability
+
+Decision: The core technical challenge scope is complete through text-based AI chat,
+confirmation-gated refund workflow execution, and administrative model auditability.
+
+Reason: These surfaces prove the central product claim: the model can converse and
+orchestrate while backend policy, persisted facts, and audit records remain authoritative.
+
+Consequence: Voice-agent support, production authentication, payment integration,
+hosted deployment, mobile polish, and production support case management are deferred
+unless intentionally promoted. Future work should focus on polish, model quality,
+user experience tuning, validation hardening, or explicit deferred items.

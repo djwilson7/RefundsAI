@@ -76,12 +76,16 @@ Current authentication is mocked. The selected customer id is carried through
 
 ## Administrator Boundary
 
-Administrators may enter the mock admin surface.
+Administrators may enter the mock admin surface and inspect model audit sessions,
+ordered execution events, token/latency metrics, workflow/tool/mutation indicators,
+and realtime audit updates for chat interactions.
 
-Future admin behavior should require customer verification before customer-specific data
-is shown. Admin workflows remain subject to backend policy and audit boundaries.
+Production admin behavior should require customer verification before broader
+customer-specific support data is shown. Admin workflows remain subject to backend
+policy and audit boundaries.
 
-The current admin dashboard is not a mature operations surface.
+The current admin dashboard is an AI auditability surface, not a mature customer
+operations or case-management console.
 
 ## Frontend Boundary
 
@@ -161,4 +165,4 @@ The assistant should escalate or defer when:
 * A requested workflow action is blocked by policy.
 * The request is outside account, purchase, order, account activity, policy, or refund topics.
 
-Escalation and persisted support history are future-phase implementation work.
+Escalation and production support case history are deferred production-scope work.

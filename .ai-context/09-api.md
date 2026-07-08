@@ -70,7 +70,7 @@ Failure:
 | `POST` | `/api/purchases/{purchase_id}/refund/issue` | `ApplicationService.issue_refund` | Finalize prepared mock refund. |
 | `POST` | `/api/purchases/{purchase_id}/digital/redeem-code` | `ApplicationService.redeem_digital_code` | Simulate digital code redemption. |
 | `POST` | `/api/purchases/{purchase_id}/physical/confirm-carrier-acceptance` | `ApplicationService.confirm_carrier_acceptance` | Simulate carrier acceptance. |
-| `GET` | `/api/admin/audit/sessions` | `ModelAuditReadService.list_sessions` | List recent model audit sessions. |
+| `GET` | `/api/admin/audit/sessions` | `ModelAuditReadService.list_sessions` | List persisted model audit sessions. |
 | `GET` | `/api/admin/audit/sessions/{session_id}` | `ModelAuditReadService.get_session` | Read one model audit session summary. |
 | `GET` | `/api/admin/audit/sessions/{session_id}/events` | `ModelAuditReadService.list_events` | Read ordered events for one audit session. |
 | `GET` | `/api/admin/audit/events/stream` | `ModelAuditReadService.stream_events` | SSE stream for database-broadcast audit events. |
@@ -79,8 +79,8 @@ Authentication is currently mocked. These endpoints do not implement production 
 
 ## Admin Audit Endpoints
 
-The audit schema, writer, graph instrumentation, HTTP read APIs, and backend SSE
-stream are implemented. Frontend stream consumption is planned for the admin UI phase.
+The audit schema, writer, graph instrumentation, HTTP read APIs, backend SSE stream,
+and frontend admin consumption are implemented for the current text-chat audit surface.
 
 | Method | Route | Status | Purpose |
 | --- | --- | --- | --- |
@@ -397,7 +397,39 @@ Accepted `conversation_state` fields:
 * `active_purchase`
 * `active_workflow`
 * `pending_refund_action`
+* `customer_explanation_context`
+* `entity_extraction_result`
 * `current_page`
+
+`customer_explanation_context` is backend-normalized customer-facing explanation
+context for denied refund process actions. It describes what the system shows, the
+policy requirement, why the action cannot proceed, and any next step. It is not client
+authority to mutate refund state.
+
+`entity_extraction_result` records the last turn's separated intent and entity
+classification, rejected generic/action candidates, and the structured context source
+used for contextual references. Clients must treat it as diagnostic routing state, not
+purchase authority.
+
+Workflow context audit events also expose a normalized `current_message_entity` plus
+the previous scope, scope used, candidate matches, selected purchase id, and resolution
+reason. Named products from the current message resolve against full purchase history
+and override stale active result-set scope.
+
+Each `POST /api/chat` request creates one audit session. Session totals cover every
+workflow step, model call, and backend tool operation caused by that single user
+prompt. A follow-up request creates a new session even when its model payload includes
+structured state from the previous turn. Model-request audit payloads distinguish
+`user_prompt` from `system_instructions`, `additional_context`, available tools, and
+compact backend model context. Provider-reported token usage and measured per-call
+latency are stored on dedicated model lifecycle events and aggregated by the audit read
+service without estimation.
+
+Backend tools emit paired `TOOL_STARTED` and `TOOL_COMPLETED` timeline events with a
+shared `tool_call_id`. Tool History and session totals consolidate those records by
+that id, so one backend invocation counts once. Completion records carry source,
+workflow, operation, latency, input/output summaries, backend category, and available
+customer or purchase identifiers. Backend tools do not contribute model token usage.
 
 Response data:
 
@@ -487,6 +519,9 @@ Next.js route handlers proxy browser requests to FastAPI:
 | Frontend route | Backend route |
 | --- | --- |
 | `POST /api/chat` | `POST /api/chat` |
+| `GET /api/admin/audit/sessions` | `GET /api/admin/audit/sessions` |
+| `GET /api/admin/audit/sessions/{session_id}` | `GET /api/admin/audit/sessions/{session_id}` |
+| `GET /api/admin/audit/sessions/{session_id}/events` | `GET /api/admin/audit/sessions/{session_id}/events` |
 | `GET /api/admin/audit/events/stream` | `GET /api/admin/audit/events/stream` |
 | `GET /api/purchases/{purchase_id}/refund/eligibility` | `GET /api/purchases/{purchase_id}/refund/eligibility` |
 | `POST /api/purchases/{purchase_id}/refund/request` | `POST /api/purchases/{purchase_id}/refund/request` |
@@ -522,7 +557,8 @@ envelopes. Authentication remains mocked for this phase.
 
 Query:
 
-* `limit`: optional, default `50`, minimum `1`, maximum `100`.
+* `limit`: optional, minimum `1`, maximum `100`. When omitted, all stored sessions are returned in reverse chronological order.
+* `offset`: optional, default `0`, minimum `0`. Used with `limit` for lazy-loading older sessions.
 
 Data:
 
@@ -574,8 +610,8 @@ Stream behavior:
   `GET /api/admin/audit/sessions/{session_id}/events`.
 * Keepalive comments may be emitted as `: keepalive`.
 
-The admin home screen consumes the stream as an invalidation signal through a
-same-origin Next.js proxy route and refreshes persisted session/event reads after
-new audit event notifications.
+The admin home screen consumes the stream through a same-origin Next.js proxy route.
+Its client-side audit list upserts streamed session updates into the visible list and
+lazy-loads older session pages with `limit` and `offset` as the user scrolls.
 Admin session detail screens use the same proxy with `session_id` filtering to refresh
 the selected session timeline as new events arrive.

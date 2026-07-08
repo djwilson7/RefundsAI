@@ -38,7 +38,7 @@ Production scope would require:
 * Role-based authorization.
 * Customer identity verification.
 * Rate limiting.
-* Durable audit logging.
+* Production-grade audit retention and access controls.
 * Secure payment processing.
 * Secrets rotation and deployment hardening.
 

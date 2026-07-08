@@ -5,6 +5,11 @@ This roadmap defines the planned implementation sequence for RefundsAI.
 Each milestone establishes a stable foundation for the next. The goal is incremental
 delivery without losing architecture, test quality, or documentation alignment.
 
+The checked milestones through v0.6.0 are the current implementation stopping point for
+the core technical challenge. Work beyond this point is intentionally scoped as polish:
+model quality, user experience tuning, documentation cleanup, validation hardening, or
+select deferred production-realism items.
+
 ---
 
 # v0.0.0 - Project Foundation
@@ -423,6 +428,8 @@ Example customer question: "Start a refund for the eligible one."
 
 # v0.6.0 - Administrative Experience
 
+**Status:** Complete
+
 ## Objective
 
 Provide administrators with operational visibility, AI auditability, and live monitoring of customer interactions and agent behavior. The focus is on auditing the AI's reasoning rather than general customer administration.
@@ -477,39 +484,31 @@ Provide administrators with operational visibility, AI auditability, and live mo
 
 ---
 
-# v0.7.0 - Voice Support
-
-## Objective
-
-Extend the existing AI orchestration pipeline to support voice interactions.
-
-### Planned Deliverables
-
-* [ ] Speech transcription
-* [ ] Shared text and voice orchestration
-* [ ] Voice conversation support
-* [ ] Transcript storage
-* [ ] Voice audit events
-
-### Validation
-
-* [ ] Voice requests follow the same orchestration pipeline as text.
-* [ ] Transcripts stored successfully.
-* [ ] Voice interactions appear within audit history.
-
----
-
-# v0.8.0 - Deferred Implementation Points
+# v0.7.0 - Deferred Implementation Points
 
 ## Objective
 
 Track useful but non-core implementation points that are intentionally deferred unless
-time allows.
+scope changes.
 
 These items may improve production realism, polish, or platform completeness, but they
-are not required for the primary technical challenge path.
+are not required for the primary technical challenge path. The current project state is
+complete enough for final review once documentation, validation, and walkthrough polish
+are finished.
 
 ### Planned Deliverables
+
+#### Voice Agent Support
+
+* [ ] Speech transcription.
+* [ ] Shared text and voice orchestration.
+* [ ] Voice conversation support.
+* [ ] Transcript storage.
+* [ ] Voice audit events.
+* [ ] Voice requests follow the same orchestration pipeline as text.
+* [ ] Voice interactions appear within audit history.
+
+#### Production and Platform Hardening
 
 * [ ] Standalone products API boundary over `products`.
 * [ ] Product catalog service/tool access beyond purchase-history metadata.
@@ -534,11 +533,12 @@ are not required for the primary technical challenge path.
 
 ## Objective
 
-Prepare RefundsAI for final presentation and evaluation.
+Prepare the current RefundsAI implementation for final presentation and evaluation.
+This milestone should not add new product surfaces unless a blocking issue is found.
 
 ### Planned Deliverables
 
-* [ ] Feature-complete implementation
+* [x] Feature-complete core implementation through text chat, refund workflow execution, and admin auditability.
 * [ ] Final documentation review
 * [ ] README completion
 * [ ] Comprehensive testing pass

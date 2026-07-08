@@ -25,12 +25,19 @@ Implemented surfaces:
 * Type-specific purchase detail presentation for digital, physical, and subscription purchases.
 * Backend refund workflow evaluation, preparation, issuance, digital code redemption, and physical carrier acceptance.
 * LangGraph-backed chat endpoint for purchase facts, refund policy, refund eligibility, and confirmation-gated refund actions.
+* Persisted model audit sessions and ordered audit events for chat execution.
+* Admin audit session list, session detail timeline, token/latency summaries, and realtime SSE-backed refresh.
+
+Current project state:
+
+* The core technical challenge implementation is complete through text chat, deterministic refund workflow execution, and administrative auditability.
+* Further work should be treated as polish, model-quality tuning, user experience refinement, validation hardening, or explicitly deferred production scope.
 
 Not yet productionized:
 
 * Real authentication and authorization.
 * Real payment processing.
-* Persisted support-session history and AI audit views.
+* Production-grade support case management.
 * Voice capture, transcription, and voice responses.
 * Production deployment hardening.
 
@@ -59,7 +66,7 @@ Customers can:
 * Browse seeded purchase history.
 * Open one stable purchase detail route: `/purchase-details/[purchaseId]`.
 * Ask the shared help panel about purchases, policy, eligibility, and refund process actions.
-* Use temporary manual refund commands on purchase detail pages while workflow wiring is validated.
+* Confirm eligible refund process actions through the chat workflow.
 
 ### Admin Dashboard
 

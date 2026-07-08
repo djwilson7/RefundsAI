@@ -125,25 +125,49 @@ It returns compact `conversation_state` for follow-up routing:
 * `active_purchase`
 * `active_workflow`
 * `pending_refund_action`
+* `customer_explanation_context`
+* `entity_extraction_result`
 * `current_page`
 
 The model receives only compact context. The backend must not send full rendered page
 content or replay the full transcript as a substitute for structured state.
+`customer_explanation_context` is normalized by the backend for denied refund process
+actions so the model can explain the exact customer-facing reason without relying on
+raw workflow status, lock reason, or mutation terms.
 
 Resolution precedence:
 
 1. Exact canonical refund confirmation command boundary.
-2. Page purchase references such as "this product" or "this order".
-3. Active refund context for refund process continuations.
-4. Explicit product, SKU, order number, or purchase id references.
-5. Selected single purchase for vague follow-ups.
-6. Active result set for plural/ranked follow-ups.
-7. Purchase type, date range, or amount threshold from message text.
-8. Full purchase history when a supported account-fact intent has no narrower target.
-9. Clarification or off-domain response.
+2. Purchase id, order number, or SKU from the current message.
+3. Named product from the current message, resolved against full purchase history.
+4. Page purchase, then active purchase.
+5. Singular or contextually selected purchase inside the active result set.
+6. Purchase type, date range, or amount threshold from message text.
+7. Full purchase history when a supported account-fact intent has no narrower target.
+8. Clarification or off-domain response.
 
-Explicit named product references can escape a narrowed selected set. Demonstrative
-references such as "those purchases" resolve to the active result set when one exists.
+Explicit named product references override a narrowed selected set. The resolver uses
+case-insensitive matching and accepts only unique, high-confidence fuzzy matches.
+Demonstrative references such as "those purchases" resolve to the active result set
+when one exists.
+
+Entity extraction separates intent/action text from purchase entities. Product search
+runs only for named products, purchase ids, order numbers, and SKUs. Pronouns,
+determiners, action phrases, and generic support phrases are rejected as search terms
+and resolve through `active_purchase`, page context, or a singular active result set.
+When no named or contextual entity resolves, refund workflows ask for a product or
+order identifier instead of widening to all purchases.
+
+Workflow context audit events record `current_message_entity`,
+`previous_context_scope`, `resolution_scope_used`, `match_candidates`,
+`selected_purchase_id`, and `resolution_reason`. These fields show whether an active
+result set was used or overridden without making audit metadata authoritative.
+
+Each backend tool invocation has one lifecycle id shared by its start and completion
+events. Timeline views may show both events, while Tool History and session metrics
+merge them into one call. Tool totals count unique lifecycle ids; model totals count
+unique model-call ids. Tool latency remains separate from model latency and backend
+tools add no tokens unless the tool itself invokes a model.
 
 ## Active Result Sets and Ranking
 
@@ -182,13 +206,19 @@ Inputs:
 Outputs:
 
 * sanitized purchase rows
-* total count and amount
-* counts/totals by purchase type
-* counts/totals by purchase status
+* `history_summary` with total historical count plus refunded/non-refunded splits
+* `history_summary.by_purchase_type` with total/refunded/non-refunded counts per type
+* `history_summary.by_status` with total/refunded/non-refunded counts per status
+* `aggregates` with non-refunded count and amount totals
+* `aggregates.by_purchase_type` and `aggregates.by_status` for non-refunded totals
 * cent values and display dollar strings
 
 Rules:
 
+* Count questions such as "how many purchases have I made" should answer from
+  `history_summary` and state the refunded/non-refunded split.
+* Purchase-type count questions such as digital, physical, or subscription counts
+  should answer from `history_summary.by_purchase_type` and state that type's split.
 * Aggregate counts and spend totals exclude fully refunded purchases with
   `status = 'refunded'`.
 * Purchases still in the refund process, such as `refund_pending`, remain included in
@@ -233,13 +263,16 @@ Outputs:
 
 * resolved `date_range`
 * sanitized purchase rows
-* aggregate counts and totals
+* `history_summary` with total historical count plus refunded/non-refunded splits
+* `aggregates` with non-refunded count and amount totals
 
 Rules:
 
 * Dates are interpreted in the customer timezone.
 * Queries use a half-open timestamp range: start inclusive, day-after-end exclusive.
 * Business weeks run Sunday through Saturday.
+* Count answers should use `history_summary` when the customer asks how many
+  purchases were made in the range.
 * Aggregate counts and spend totals exclude fully refunded purchases with
   `status = 'refunded'`; refund-in-progress purchases remain included.
 

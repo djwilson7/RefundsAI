@@ -29,20 +29,21 @@ Restrictions:
 
 ## Administrator
 
-The administrator represents future support operations staff.
+The administrator represents support operations staff focused on AI auditability.
 
 Current implementation:
 
 * Mock admin can enter `/admin-home`.
-* The admin dashboard is a placeholder, not a completed operations workflow.
+* `/admin-home` lists persisted model audit sessions with summary metrics.
+* `/admin/sessions/[sessionId]` shows one session's prompt, final response, tool history, and ordered execution timeline.
+* Admin screens refresh from realtime audit event notifications through the SSE proxy.
 
-Intended future responsibilities:
+Deferred production responsibilities:
 
 * Verify customers before viewing customer-specific data.
-* Review purchase and support history.
-* Inspect AI traces.
+* Review broader purchase and support history.
 * Resolve escalated cases.
-* Review operational metrics.
+* Review production operational metrics.
 
 Restrictions:
 

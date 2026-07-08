@@ -7,6 +7,13 @@ This document captures engineering reasoning and implementation tradeoffs.
 It is not the authoritative source for project rules. Those live in `.ai-context/`.
 This file explains why the project evolved the way it did.
 
+## Current Project State
+
+The core technical challenge implementation is complete through text chat orchestration,
+confirmation-gated refund workflow execution, and administrative model auditability.
+Future work should be treated as polish, model-quality tuning, UX refinement,
+validation hardening, or deferred production hardening unless scope changes.
+
 ## Insight 001 - Context Before Code
 
 The project established `.ai-context/` before implementation work.
@@ -140,12 +147,12 @@ presentation aligned with the API contract used by the agent.
 
 ## Insight 007 - Manual Refund Commands Before Agent Orchestration
 
-The help panel exposes temporary manual commands on purchase detail pages:
+The help panel previously exposed temporary manual commands on purchase detail pages:
 
 * `Prep Refund`
 * `Issue Refund`
 
-Both are disabled by default and enabled only from backend workflow flags:
+They were disabled by default and enabled only from backend workflow flags:
 
 * `can_prepare_refund`
 * `can_issue_funds`
@@ -163,11 +170,12 @@ These commands let the project validate the full refund path before relying on A
 Physical returns also include a detail-page `Given to Carrier` command because carrier
 acceptance is a product-specific lifecycle event shown in the return workflow display.
 
-Tradeoff:
+Outcome:
 
-Manual commands are useful for integration testing, but they are not the final product
-interaction model. The target experience is chat-owned refund initiation and issuance,
-with detail pages continuing to display backend state.
+Manual commands were useful for integration testing, but they are no longer the product
+interaction model. The current experience is chat-owned refund initiation and issuance,
+with exact backend confirmation gates. Detail pages continue to display backend state
+and retain the physical carrier-acceptance control for local workflow validation.
 
 ## Insight 008 - Deterministic Chat Context Before Model Prose
 
