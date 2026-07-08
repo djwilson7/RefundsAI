@@ -32,12 +32,14 @@
   top: 0;
   right: 0;
   z-index: 15;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   width: var(--help-panel-width);
   height: 100vh;
   border-left: 1px solid var(--border);
-  background: #edf1f5;
+  background: #f6f8fb;
+  box-shadow: -16px 0 34px rgb(15 23 42 / 14%);
   padding: 24px;
   overflow: hidden;
   transform: translateX(100%);
@@ -119,6 +121,7 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .transcript {
@@ -128,7 +131,27 @@
   gap: 12px;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 2px 2px 16px;
+  scrollbar-color: #aebccd transparent;
+  scrollbar-width: thin;
+}
+
+.transcript::-webkit-scrollbar {
+  width: 6px;
+}
+
+.transcript::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.transcript::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #aebccd;
+}
+
+.transcript::-webkit-scrollbar-thumb:hover {
+  background: #8fa0b2;
 }
 
 .message {
@@ -153,9 +176,48 @@
   color: #17324d;
 }
 
+.thinkingMessage {
+  display: flex;
+  width: min(76%, 260px);
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeletonLine {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e7edf3 0%, #f5f7fa 48%, #e7edf3 100%);
+  background-size: 200% 100%;
+  animation: skeletonPulse 1200ms ease-in-out infinite;
+}
+
+.skeletonLine:nth-child(1) {
+  width: 92%;
+}
+
+.skeletonLine:nth-child(2) {
+  width: 100%;
+}
+
+.skeletonLine:nth-child(3) {
+  width: 68%;
+}
+
+@keyframes skeletonPulse {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
 .composer {
-  position: relative;
+  display: flex;
   flex: 0 0 auto;
+  flex-direction: column;
+  gap: 10px;
   padding-top: 12px;
 }
 
@@ -178,8 +240,28 @@
   color: #243140;
   font: inherit;
   line-height: 1.45;
-  padding: 12px 88px 42px 12px;
+  overscroll-behavior: contain;
+  padding: 12px;
   resize: none;
+  scrollbar-color: #aebccd transparent;
+  scrollbar-width: thin;
+}
+
+.chatInput::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chatInput::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chatInput::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #aebccd;
+}
+
+.chatInput::-webkit-scrollbar-thumb:hover {
+  background: #8fa0b2;
 }
 
 .chatInput:focus {
@@ -193,10 +275,8 @@
 }
 
 .inputActions {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
 }
 

@@ -99,6 +99,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   const [chatMessages, setChatMessages] =
     useState<ChatMessage[]>(initialChatMessages);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatMessageIdCounterRef = useRef(0);
   const [conversationState, setConversationState] =
     useState<ConversationState>({});
@@ -299,6 +300,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     setChatInput("");
     setChatState("sending");
     setChatMessages((messages) => [...messages, userMessage]);
+    chatInputRef.current?.focus();
 
     try {
       const chatResponse = await sendChatMessage(
@@ -448,6 +450,21 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
                       {message.content}
                     </div>
                   ))}
+                  {chatState === "sending" ? (
+                    <div
+                      aria-label="Assistant response pending"
+                      className={[
+                        styles.message,
+                        styles.assistantMessage,
+                        styles.thinkingMessage,
+                      ].join(" ")}
+                      role="status"
+                    >
+                      <span className={styles.skeletonLine} />
+                      <span className={styles.skeletonLine} />
+                      <span className={styles.skeletonLine} />
+                    </div>
+                  ) : null}
                 </div>
 
                 <form className={styles.composer} onSubmit={handleChatSubmit}>
@@ -456,11 +473,11 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
                   </label>
                   <textarea
                     className={styles.chatInput}
-                    disabled={chatState === "sending"}
                     id={`${panelId}-chat`}
                     onChange={(event) => setChatInput(event.target.value)}
                     onKeyDown={handleChatInputKeyDown}
                     placeholder="Ask about your purchases..."
+                    ref={chatInputRef}
                     rows={3}
                     value={chatInput}
                   />

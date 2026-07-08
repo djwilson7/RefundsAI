@@ -260,6 +260,7 @@ describe("ApplicationHelpLayer", () => {
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
 
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(input).toHaveFocus();
     expect(fetch).toHaveBeenCalledWith("/api/chat", {
       method: "POST",
       headers: {
@@ -561,9 +562,19 @@ describe("ApplicationHelpLayer", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
+    expect(
+      await screen.findByLabelText("Assistant response pending"),
+    ).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled(),
     );
+    const input = screen.getByLabelText("Message the AI assistant");
+    expect(input).toHaveFocus();
+    expect(input).not.toBeDisabled();
+    fireEvent.change(input, {
+      target: { value: "Also check my last order." },
+    });
+    expect(input).toHaveValue("Also check my last order.");
     fireEvent.submit(screen.getByLabelText("Message the AI assistant").closest("form")!);
 
     expect(fetch).toHaveBeenCalledTimes(1);
