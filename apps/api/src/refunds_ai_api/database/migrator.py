@@ -171,6 +171,14 @@ def run_seed_steps(connection: Connection) -> list[str]:
     return seeds.seed(connection)
 
 
+def reset_demo_database(connection: Connection) -> tuple[list[Migration], list[str]]:
+    """Apply migrations, then destructively reset and reseed demo data."""
+    applied = apply_migrations(connection)
+    with connection.transaction():
+        completed_steps = seeds.reset_demo_database(connection)
+    return applied, completed_steps
+
+
 def format_status(statuses: Iterable[MigrationStatus]) -> str:
     """Format migration status rows for CLI output."""
     lines = []
@@ -187,6 +195,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("apply", help="Apply pending schema migrations.")
     subparsers.add_parser("status", help="Show migration application status.")
     subparsers.add_parser("seed", help="Run idempotent seed data steps.")
+    subparsers.add_parser(
+        "reset-demo",
+        help=(
+            "Development-only destructive reset: apply migrations, purge demo data, "
+            "and reseed from today's date. Requires REFUNDSAI_ALLOW_DEMO_DB_RESET=true."
+        ),
+    )
     return parser
 
 
@@ -215,6 +230,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(f"Seeded {step}")
             else:
                 print("No seed steps configured.")
+            return 0
+
+        if args.command == "reset-demo":
+            applied, completed_steps = reset_demo_database(connection)
+            if applied:
+                for migration in applied:
+                    print(f"Applied {migration.migration_id}: {migration.description}")
+            else:
+                print("No pending migrations.")
+            for step in completed_steps:
+                print(f"Demo reset {step}")
             return 0
 
     raise MigrationError(f"Unsupported command: {args.command}")

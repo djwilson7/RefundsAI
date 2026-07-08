@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from psycopg import Connection
 
 IDENTITY_SEED_FILE = Path(__file__).resolve().parents[3] / "mockdata" / "identity_seed.json"
 PURCHASE_SEED_FILE = Path(__file__).resolve().parents[3] / "mockdata" / "purchase_seed.json"
+DEMO_RESET_FLAG = "REFUNDSAI_ALLOW_DEMO_DB_RESET"
 PURCHASE_DETAIL_SEED_NOW = datetime(2026, 7, 3, 23, 59, 59, tzinfo=UTC)
 
 
@@ -18,12 +20,203 @@ class SeedDataError(RuntimeError):
     """Raised when configured seed data is structurally invalid."""
 
 
-def seed(connection: Connection) -> list[str]:
+def seed(connection: Connection, *, anchor_now: datetime | None = None) -> list[str]:
     """Run all configured seed steps and return their names."""
     seed_identity(connection)
-    seed_purchase_catalog(connection)
-    seed_purchase_details(connection)
+    seed_purchase_catalog(connection, anchor_now=anchor_now)
+    seed_purchase_details(connection, anchor_now=anchor_now)
     return ["identity", "purchase_catalog", "purchase_details"]
+
+
+def reset_demo_database(connection: Connection, *, anchor_now: datetime | None = None) -> list[str]:
+    """Destructively purge demo data and reseed from a clean state."""
+    require_demo_reset_enabled()
+    cleared = purge_demo_data(connection)
+    seeded = seed(connection, anchor_now=anchor_now)
+    validate_demo_seed_consistency(connection, anchor_now=anchor_now)
+    return [f"cleared:{','.join(cleared)}", *seeded, "validated:demo_seed_consistency"]
+
+
+def require_demo_reset_enabled() -> None:
+    """Require an explicit development-only opt-in before destructive reset."""
+    if os.environ.get(DEMO_RESET_FLAG) != "true":
+        raise SeedDataError(
+            f"Destructive demo reset requires {DEMO_RESET_FLAG}=true."
+        )
+    environment = (
+        os.environ.get("REFUNDSAI_ENV")
+        or os.environ.get("APP_ENV")
+        or os.environ.get("ENVIRONMENT")
+        or ""
+    ).casefold()
+    if environment in {"prod", "production"}:
+        raise SeedDataError("Demo reset is blocked when the environment is production.")
+
+
+def purge_demo_data(connection: Connection) -> list[str]:
+    """Clear demo-owned data while preserving migration metadata and audit lookup rows."""
+    tables = [
+        "model_audit_events",
+        "model_audit_sessions",
+        "digital_purchase_details",
+        "physical_purchase_details",
+        "subscription_purchase_details",
+        "purchases",
+        "user_roles",
+        "users",
+        "products",
+        "roles",
+    ]
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            truncate table
+                public.model_audit_events,
+                public.model_audit_sessions,
+                public.digital_purchase_details,
+                public.physical_purchase_details,
+                public.subscription_purchase_details,
+                public.purchases,
+                public.user_roles,
+                public.users,
+                public.products,
+                public.roles
+            restart identity cascade
+            """
+        )
+    return tables
+
+
+def validate_demo_seed_consistency(
+    connection: Connection,
+    *,
+    anchor_now: datetime | None = None,
+) -> None:
+    """Validate destructive reseed left demo data in a clean workflow state."""
+    anchor = seed_purchase_anchor(anchor_now)
+    earliest_purchase = anchor - timedelta(days=44)
+    earliest_digital = anchor - timedelta(days=19)
+    checks = [
+        (
+            "expected customer count",
+            "select count(*) as count from public.user_roles where role_id = "
+            "(select id from public.roles where key = 'customer')",
+            15,
+        ),
+        (
+            "expected purchase count",
+            "select count(*) as count from public.purchases",
+            180,
+        ),
+        (
+            "no purchase dates outside 45 day demo window",
+            """
+            select count(*) as count
+            from public.purchases
+            where purchased_at < %s or purchased_at > %s + interval '1 day'
+            """,
+            0,
+            (earliest_purchase, anchor),
+        ),
+        (
+            "no digital purchase dates outside 20 day demo window",
+            """
+            select count(*) as count
+            from public.purchases
+            where purchase_type = 'digital'
+                and (purchased_at < %s or purchased_at > %s + interval '1 day')
+            """,
+            0,
+            (earliest_digital, anchor),
+        ),
+        (
+            "no accidental pending refund purchases",
+            "select count(*) as count from public.purchases where status = 'refund_pending'",
+            0,
+        ),
+        (
+            "no accidental purchase-level refund facts",
+            """
+            select count(*) as count
+            from public.purchases
+            where refund_requested_at is not null
+                or refunded_at is not null
+                or refund_amount_cents is not null
+                or refund_outcome is not null
+            """,
+            0,
+        ),
+        (
+            "no persisted refund confirmations",
+            """
+            select
+                (
+                    select count(*) from public.digital_purchase_details
+                    where refund_confirmation_granted = true
+                        or refund_confirmation_matched = true
+                        or refund_confirmation_message is not null
+                        or refund_confirmation_consumed_at is not null
+                )
+                + (
+                    select count(*) from public.physical_purchase_details
+                    where refund_confirmation_granted = true
+                        or refund_confirmation_matched = true
+                        or refund_confirmation_message is not null
+                        or refund_confirmation_consumed_at is not null
+                )
+                + (
+                    select count(*) from public.subscription_purchase_details
+                    where refund_confirmation_granted = true
+                        or refund_confirmation_matched = true
+                        or refund_confirmation_message is not null
+                        or refund_confirmation_consumed_at is not null
+                ) as count
+            """,
+            0,
+        ),
+        (
+            "no accidental physical return workflow state",
+            """
+            select count(*) as count
+            from public.physical_purchase_details
+            where return_status <> 'not_requested'
+                or return_barcode_generated = true
+                or return_label_created_at is not null
+                or accepted_by_carrier_at is not null
+                or return_requested_at is not null
+                or return_authorized_at is not null
+                or return_received_at is not null
+                or return_rejected_at is not null
+            """,
+            0,
+        ),
+        (
+            "no accidental subscription cancellation state",
+            """
+            select count(*) as count
+            from public.subscription_purchase_details
+            where cancelled_at is not null
+                or service_ended_at is not null
+                or auto_renew = false
+                or refund_proration_mode <> 'none'
+            """,
+            0,
+        ),
+    ]
+    with connection.cursor() as cursor:
+        for check in checks:
+            label, sql, expected, *params = check
+            if params:
+                cursor.execute(sql, params[0])
+            else:
+                cursor.execute(sql)
+            row = cursor.fetchone()
+            actual = row["count"] if isinstance(row, dict) else row[0]
+            if actual != expected:
+                raise SeedDataError(
+                    f"Demo seed consistency check failed: {label} "
+                    f"(expected {expected}, got {actual})."
+                )
 
 
 def load_identity_seed_data(seed_file: Path = IDENTITY_SEED_FILE) -> dict[str, Any]:
@@ -81,12 +274,20 @@ def seed_identity(connection: Connection) -> None:
             )
 
 
-def seed_purchase_catalog(connection: Connection) -> None:
+def seed_purchase_catalog(
+    connection: Connection,
+    *,
+    anchor_now: datetime | None = None,
+) -> None:
     """Seed products and deterministic customer purchase history."""
     seed_data = load_purchase_seed_data()
     identity_seed_data = load_identity_seed_data()
     validate_purchase_seed_data(seed_data)
-    purchases = build_purchase_seed_rows(seed_data, identity_seed_data)
+    purchases = build_purchase_seed_rows(
+        seed_data,
+        identity_seed_data,
+        anchor_now=anchor_now,
+    )
 
     with connection.cursor() as cursor:
         for product in seed_data["products"]:
@@ -136,6 +337,10 @@ def seed_purchase_catalog(connection: Connection) -> None:
                     amount_cents = excluded.amount_cents,
                     purchased_at = excluded.purchased_at,
                     status = excluded.status,
+                    refund_requested_at = null,
+                    refunded_at = null,
+                    refund_amount_cents = null,
+                    refund_outcome = null,
                     updated_at = now()
                 """,
                 (
@@ -151,13 +356,21 @@ def seed_purchase_catalog(connection: Connection) -> None:
             )
 
 
-def seed_purchase_details(connection: Connection) -> None:
+def seed_purchase_details(
+    connection: Connection,
+    *,
+    anchor_now: datetime | None = None,
+) -> None:
     """Seed deterministic lifecycle detail rows for every purchase."""
     purchase_seed_data = load_purchase_seed_data()
     identity_seed_data = load_identity_seed_data()
     validate_purchase_seed_data(purchase_seed_data)
-    purchases = build_purchase_seed_rows(purchase_seed_data, identity_seed_data)
-    detail_rows = build_purchase_detail_seed_rows(purchases)
+    purchases = build_purchase_seed_rows(
+        purchase_seed_data,
+        identity_seed_data,
+        anchor_now=anchor_now,
+    )
+    detail_rows = build_purchase_detail_seed_rows(purchases, seed_now=anchor_now)
     validate_purchase_detail_seed_rows(purchases, detail_rows)
 
     with connection.cursor() as cursor:
@@ -178,6 +391,16 @@ def seed_purchase_details(connection: Connection) -> None:
                     code_redeemed = excluded.code_redeemed,
                     code_redeemed_at = excluded.code_redeemed_at,
                     code_invalidated_at = excluded.code_invalidated_at,
+                    refund_confirmation_granted = false,
+                    refund_confirmation_message = null,
+                    refund_confirmation_granted_at = null,
+                    refund_confirmation_expected_command = null,
+                    refund_confirmation_matched = false,
+                    refund_confirmation_source = null,
+                    refund_confirmation_customer_id = null,
+                    refund_confirmation_purchase_id = null,
+                    refund_confirmation_consumed_at = null,
+                    refund_confirmation_consumed_by_action = null,
                     updated_at = now()
                 """,
                 (
@@ -209,6 +432,24 @@ def seed_purchase_details(connection: Connection) -> None:
                     return_status = excluded.return_status,
                     carrier = excluded.carrier,
                     tracking_number = excluded.tracking_number,
+                    return_barcode_generated = false,
+                    return_label_created_at = null,
+                    accepted_by_carrier_at = null,
+                    return_requested_at = null,
+                    return_authorized_at = null,
+                    return_received_at = null,
+                    return_rejected_at = null,
+                    return_rejection_reason = null,
+                    refund_confirmation_granted = false,
+                    refund_confirmation_message = null,
+                    refund_confirmation_granted_at = null,
+                    refund_confirmation_expected_command = null,
+                    refund_confirmation_matched = false,
+                    refund_confirmation_source = null,
+                    refund_confirmation_customer_id = null,
+                    refund_confirmation_purchase_id = null,
+                    refund_confirmation_consumed_at = null,
+                    refund_confirmation_consumed_by_action = null,
                     updated_at = now()
                 """,
                 (
@@ -235,6 +476,20 @@ def seed_purchase_details(connection: Connection) -> None:
                 on conflict (purchase_id) do update
                 set period_start = excluded.period_start,
                     period_end = excluded.period_end,
+                    cancelled_at = null,
+                    service_ended_at = null,
+                    auto_renew = true,
+                    refund_proration_mode = 'none',
+                    refund_confirmation_granted = false,
+                    refund_confirmation_message = null,
+                    refund_confirmation_granted_at = null,
+                    refund_confirmation_expected_command = null,
+                    refund_confirmation_matched = false,
+                    refund_confirmation_source = null,
+                    refund_confirmation_customer_id = null,
+                    refund_confirmation_purchase_id = null,
+                    refund_confirmation_consumed_at = null,
+                    refund_confirmation_consumed_by_action = null,
                     updated_at = now()
                 """,
                 (
@@ -249,6 +504,8 @@ def seed_purchase_details(connection: Connection) -> None:
 def build_purchase_seed_rows(
     purchase_seed_data: dict[str, Any],
     identity_seed_data: dict[str, Any],
+    *,
+    anchor_now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Build deterministic customer purchase rows from the seed plan."""
     customer_user_ids = [
@@ -267,28 +524,11 @@ def build_purchase_seed_rows(
     plan = purchase_seed_data["purchase_plan"]
     type_sequence = build_purchase_type_sequence(plan["type_distribution"])
     first_order_number = plan["first_order_number"]
-    first_purchase_at = datetime.fromisoformat(
-        plan["first_purchase_at"].replace("Z", "+00:00")
-    )
-    active_day_window = (
-        datetime.fromisoformat(plan["last_purchase_at"].replace("Z", "+00:00"))
-        - first_purchase_at
-    ).days + 1
-    digital_window = plan.get("digital_purchase_window")
-    digital_first_purchase_at = (
-        datetime.fromisoformat(digital_window["first_purchase_at"].replace("Z", "+00:00"))
-        if digital_window
-        else first_purchase_at
-    )
-    digital_day_window = (
-        (
-            datetime.fromisoformat(digital_window["last_purchase_at"].replace("Z", "+00:00"))
-            - digital_first_purchase_at
-        ).days
-        + 1
-        if digital_window
-        else active_day_window
-    )
+    anchor_at = seed_purchase_anchor(anchor_now)
+    first_purchase_at = anchor_at - timedelta(days=44)
+    active_day_window = 45
+    digital_first_purchase_at = anchor_at - timedelta(days=19)
+    digital_day_window = 20
     digital_purchase_index = 0
     purchases: list[dict[str, Any]] = []
 
@@ -307,7 +547,12 @@ def build_purchase_seed_rows(
                     days=digital_purchase_index % digital_day_window,
                     minutes=sequence_index,
                 )
+                status = "redeemed" if digital_purchase_index % 4 == 0 else "completed"
                 digital_purchase_index += 1
+            elif product_type == "subscription":
+                status = "subscribed"
+            else:
+                status = "completed"
 
             purchases.append(
                 {
@@ -323,7 +568,7 @@ def build_purchase_seed_rows(
                     "purchased_at": purchased_at.astimezone(UTC)
                     .isoformat()
                     .replace("+00:00", "Z"),
-                    "status": plan["status"],
+                    "status": status,
                 }
             )
 
@@ -332,9 +577,10 @@ def build_purchase_seed_rows(
 
 def build_purchase_detail_seed_rows(
     purchases: list[dict[str, Any]],
-    seed_now: datetime = PURCHASE_DETAIL_SEED_NOW,
+    seed_now: datetime | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Build one deterministic product-lifecycle detail row per purchase."""
+    effective_seed_now = seed_detail_anchor(seed_now)
     detail_rows: dict[str, list[dict[str, Any]]] = {
         "digital": [],
         "physical": [],
@@ -368,7 +614,11 @@ def build_purchase_detail_seed_rows(
         if purchase["purchase_type"] == "physical":
             physical_index = len(detail_rows["physical"])
             scheduled_delivery_at = purchased_at + timedelta(days=2 + (physical_index % 6))
-            delivered_at = scheduled_delivery_at if scheduled_delivery_at <= seed_now else None
+            delivered_at = (
+                scheduled_delivery_at
+                if scheduled_delivery_at <= effective_seed_now
+                else None
+            )
             detail_rows["physical"].append(
                 {
                     "id": f"60000000-0000-4000-8000-{physical_index + 1:012d}",
@@ -415,6 +665,36 @@ def build_purchase_type_sequence(type_distribution: dict[str, int]) -> list[str]
         for customer_index in range(customer_count)
         for purchase_index in range(purchases_per_customer)
     ]
+
+
+def seed_purchase_anchor(anchor_now: datetime | None = None) -> datetime:
+    """Return the deterministic purchase anchor timestamp for a seed run."""
+    source = anchor_now or datetime.now(UTC)
+    source = source.astimezone(UTC)
+    return datetime(
+        source.year,
+        source.month,
+        source.day,
+        14,
+        0,
+        0,
+        tzinfo=UTC,
+    )
+
+
+def seed_detail_anchor(anchor_now: datetime | None = None) -> datetime:
+    """Return the end-of-day timestamp used for derived delivery seed facts."""
+    source = anchor_now or datetime.now(UTC)
+    source = source.astimezone(UTC)
+    return datetime(
+        source.year,
+        source.month,
+        source.day,
+        23,
+        59,
+        59,
+        tzinfo=UTC,
+    )
 
 
 def parse_seed_datetime(value: str) -> datetime:
@@ -477,8 +757,6 @@ def validate_purchase_seed_data(seed_data: dict[str, Any]) -> None:
         raise SeedDataError("Purchase seed plan must target exactly 15 customers.")
     if purchase_plan.get("purchases_per_customer") != 12:
         raise SeedDataError("Purchase seed plan must create 12 purchases per customer.")
-    if purchase_plan.get("status") != "completed":
-        raise SeedDataError("Purchase seed plan must keep all purchases active.")
     type_distribution = purchase_plan.get("type_distribution", {})
     expected_purchase_count = (
         purchase_plan.get("customer_count", 0)
@@ -495,7 +773,7 @@ def validate_purchase_seed_data(seed_data: dict[str, Any]) -> None:
         purchase_plan["last_purchase_at"].replace("Z", "+00:00")
     )
     if (last_purchase_at - first_purchase_at).days != 44:
-        raise SeedDataError("Purchase seed plan must span the last 45 days.")
+        raise SeedDataError("Purchase seed plan must document a 45 day span.")
     digital_window = purchase_plan.get("digital_purchase_window", {})
     digital_first_purchase_at = datetime.fromisoformat(
         digital_window["first_purchase_at"].replace("Z", "+00:00")
@@ -503,12 +781,10 @@ def validate_purchase_seed_data(seed_data: dict[str, Any]) -> None:
     digital_last_purchase_at = datetime.fromisoformat(
         digital_window["last_purchase_at"].replace("Z", "+00:00")
     )
-    if digital_first_purchase_at.date().isoformat() != "2026-06-20":
-        raise SeedDataError("Digital purchase seed window must start on 2026-06-20.")
-    if digital_last_purchase_at.date().isoformat() != "2026-07-04":
-        raise SeedDataError("Digital purchase seed window must end on 2026-07-04.")
     if digital_last_purchase_at < digital_first_purchase_at:
         raise SeedDataError("Digital purchase seed window must be ordered.")
+    if (digital_last_purchase_at - digital_first_purchase_at).days != 14:
+        raise SeedDataError("Digital purchase fixture window must document 15 days.")
 
 
 def validate_purchase_detail_seed_rows(

@@ -1,5 +1,5 @@
 import importlib
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -17,6 +17,7 @@ from refunds_ai_api.database.migrator import (
     get_applied_migration_ids,
     get_migration_statuses,
     record_migration,
+    reset_demo_database,
     run_seed_steps,
 )
 from refunds_ai_api.database.seeds import SeedDataError
@@ -280,6 +281,39 @@ def test_run_seed_steps_delegates_to_seed_module(monkeypatch) -> None:
     assert run_seed_steps(connection) == ["customers"]
 
 
+def test_reset_demo_database_applies_migrations_then_resets_seed(monkeypatch) -> None:
+    connection = StubConnection()
+
+    monkeypatch.setattr(
+        "refunds_ai_api.database.migrator.apply_migrations",
+        lambda received_connection: ["migration"],
+    )
+    monkeypatch.setattr(
+        "refunds_ai_api.database.migrator.seeds.reset_demo_database",
+        lambda received_connection: ["cleared:purchases", "identity"],
+    )
+
+    assert reset_demo_database(connection) == (
+        ["migration"],
+        ["cleared:purchases", "identity"],
+    )
+
+
+def test_demo_reset_requires_explicit_environment_flag(monkeypatch) -> None:
+    monkeypatch.delenv(seeds.DEMO_RESET_FLAG, raising=False)
+
+    with pytest.raises(SeedDataError, match=seeds.DEMO_RESET_FLAG):
+        seeds.require_demo_reset_enabled()
+
+
+def test_demo_reset_blocks_production_environment(monkeypatch) -> None:
+    monkeypatch.setenv(seeds.DEMO_RESET_FLAG, "true")
+    monkeypatch.setenv("REFUNDSAI_ENV", "production")
+
+    with pytest.raises(SeedDataError, match="production"):
+        seeds.require_demo_reset_enabled()
+
+
 def test_identity_seed_fixture_matches_documented_shape() -> None:
     seed_data = seeds.load_identity_seed_data()
 
@@ -317,8 +351,13 @@ def test_purchase_seed_fixture_matches_documented_catalog_shape() -> None:
 def test_build_purchase_seed_rows_matches_documented_distribution() -> None:
     purchase_seed_data = seeds.load_purchase_seed_data()
     identity_seed_data = seeds.load_identity_seed_data()
+    anchor = datetime(2026, 7, 8, 12, 0, tzinfo=UTC)
 
-    purchases = seeds.build_purchase_seed_rows(purchase_seed_data, identity_seed_data)
+    purchases = seeds.build_purchase_seed_rows(
+        purchase_seed_data,
+        identity_seed_data,
+        anchor_now=anchor,
+    )
     purchase_types = [purchase["purchase_type"] for purchase in purchases]
 
     assert len(purchases) == 180
@@ -327,31 +366,40 @@ def test_build_purchase_seed_rows_matches_documented_distribution() -> None:
     assert purchase_types.count("subscription") == 36
     assert len({purchase["order_number"] for purchase in purchases}) == 180
     assert purchases[0]["order_number"] == "RAI-10001"
-    assert {purchase["status"] for purchase in purchases} == {"completed"}
+    assert {purchase["status"] for purchase in purchases} == {
+        "completed",
+        "redeemed",
+        "subscribed",
+    }
 
     purchased_at_values = [
         datetime.fromisoformat(purchase["purchased_at"].replace("Z", "+00:00"))
         for purchase in purchases
     ]
-    assert min(purchased_at_values).isoformat() == "2026-05-20T14:00:00+00:00"
-    assert max(purchased_at_values).date().isoformat() == "2026-07-04"
-    assert (max(purchased_at_values).date() - min(purchased_at_values).date()).days == 45
+    assert min(purchased_at_values).isoformat() == "2026-05-25T14:00:00+00:00"
+    assert max(purchased_at_values).date().isoformat() == "2026-07-08"
+    assert (max(purchased_at_values).date() - min(purchased_at_values).date()).days == 44
 
     digital_purchased_at_values = [
         datetime.fromisoformat(purchase["purchased_at"].replace("Z", "+00:00"))
         for purchase in purchases
         if purchase["purchase_type"] == "digital"
     ]
-    assert min(digital_purchased_at_values).date().isoformat() == "2026-06-20"
-    assert max(digital_purchased_at_values).date().isoformat() == "2026-07-04"
+    assert min(digital_purchased_at_values).date().isoformat() == "2026-06-19"
+    assert max(digital_purchased_at_values).date().isoformat() == "2026-07-08"
 
 
 def test_build_purchase_detail_seed_rows_matches_lifecycle_contract() -> None:
     purchase_seed_data = seeds.load_purchase_seed_data()
     identity_seed_data = seeds.load_identity_seed_data()
-    purchases = seeds.build_purchase_seed_rows(purchase_seed_data, identity_seed_data)
+    anchor = datetime(2026, 7, 8, 12, 0, tzinfo=UTC)
+    purchases = seeds.build_purchase_seed_rows(
+        purchase_seed_data,
+        identity_seed_data,
+        anchor_now=anchor,
+    )
 
-    detail_rows = seeds.build_purchase_detail_seed_rows(purchases)
+    detail_rows = seeds.build_purchase_detail_seed_rows(purchases, seed_now=anchor)
 
     assert len(detail_rows["digital"]) == 54
     assert len(detail_rows["physical"]) == 90
@@ -398,7 +446,7 @@ def test_build_purchase_detail_seed_rows_matches_lifecycle_contract() -> None:
         assert row["carrier"] is not None
         assert row["tracking_number"] is not None
 
-        if scheduled_delivery_at <= seeds.PURCHASE_DETAIL_SEED_NOW:
+        if scheduled_delivery_at <= seeds.seed_detail_anchor(anchor):
             assert row["delivered_at"] == row["scheduled_delivery_at"]
         else:
             assert row["delivered_at"] is None
