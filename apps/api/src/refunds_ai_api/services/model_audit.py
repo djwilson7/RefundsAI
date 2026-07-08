@@ -111,6 +111,22 @@ def enrich_session_summary(
         "total_tokens": sum_metric(model_events, "total_tokens"),
         "total_model_latency_ms": sum_metric(model_events, "latency_ms"),
         "total_tool_latency_ms": sum_metric(tool_events, "latency_ms"),
+        "total_model_input_tokens_estimated": sum_metric(
+            model_events,
+            "input_tokens_estimated",
+        ),
+        "total_model_output_tokens_estimated": sum_metric(
+            model_events,
+            "output_tokens_estimated",
+        ),
+        "total_tool_input_tokens_estimated": sum_metric(
+            tool_events,
+            "input_tokens_estimated",
+        ),
+        "total_tool_output_tokens_estimated": sum_metric(
+            tool_events,
+            "output_tokens_estimated",
+        ),
         "total_workflow_latency_ms": session.get("latency_ms"),
         "total_workflow_steps": len(events),
         "backend_read_count": count_backend_category(tool_events, "backend_read"),
@@ -171,6 +187,19 @@ def enrich_event_lifecycle(event: dict[str, Any]) -> dict[str, Any]:
         "conversation_state_summary": lifecycle.get(
             "conversation_state_summary"
         ),
+        "input_tokens_estimated": lifecycle.get("input_tokens_estimated"),
+        "output_tokens_estimated": lifecycle.get("output_tokens_estimated"),
+        "tokenizer": lifecycle.get("tokenizer"),
+        "raw_context_tokens": lifecycle.get("raw_context_tokens"),
+        "projected_context_tokens": lifecycle.get("projected_context_tokens"),
+        "token_savings_estimated": lifecycle.get("token_savings_estimated"),
+        "prompt_module_tokens": lifecycle.get("prompt_module_tokens"),
+        "tool_schema_tokens": lifecycle.get("tool_schema_tokens"),
+        "tool_result_tokens": lifecycle.get("tool_result_tokens"),
+        "conversation_state_tokens": lifecycle.get("conversation_state_tokens"),
+        "projection_reason": lifecycle.get("projection_reason"),
+        "request_category": lifecycle.get("request_category"),
+        "token_budget": lifecycle.get("token_budget"),
         "input_summary": lifecycle.get("input_summary"),
         "output_summary": lifecycle.get("output_summary"),
         "customer_id": lifecycle.get("customer_id"),

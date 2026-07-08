@@ -216,6 +216,8 @@ def test_session_summary_sums_lifecycle_events_without_double_counting() -> None
                     "total_tokens": 450,
                     "latency_ms": 620,
                     "status": "completed",
+                    "input_tokens_estimated": 980,
+                    "output_tokens_estimated": 72,
                 },
             },
         },
@@ -228,6 +230,8 @@ def test_session_summary_sums_lifecycle_events_without_double_counting() -> None
                     "status": "completed",
                     "latency_ms": 18,
                     "backend_category": "backend_read",
+                    "input_tokens_estimated": 4,
+                    "output_tokens_estimated": 310,
                 },
             },
         },
@@ -243,6 +247,8 @@ def test_session_summary_sums_lifecycle_events_without_double_counting() -> None
                     "total_tokens": 1001,
                     "latency_ms": 800,
                     "status": "completed",
+                    "input_tokens_estimated": 1800,
+                    "output_tokens_estimated": 135,
                 },
             },
         },
@@ -261,6 +267,10 @@ def test_session_summary_sums_lifecycle_events_without_double_counting() -> None
     assert summary["total_tokens"] == 1451
     assert summary["total_model_latency_ms"] == 1420
     assert summary["total_tool_latency_ms"] == 18
+    assert summary["total_model_input_tokens_estimated"] == 2780
+    assert summary["total_model_output_tokens_estimated"] == 207
+    assert summary["total_tool_input_tokens_estimated"] == 4
+    assert summary["total_tool_output_tokens_estimated"] == 310
     assert summary["total_workflow_latency_ms"] == 2080
     assert summary["backend_read_count"] == 1
 
