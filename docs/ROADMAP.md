@@ -457,23 +457,23 @@ Provide administrators with operational visibility, AI auditability, and live mo
 * [x] Add an SSE endpoint for active audit events.
 * [x] Support streaming by `session_id` or all active sessions.
 * [x] Broadcast audit events from the database when event rows are inserted.
-* [ ] Stream events to the Admin UI as graph execution progresses.
+* [x] Stream events to the Admin UI as graph execution progresses.
 
 #### Phase 5: Admin UI
 
-* [ ] Add audit session list.
-* [ ] Add session detail timeline.
-* [ ] Add event detail drawer or panel.
-* [ ] Add token and latency summary.
-* [ ] Add workflow, tool, and mutation badges.
+* [x] Add audit session list.
+* [x] Add session detail timeline.
+* [x] Add event detail drawer or panel.
+* [x] Add token and latency summary.
+* [x] Add workflow, tool, and mutation badges.
 
 ### Validation
 
 * [x] Graph execution events successfully persisted as structured audit events.
 * [x] Backend SSE stream exposes database-broadcast audit events.
-* [ ] Live timeline replayed in the Admin UI without page refreshes.
+* [x] Live timeline replayed in the Admin UI without page refreshes.
 * [x] Historical sessions accessible through backend read APIs with token usage and latency fields.
-* [ ] Admin UI correctly resolves stable event keys to user-friendly labels and icons.
+* [x] Admin UI correctly resolves stable event keys to user-friendly labels and icons.
 
 ---
 
