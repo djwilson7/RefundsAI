@@ -154,12 +154,17 @@ def _active_refund_context_from_workflow(
     reasons = workflow.get("reasons")
     if not isinstance(reasons, list):
         reasons = []
+
+    from refunds_ai_api.services.ai_chat.state import RefundStateMachine
+    state_machine_stage = RefundStateMachine.get_stage(workflow, pending_action)
+
     active_refund_context: dict[str, Any] = {
         "purchase_id": pending_action["purchase_id"],
         "product_name": pending_action["product_name"],
         "purchase_type": pending_action["purchase_type"],
         "eligible": workflow.get("refund_stage") != "blocked",
         "stage": active_stage,
+        "refund_state_machine_stage": state_machine_stage.value,
         "next_action": next_action,
         "reason_codes": [reason for reason in reasons if isinstance(reason, str)],
     }

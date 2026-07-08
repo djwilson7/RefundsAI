@@ -2,12 +2,255 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from .workflow import (
     REFUND_CONTEXT_STAGES,
     refund_confirmation_command_for_purchase_type,
 )
+
+class RefundState(StrEnum):
+    ELIGIBLE = "Eligible"
+    AWAITING_CONFIRMATION = "AwaitingConfirmation"
+    PREPARING_RETURN = "PreparingReturn"
+    AWAITING_CARRIER = "AwaitingCarrier"
+    REFUND_PENDING = "RefundPending"
+    REFUND_COMPLETED = "RefundCompleted"
+
+
+class RefundStateMachine:
+    """Deterministic, backend-owned transition coordinator for refund stages."""
+
+    @classmethod
+    def get_stage(cls, workflow: dict[str, Any], pending_action: dict[str, Any] | None = None) -> RefundState:
+        stage = workflow.get("refund_stage")
+        required_action = workflow.get("required_action")
+        
+        if stage == "issued":
+            return RefundState.REFUND_COMPLETED
+        if stage == "prepared":
+            if required_action == "await_carrier_acceptance":
+                return RefundState.AWAITING_CARRIER
+            return RefundState.REFUND_PENDING
+        if stage in ("eligible", "eligibility_confirmed"):
+            if pending_action is not None:
+                return RefundState.AWAITING_CONFIRMATION
+            if required_action == "generate_return_label":
+                return RefundState.PREPARING_RETURN
+            return RefundState.ELIGIBLE
+        return RefundState.ELIGIBLE
+
+    @classmethod
+    def transition(cls, current_stage: RefundState, action: str) -> RefundState:
+        """Enforce valid transitions."""
+        if action == "request_refund":
+            if current_stage in (RefundState.ELIGIBLE, RefundState.AWAITING_CONFIRMATION):
+                return RefundState.PREPARING_RETURN
+        if action == "issue_refund":
+            if current_stage in (RefundState.REFUND_PENDING, RefundState.AWAITING_CARRIER):
+                return RefundState.REFUND_COMPLETED
+        return current_stage
+
+
+class ChatDomain(StrEnum):
+    REFUND = "refund"
+    SUBSCRIPTIONS = "subscriptions"
+    ORDERS = "orders"
+    POLICY = "policy"
+    UNKNOWN = "unknown"
+
+
+def determine_chat_domain(classification_kind: str | None, message: str) -> ChatDomain:
+    if classification_kind in ("refund_eligibility", "refund_mutation"):
+        return ChatDomain.REFUND
+    if classification_kind == "refund_policy":
+        return ChatDomain.POLICY
+    if classification_kind == "account_fact":
+        msg_lower = message.lower()
+        if "subscription" in msg_lower or "renew" in msg_lower or "billing period" in msg_lower:
+            return ChatDomain.SUBSCRIPTIONS
+        return ChatDomain.ORDERS
+    return ChatDomain.UNKNOWN
+
+
+def invalidate_incompatible_state(state: dict[str, Any], domain: ChatDomain) -> dict[str, Any]:
+    """Context Invalidator: clears incompatible workflow state when changing domains."""
+    if domain != ChatDomain.REFUND:
+        state["active_refund_context"] = None
+        state["pending_refund_action"] = None
+        state["pending_refund_product_reference"] = None
+        state["refund_context_status"] = None
+        metadata = state.get("state_metadata")
+        if isinstance(metadata, dict) and "RefundWorkflowState" in metadata:
+            metadata["RefundWorkflowState"]["updated_at"] = datetime.now(UTC).isoformat()
+            metadata["RefundWorkflowState"]["invalidated_by"].append("domain_switch")
+    return state
+
+
+def enforce_state_lifetimes(state: dict[str, Any]) -> dict[str, Any]:
+    """Check state lifetimes and expire states that have exceeded their lifetimes."""
+    is_empty = True
+    for k, v in EMPTY_CONVERSATION_STATE.items():
+        if k not in {"state_metadata", "_snapshot", "_turn_processed"}:
+            if state.get(k) != v:
+                is_empty = False
+                break
+    if is_empty:
+        state["state_metadata"] = None
+        return state
+
+    metadata = state.get("state_metadata") or {}
+    now_str = datetime.now(UTC).isoformat()
+    
+    if not metadata:
+        metadata = {
+            "AccountState": {"owner": "AccountQueryEngine", "created_at": now_str, "updated_at": now_str, "expires_when": "never", "invalidated_by": []},
+            "PurchaseSelectionState": {"owner": "SelectionManager", "created_at": now_str, "updated_at": now_str, "expires_when": "customer switches domain or purchase", "invalidated_by": ["domain_switch"]},
+            "RefundWorkflowState": {"owner": "RefundMutationEngine", "created_at": now_str, "updated_at": now_str, "expires_when": "workflow completed, workflow cancelled, customer switches purchase, customer requests unrelated workflow", "invalidated_by": ["domain_switch", "purchase_switch", "workflow_completed"]},
+            "NavigationState": {"owner": "NavigationManager", "created_at": now_str, "updated_at": now_str, "expires_when": "page context change", "invalidated_by": []},
+            "ConversationMemory": {"owner": "IntentClassifier", "created_at": now_str, "updated_at": now_str, "expires_when": "next turn", "invalidated_by": []}
+        }
+        state["state_metadata"] = metadata
+
+    # Check if this is the start of a new turn (when we load state from client/db)
+    if state.get("_turn_processed", True):
+        # Expire one-shot memory (ConversationMemory)
+        active_workflow = state.get("active_workflow")
+        if isinstance(active_workflow, dict) and active_workflow.get("kind") == "account_fact":
+            state["active_workflow"] = None
+        
+        # Mark as not processed yet for subsequent calls in the same turn
+        state["_turn_processed"] = False
+        
+        if "ConversationMemory" in metadata:
+            metadata["ConversationMemory"]["updated_at"] = now_str
+
+    for k in metadata:
+        if k in metadata:
+            metadata[k]["updated_at"] = now_str
+    
+    state["state_metadata"] = metadata
+    return state
+
+
+def generate_conversation_snapshot(state: dict[str, Any]) -> dict[str, Any]:
+    """Generate a lightweight snapshot of the conversation state."""
+    selected_purchase_ids = state.get("selected_purchase_ids") or []
+    snapshot = {
+        "selected_purchase_id": state.get("selected_purchase_id"),
+        "selected_product": state.get("selected_product"),
+        "selected_purchase_type": state.get("selected_purchase_type"),
+        "selected_scope_label": state.get("selected_scope_label"),
+        "selected_policy_scope": state.get("selected_policy_scope"),
+        "selected_date_range": state.get("selected_date_range"),
+        "selected_purchase_ids": selected_purchase_ids,
+        "active_result_set": state.get("active_result_set"),
+        "active_purchase": state.get("active_purchase"),
+        "active_workflow": state.get("active_workflow"),
+        "active_refund_context": state.get("active_refund_context"),
+        "pending_refund_action": state.get("pending_refund_action"),
+        "pending_refund_product_reference": state.get("pending_refund_product_reference"),
+        "current_page": state.get("current_page"),
+        "refund_context_status": state.get("refund_context_status"),
+        "last_completed_refund": state.get("last_completed_refund"),
+        "selection_count": len(selected_purchase_ids),
+        "state_metadata": state.get("state_metadata"),
+    }
+    return snapshot
+
+
+def restore_from_snapshot(state: dict[str, Any]) -> dict[str, Any]:
+    """Restore conversation state from the snapshot, discarding accumulated raw mutable state."""
+    snapshot = state.get("_snapshot")
+    if not isinstance(snapshot, dict):
+        return state
+    new_state = {**EMPTY_CONVERSATION_STATE}
+    for k in snapshot:
+        if k in new_state or k in ("state_metadata", "selection_count"):
+            new_state[k] = snapshot[k]
+    new_state["_snapshot"] = snapshot
+    return new_state
+
+
+def validate_context_integrity(
+    application_service: Any,
+    customer_id: str | None,
+    state: dict[str, Any],
+    page_context: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Validate context integrity before response generation. Discards and rebuilds if invalid."""
+    active_purchase = state.get("active_purchase")
+    active_workflow = state.get("active_workflow")
+    pending_refund_action = state.get("pending_refund_action")
+    active_refund_context = state.get("active_refund_context")
+
+    if not active_purchase and not active_refund_context and not pending_refund_action:
+        return state
+
+    integrity_failed = False
+    resolved_purchase = None
+    if active_purchase and application_service and customer_id:
+        purchase_id = active_purchase.get("purchase_id")
+        from refunds_ai_api.services.ai_chat.resolution import resolve_purchase_by_id
+        resolved_purchase = resolve_purchase_by_id(application_service, customer_id, purchase_id)
+        if not resolved_purchase:
+            integrity_failed = True
+
+    if active_workflow and active_purchase:
+        last_summary = active_workflow.get("last_tool_result_summary") or {}
+        workflow_purchase_id = last_summary.get("purchase_id")
+        if workflow_purchase_id and workflow_purchase_id != active_purchase.get("purchase_id"):
+            integrity_failed = True
+
+    if pending_refund_action and active_purchase:
+        if pending_refund_action.get("purchase_id") != active_purchase.get("purchase_id"):
+            integrity_failed = True
+
+    if active_refund_context:
+        stage = active_refund_context.get("stage")
+        if stage not in REFUND_CONTEXT_STAGES:
+            integrity_failed = True
+
+    if active_refund_context and active_refund_context.get("confirmation_closed") is True:
+        integrity_failed = True
+
+    page_purchase_id = normalize_page_context(page_context).get("purchase_id")
+    if page_purchase_id and active_purchase and active_purchase.get("purchase_id") != page_purchase_id:
+        integrity_failed = True
+
+    if integrity_failed:
+        state["active_refund_context"] = None
+        state["pending_refund_action"] = None
+        state["pending_refund_product_reference"] = None
+        state["active_purchase"] = None
+        state["active_workflow"] = None
+
+        if resolved_purchase:
+            workflow_facts = application_service.get_refund_workflow(resolved_purchase["id"])
+            state["active_purchase"] = {
+                "purchase_id": resolved_purchase["id"],
+                "product_name": resolved_purchase["product_name"],
+                "purchase_type": resolved_purchase["purchase_type"],
+            }
+            from refunds_ai_api.services.ai_chat.workflows.refund_mutation.state import (
+                _active_refund_context_from_workflow,
+                _pending_action_from_active_refund_context,
+            )
+            rebuilt_refund_context = _active_refund_context_from_workflow(
+                {
+                    "purchase_id": resolved_purchase["id"],
+                    "product_name": resolved_purchase["product_name"],
+                    "purchase_type": resolved_purchase["purchase_type"],
+                },
+                workflow_facts
+            )
+            state["active_refund_context"] = rebuilt_refund_context
+            state["pending_refund_action"] = _pending_action_from_active_refund_context(rebuilt_refund_context)
+
+    return state
+
 
 EMPTY_CONVERSATION_STATE = {
     "selected_purchase_type": None,
@@ -28,11 +271,18 @@ EMPTY_CONVERSATION_STATE = {
     "pending_refund_product_reference": None,
     "refund_context_status": None,
     "last_completed_refund": None,
+    "state_metadata": None,
+    "_snapshot": None,
+    "_turn_processed": True,
 }
+
 
 def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]:
     """Return the compact, model-facing conversation state shape."""
     state = state or {}
+    state = restore_from_snapshot(state)
+    state = enforce_state_lifetimes(state)
+
     selected_purchase_type = state.get("selected_purchase_type")
     if selected_purchase_type not in {"digital", "physical", "subscription"}:
         selected_purchase_type = None
@@ -127,6 +377,7 @@ def normalize_conversation_state(state: dict[str, Any] | None) -> dict[str, Any]
         "pending_refund_product_reference": pending_refund_product_reference,
         "refund_context_status": refund_context_status,
         "last_completed_refund": last_completed_refund,
+        "_turn_processed": bool(state.get("_turn_processed", True)),
     }
 
 
