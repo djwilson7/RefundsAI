@@ -13,6 +13,9 @@ from refunds_ai_api.services.ai_chat import (
     ModelToolCall,
     ModelTurn,
 )
+from refunds_ai_api.services.ai_chat.nodes.tool_selection import (
+    select_tool_schemas_for_request,
+)
 from refunds_ai_api.services.audit import ModelAuditEventKey, ModelAuditSession, TokenUsage
 from refunds_ai_api.services.model_audit import enrich_session_summary
 
@@ -105,6 +108,10 @@ class TokenReportingModelClient:
         )
 
 
+def tool_schema_names(tools: list[dict[str, Any]]) -> list[str]:
+    return [str(tool["name"]) for tool in tools]
+
+
 def test_chat_endpoint_returns_graph_response() -> None:
     client = build_client(StaticChatService())
 
@@ -132,6 +139,34 @@ def test_chat_endpoint_returns_graph_response() -> None:
     }
     assert body["error"] is None
     assert "timestamp" in body["meta"]
+
+
+def test_tool_selection_exposes_only_relevant_tool_schemas() -> None:
+    base_state = {
+        "customer_id": CUSTOMER_ID,
+        "purchase_id": None,
+        "page_context": {"surface": "purchase_history"},
+        "conversation_state": {},
+    }
+
+    assert tool_schema_names(
+        select_tool_schemas_for_request(
+            {**base_state, "message": "How many digital purchases have I made?"}
+        )
+    ) == ["get_customer_purchase_history"]
+    assert tool_schema_names(
+        select_tool_schemas_for_request(
+            {**base_state, "message": "What is the refund policy for subscriptions?"}
+        )
+    ) == ["get_refund_policy"]
+    assert tool_schema_names(
+        select_tool_schemas_for_request(
+            {**base_state, "message": "Am I able to refund the Icon Set?"}
+        )
+    ) == ["get_refund_eligibility"]
+    assert select_tool_schemas_for_request(
+        {**base_state, "message": "When are the Dallas Cowboys playing?"}
+    ) == []
 
 def test_chat_endpoint_records_audit_session_events_and_metrics() -> None:
     audit_writer = FakeAuditWriter()
@@ -209,6 +244,22 @@ def test_chat_endpoint_records_audit_session_events_and_metrics() -> None:
     assert completed_lifecycle["input_summary"] == "customer purchase history"
     assert completed_lifecycle["output_summary"] == "4 purchases, $209.99"
     assert completed_lifecycle["backend_category"] == "backend_read"
+    assert isinstance(completed_lifecycle["input_tokens_estimated"], int)
+    assert isinstance(completed_lifecycle["output_tokens_estimated"], int)
+    assert completed_lifecycle["output_tokens_estimated"] > 0
+    assert completed_lifecycle["tokenizer"].startswith("tiktoken:")
+
+    model_completed = next(
+        event
+        for event in audit_writer.events
+        if event["event_key"] == ModelAuditEventKey.MODEL_COMPLETED
+    )
+    model_lifecycle = model_completed["metadata_json"]["lifecycle"]
+    assert isinstance(model_lifecycle["input_tokens_estimated"], int)
+    assert isinstance(model_lifecycle["output_tokens_estimated"], int)
+    assert model_lifecycle["input_tokens_estimated"] > 0
+    assert model_lifecycle["output_tokens_estimated"] > 0
+    assert "token_budget" in model_lifecycle
 
     summary = enrich_session_summary(
         {"latency_ms": 100},
@@ -227,6 +278,10 @@ def test_chat_endpoint_records_audit_session_events_and_metrics() -> None:
     assert summary["total_completion_tokens"] == 13
     assert summary["total_reasoning_tokens"] == 0
     assert summary["total_tokens"] == 23
+    assert summary["total_model_input_tokens_estimated"] > 0
+    assert summary["total_model_output_tokens_estimated"] > 0
+    assert summary["total_tool_input_tokens_estimated"] == 0
+    assert summary["total_tool_output_tokens_estimated"] > 0
 
 
 def test_chat_endpoint_audit_write_failure_does_not_fail_response(caplog) -> None:
@@ -592,9 +647,6 @@ def test_chat_graph_skips_purchase_history_tool_for_off_domain_message(caplog) -
     )
     assert [record.event["type"] for record in caplog.records] == [
         "graph.started",
-        "model.requested",
-        "model.completed",
-        "tool_call.requested",
         "workflow.classified",
         "workflow.context_resolved",
         "workflow.executing",
@@ -604,7 +656,7 @@ def test_chat_graph_skips_purchase_history_tool_for_off_domain_message(caplog) -
         "model.completed",
         "response.generated",
     ]
-    assert caplog.records[7].event["data"] == {"reason": "off_domain_intent"}
+    assert caplog.records[4].event["data"] == {"reason": "off_domain_intent"}
 
 def test_chat_graph_forces_purchase_history_tool_for_account_domain_message() -> None:
     application_service = FakeApplicationService()

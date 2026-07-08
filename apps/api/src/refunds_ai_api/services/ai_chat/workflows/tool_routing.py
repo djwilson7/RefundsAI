@@ -15,6 +15,7 @@ from refunds_ai_api.services.ai_chat.parsing import (
     parse_model_refund_policy_arguments,
     parse_model_threshold_arguments,
 )
+from refunds_ai_api.services.ai_chat.token_budget import count_serialized, get_token_counter
 
 
 def _prepare_deterministic_tool_execution(
@@ -96,6 +97,7 @@ def _complete_tool(
     tool_name: str,
     result: dict[str, Any],
     message: str,
+    status: str = "completed",
 ) -> tuple[ChatGraphState, list[dict[str, Any]]]:
     lifecycle = dict(state.get("_tool_lifecycles", {})).get(tool_call_id, {})
     completed_at = datetime.now(UTC)
@@ -105,6 +107,12 @@ def _complete_tool(
         max(0, round((perf_counter() - started_counter) * 1000))
         if isinstance(started_counter, float)
         else None
+    )
+    output_summary = _tool_output_summary(tool_name, result)
+    token_estimate = _tool_token_estimate(
+        state,
+        input_payload=lifecycle.get("input_payload"),
+        output_payload={"summary": output_summary, "result": result},
     )
     tool_results = [
         {
@@ -120,7 +128,7 @@ def _complete_tool(
         data={
             "tool_call_id": tool_call_id,
             "tool_name": tool_name,
-            "status": "completed",
+            "status": status,
             "source": lifecycle.get("source"),
             "workflow": lifecycle.get("workflow"),
             "operation": lifecycle.get("operation"),
@@ -128,10 +136,11 @@ def _complete_tool(
             "completed_at": completed_at.isoformat(),
             "latency_ms": latency_ms,
             "input_summary": lifecycle.get("input_summary"),
-            "output_summary": _tool_output_summary(tool_name, result),
+            "output_summary": output_summary,
             "backend_category": _tool_backend_category(tool_name),
             "customer_id": lifecycle.get("customer_id"),
             "purchase_id": lifecycle.get("purchase_id"),
+            **token_estimate,
             "result": result,
         },
     )
@@ -164,9 +173,15 @@ def _start_tool_lifecycle(
         "started_at": started_at.isoformat(),
         "started_counter": perf_counter(),
         "input_summary": _tool_input_summary(tool_name),
+        "input_payload": target_arguments,
         "customer_id": state.get("customer_id"),
         "purchase_id": _purchase_id_from_arguments(target_arguments),
     }
+    token_estimate = _tool_token_estimate(
+        state,
+        input_payload=target_arguments,
+        output_payload=None,
+    )
     lifecycles = {**state.get("_tool_lifecycles", {}), tool_call_id: lifecycle}
     state = log_trace_step(
         {**state, "_tool_lifecycles": lifecycles},
@@ -184,6 +199,7 @@ def _start_tool_lifecycle(
             "backend_category": _tool_backend_category(tool_name),
             "customer_id": lifecycle["customer_id"],
             "purchase_id": lifecycle["purchase_id"],
+            **token_estimate,
             **_trace_arguments(target_arguments),
         },
     )
@@ -294,9 +310,15 @@ def _log_tool_executing(
         "started_at": started_at.isoformat(),
         "started_counter": perf_counter(),
         "input_summary": _tool_input_summary(target_tool_name),
+        "input_payload": target_arguments,
         "customer_id": state.get("customer_id"),
         "purchase_id": _purchase_id_from_arguments(target_arguments),
     }
+    token_estimate = _tool_token_estimate(
+        state,
+        input_payload=target_arguments,
+        output_payload=None,
+    )
     lifecycles = {
         **state.get("_tool_lifecycles", {}),
         requested_call.id: lifecycle,
@@ -318,6 +340,7 @@ def _log_tool_executing(
             "customer_id": lifecycle["customer_id"],
             "purchase_id": lifecycle["purchase_id"],
             "model_arguments": requested_call.arguments,
+            **token_estimate,
             **_trace_arguments(target_arguments),
         },
     )
@@ -390,6 +413,8 @@ def _tool_operation(tool_name: str) -> str:
         "get_refund_policy": "policy_lookup",
         "get_refund_eligibility": "eligibility",
         "validate_customer_account": "validation",
+        "request_refund": "prepare_refund",
+        "issue_refund": "issue_refund",
     }.get(tool_name, tool_name)
 
 
@@ -401,6 +426,8 @@ def _tool_input_summary(tool_name: str) -> str:
         "get_refund_policy": "refund policy lookup",
         "get_refund_eligibility": "refund eligibility evaluation",
         "validate_customer_account": "customer account validation",
+        "request_refund": "refund preparation mutation",
+        "issue_refund": "refund issuance mutation",
     }.get(tool_name, tool_name)
 
 
@@ -419,6 +446,8 @@ def _tool_output_summary(tool_name: str, result: dict[str, Any]) -> str:
 
 
 def _tool_backend_category(tool_name: str) -> str:
+    if tool_name in {"request_refund", "issue_refund"}:
+        return "backend_mutation"
     if tool_name in {"get_refund_eligibility", "validate_customer_account"}:
         return "backend_validation"
     return "backend_read"
@@ -432,3 +461,28 @@ def _purchase_id_from_arguments(arguments: dict[str, Any]) -> str | None:
     if isinstance(purchase_ids, list) and len(purchase_ids) == 1:
         return str(purchase_ids[0])
     return None
+
+
+def _tool_token_estimate(
+    state: ChatGraphState,
+    *,
+    input_payload: Any,
+    output_payload: Any,
+) -> dict[str, Any]:
+    counter = get_token_counter(str(state.get("model") or "gpt-5.4-mini"))
+    input_tokens = count_serialized(input_payload, counter) if input_payload else 0
+    output_tokens = count_serialized(output_payload, counter) if output_payload else 0
+    return {
+        "input_tokens_estimated": input_tokens,
+        "output_tokens_estimated": output_tokens,
+        "tokenizer": counter.name,
+        "token_budget": {
+            "tokenizer": counter.name,
+            "input_tokens_estimated": input_tokens,
+            "output_tokens_estimated": output_tokens,
+            "components": {
+                "tool_arguments": input_tokens,
+                "tool_result": output_tokens,
+            },
+        },
+    }

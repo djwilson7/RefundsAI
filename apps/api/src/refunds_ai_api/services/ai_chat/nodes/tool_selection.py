@@ -21,6 +21,10 @@ from refunds_ai_api.services.ai_chat.prompts import (
 )
 from refunds_ai_api.services.ai_chat.responses import CHAT_UNAVAILABLE_RESPONSE
 from refunds_ai_api.services.ai_chat.routing import has_account_fact_intent
+from refunds_ai_api.services.ai_chat.token_budget import (
+    build_token_budget_breakdown,
+    log_token_budget_breakdown,
+)
 from refunds_ai_api.services.ai_chat.tools import (
     get_customer_purchase_history_tool_schema,
     get_purchase_count_by_amount_threshold_tool_schema,
@@ -28,6 +32,10 @@ from refunds_ai_api.services.ai_chat.tools import (
     get_refund_eligibility_tool_schema,
     get_refund_policy_tool_schema,
     validate_customer_account_tool_schema,
+)
+from refunds_ai_api.services.ai_chat.workflows.classification import (
+    WorkflowKind,
+    classify_workflow,
 )
 
 
@@ -40,14 +48,14 @@ def request_tool_call_node(runtime: Any, state: ChatGraphState) -> ChatGraphStat
     compact_context_message = build_compact_model_context_message(state)
     if compact_context_message is not None:
         messages.append(compact_context_message)
-    tools = [
-        validate_customer_account_tool_schema(),
-        get_customer_purchase_history_tool_schema(),
-        get_purchase_count_by_amount_threshold_tool_schema(),
-        get_purchase_history_by_date_range_tool_schema(),
-        get_refund_policy_tool_schema(),
-        get_refund_eligibility_tool_schema(),
-    ]
+    tools = select_tool_schemas_for_request(state)
+    if not tools:
+        return {
+            **state,
+            "tool_calls": [],
+            "account_fact_intent": account_fact_intent,
+            "invalid_model_output": False,
+        }
     model_call_id = str(uuid4())
     model_started_at = datetime.now(UTC)
     model_started = perf_counter()
@@ -69,6 +77,14 @@ def request_tool_call_node(runtime: Any, state: ChatGraphState) -> ChatGraphStat
     try:
         turn = runtime.model_client.generate(messages=messages, tools=tools)
     except Exception as exc:
+        token_budget = _log_model_token_budget(
+            runtime,
+            state,
+            model_call_id=model_call_id,
+            messages=messages,
+            tools=tools,
+            output_text=None,
+        )
         model_completed_at = datetime.now(UTC)
         state = log_trace_step(
             state,
@@ -88,6 +104,7 @@ def request_tool_call_node(runtime: Any, state: ChatGraphState) -> ChatGraphStat
                     0,
                     round((perf_counter() - model_started) * 1000),
                 ),
+                **_token_budget_lifecycle_fields(token_budget),
             },
         )
         return {
@@ -96,6 +113,14 @@ def request_tool_call_node(runtime: Any, state: ChatGraphState) -> ChatGraphStat
             "error": "model_request_failed",
         }
 
+    token_budget = _log_model_token_budget(
+        runtime,
+        state,
+        model_call_id=model_call_id,
+        messages=messages,
+        tools=tools,
+        output_text=turn.content,
+    )
     model_completed_at = datetime.now(UTC)
     state = log_trace_step(
         state,
@@ -129,6 +154,7 @@ def request_tool_call_node(runtime: Any, state: ChatGraphState) -> ChatGraphStat
             "available_tools_count": len(tools),
             "tool_results_provided": 0,
             "conversation_state_summary": build_model_context_summary(state),
+            **_token_budget_lifecycle_fields(token_budget),
         },
     )
     state = log_trace_step(
@@ -166,3 +192,85 @@ def request_tool_call_node(runtime: Any, state: ChatGraphState) -> ChatGraphStat
             turn.token_usage,
         ),
     }
+
+
+def _log_model_token_budget(
+    runtime: Any,
+    state: ChatGraphState,
+    *,
+    model_call_id: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    output_text: str | None,
+) -> dict[str, Any]:
+    page_context = state.get("page_context")
+    page = (
+        str(page_context.get("surface"))
+        if isinstance(page_context, dict) and page_context.get("surface")
+        else None
+    )
+    audit_session = state.get("audit_session")
+    request_id = (
+        str(getattr(audit_session, "id", model_call_id))
+        if audit_session is not None
+        else model_call_id
+    )
+    breakdown = build_token_budget_breakdown(
+        model=runtime.model,
+        messages=messages,
+        tools=tools,
+        current_user_message=state["message"],
+        request_id=request_id,
+        customer_id=state.get("customer_id"),
+        page=page,
+        output_text=output_text,
+    )
+    log_token_budget_breakdown(breakdown)
+    return breakdown
+
+
+def _token_budget_lifecycle_fields(breakdown: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "input_tokens_estimated": breakdown.get("input_tokens_total_estimated"),
+        "output_tokens_estimated": breakdown.get("output_tokens_estimated"),
+        "tokenizer": breakdown.get("tokenizer"),
+        "token_budget": breakdown,
+    }
+
+
+def select_tool_schemas_for_request(state: ChatGraphState) -> list[dict[str, Any]]:
+    """Expose only schemas relevant to the current deterministic request shape."""
+    classification = classify_workflow(
+        state["message"],
+        conversation_state=state.get("conversation_state"),
+        page_context=state.get("page_context"),
+    )
+    if has_account_validation_intent(state["message"]):
+        return [validate_customer_account_tool_schema()]
+    if classification.kind is WorkflowKind.REFUND_POLICY:
+        return [get_refund_policy_tool_schema()]
+    if classification.kind is WorkflowKind.REFUND_ELIGIBILITY:
+        return [get_refund_eligibility_tool_schema()]
+    if classification.kind is WorkflowKind.ACCOUNT_FACT:
+        if classification.reason == "amount_threshold_intent":
+            return [get_purchase_count_by_amount_threshold_tool_schema()]
+        if classification.reason == "date_range_intent":
+            return [get_purchase_history_by_date_range_tool_schema()]
+        return [get_customer_purchase_history_tool_schema()]
+    if classification.kind is WorkflowKind.OFF_DOMAIN:
+        return []
+    return []
+
+
+def has_account_validation_intent(message: str) -> bool:
+    normalized = message.casefold()
+    return any(
+        phrase in normalized
+        for phrase in (
+            "who am i",
+            "signed in",
+            "logged in",
+            "my account",
+            "validate my account",
+        )
+    )

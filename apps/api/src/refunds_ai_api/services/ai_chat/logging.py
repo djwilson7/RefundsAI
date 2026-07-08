@@ -132,6 +132,7 @@ def humanize_event_type(event_type: str) -> str:
         "message.received": "Message received",
         "model.failure": "Model unavailable",
         "model.invalid_tool_output": "Invalid model tool output",
+        "model.completed": "Model completed",
         "model.requested": "Model requested",
         "response.blocked": "Response blocked",
         "response.generated": "Response generated",
@@ -301,8 +302,13 @@ def tool_trace_details(event_type: str, data: dict[str, Any]) -> str:
         requested=data.get("requested_tool_name"),
         reason=data.get("reason"),
         customer=short_id(data.get("customer_id") or data.get("effective_customer_id")),
-        purchase_ids=summarize_ids(data.get("purchase_ids") or data.get("effective_purchase_ids")),
+        purchase_ids=summarize_ids(
+            data.get("purchase_ids") or data.get("effective_purchase_ids")
+        ),
         context=data.get("context"),
+        input_tokens=data.get("input_tokens_estimated"),
+        output_tokens=data.get("output_tokens_estimated"),
+        tokenizer=data.get("tokenizer"),
         result=summarize_tool_result(result) if result else None,
         arguments="invalid" if event_type == "tool_call.ignored" else None,
     )

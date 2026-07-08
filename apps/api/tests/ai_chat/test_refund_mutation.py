@@ -349,6 +349,34 @@ def test_chat_graph_refund_mutation_requires_confirmation_before_digital_issue(
         "request_refund",
         "issue_refund",
     ]
+    mutation_started_events = [
+        record.event
+        for record in caplog.records
+        if getattr(record, "event", {}).get("type") == "tool_call.executing"
+        and record.event["data"].get("tool_name") in {"request_refund", "issue_refund"}
+    ]
+    mutation_completed_events = [
+        record.event
+        for record in caplog.records
+        if getattr(record, "event", {}).get("type") == "tool_call.completed"
+        and record.event["data"].get("tool_name") in {"request_refund", "issue_refund"}
+    ]
+    assert [event["data"]["tool_name"] for event in mutation_started_events] == [
+        "request_refund",
+        "issue_refund",
+    ]
+    assert [event["data"]["tool_name"] for event in mutation_completed_events] == [
+        "request_refund",
+        "issue_refund",
+    ]
+    assert {
+        event["data"]["tool_call_id"] for event in mutation_started_events
+    } == {event["data"]["tool_call_id"] for event in mutation_completed_events}
+    for event in [*mutation_started_events, *mutation_completed_events]:
+        assert event["data"]["backend_category"] == "backend_mutation"
+        assert isinstance(event["data"]["input_tokens_estimated"], int)
+        assert isinstance(event["data"]["output_tokens_estimated"], int)
+        assert event["data"]["tokenizer"].startswith("tiktoken:")
     assert {
         getattr(record, "event", {}).get("type")
         for record in caplog.records

@@ -18,7 +18,7 @@ from refunds_ai_api.services.refund_confirmation import (
 )
 from refunds_ai_api.services.refund_policy import RefundWorkflowError
 
-from ..tool_routing import _forced_tool_call_id
+from ..tool_routing import _complete_tool, _start_tool_lifecycle
 from .logging import _log_mutation_event
 from .state import (
     _active_mutation_workflow_state,
@@ -142,7 +142,14 @@ def _execute_single_confirmed_refund_action(
     """Execute and finish one confirmed refund mutation."""
     action = pending_action["action"]
     purchase_id = pending_action["purchase_id"]
-    state, result, tool_name, blocked_response, transition = _execute_refund_mutation_step(
+    (
+        state,
+        result,
+        tool_name,
+        blocked_response,
+        transition,
+        tool_call_id,
+    ) = _execute_refund_mutation_step(
         runtime,
         state,
         context,
@@ -163,7 +170,7 @@ def _execute_single_confirmed_refund_action(
         tool_name,
         tool_results=[
             {
-                "tool_call_id": _forced_tool_call_id(tool_name),
+                "tool_call_id": tool_call_id,
                 "name": tool_name,
                 "result": result,
             }
@@ -189,6 +196,7 @@ def _execute_confirmed_prepare_and_issue_refund(
         request_tool_name,
         blocked_response,
         prepared_transition,
+        prepared_tool_call_id,
     ) = _execute_refund_mutation_step(
         runtime,
         state,
@@ -240,7 +248,7 @@ def _execute_confirmed_prepare_and_issue_refund(
             **state,
             "tool_results": [
                 {
-                    "tool_call_id": _forced_tool_call_id(request_tool_name),
+                    "tool_call_id": prepared_tool_call_id,
                     "name": request_tool_name,
                     "result": prepared_result,
                 }
@@ -271,6 +279,7 @@ def _execute_confirmed_prepare_and_issue_refund(
         issue_tool_name,
         blocked_response,
         issued_transition,
+        issued_tool_call_id,
     ) = _execute_refund_mutation_step(
         runtime,
         state,
@@ -292,12 +301,12 @@ def _execute_confirmed_prepare_and_issue_refund(
         issue_tool_name,
         tool_results=[
             {
-                "tool_call_id": _forced_tool_call_id(request_tool_name),
+                "tool_call_id": prepared_tool_call_id,
                 "name": request_tool_name,
                 "result": prepared_result,
             },
             {
-                "tool_call_id": _forced_tool_call_id(issue_tool_name),
+                "tool_call_id": issued_tool_call_id,
                 "name": issue_tool_name,
                 "result": issued_result,
             },
@@ -318,7 +327,14 @@ def _execute_refund_mutation_step(
     conversation_state: dict[str, Any],
     pending_action: dict[str, Any],
     workflow: dict[str, Any],
-) -> tuple[ChatGraphState, dict[str, Any], str, ChatGraphState | None, dict[str, Any] | None]:
+) -> tuple[
+    ChatGraphState,
+    dict[str, Any],
+    str,
+    ChatGraphState | None,
+    dict[str, Any] | None,
+    str | None,
+]:
     """Execute one backend mutation and verify the expected persisted stage."""
     action = pending_action["action"]
     purchase_id = pending_action["purchase_id"]
@@ -366,7 +382,7 @@ def _execute_refund_mutation_step(
             "conversation_state": next_state,
             "page_reference": context.page_reference,
         }
-        return state, {}, "", blocked_response, None
+        return state, {}, "", blocked_response, None, None
 
     confirmation_for_log = authorization.confirmation
     if _transition_consumes_confirmation(action, pending_action):
@@ -411,16 +427,35 @@ def _execute_refund_mutation_step(
                 "conversation_state": next_state,
                 "page_reference": context.page_reference,
             }
-            return state, {}, "", blocked_response, None
+            return state, {}, "", blocked_response, None, None
+
+    tool_name = "request_refund" if action == "request_refund" else "issue_refund"
+    tool_arguments = {
+        "purchase_id": purchase_id,
+        "purchase_type": pending_action["purchase_type"],
+        "action": action,
+    }
+    state, tool_call_id = _start_tool_lifecycle(
+        state,
+        tool_name,
+        tool_arguments,
+        source="deterministic_confirmed",
+    )
 
     try:
         if action == "request_refund":
             result = runtime.application_service.request_refund(purchase_id)
-            tool_name = "request_refund"
         else:
             result = runtime.application_service.issue_refund(purchase_id)
-            tool_name = "issue_refund"
     except RefundWorkflowError as exc:
+        state, _ = _complete_tool(
+            state,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            result={"error": str(exc)},
+            message="Confirmed refund workflow mutation failed.",
+            status="failed",
+        )
         next_state = update_conversation_state_for_page_reference(
             {
                 **conversation_state,
@@ -450,7 +485,7 @@ def _execute_refund_mutation_step(
             "conversation_state": next_state,
             "page_reference": context.page_reference,
         }
-        return state, {}, "", blocked_response, None
+        return state, {}, tool_name, blocked_response, None, tool_call_id
 
     persisted_result = runtime.application_service.get_refund_workflow(purchase_id)
     validation_succeeded = _mutation_persistence_matches(
@@ -501,17 +536,23 @@ def _execute_refund_mutation_step(
             "conversation_state": next_state,
             "page_reference": context.page_reference,
         }
-        return state, {}, tool_name, blocked_response, None
+        state, _ = _complete_tool(
+            state,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            result=persisted_result,
+            message="Atomic refund mutation transition failed persistence validation.",
+            status="failed",
+        )
+        return state, {}, tool_name, blocked_response, None, tool_call_id
 
     result = persisted_result
-    state = log_trace_step(
+    state, _ = _complete_tool(
         state,
+        tool_call_id=tool_call_id,
+        tool_name=tool_name,
+        result=result,
         message="Atomic refund mutation transition completed.",
-        event_type="tool_call.completed",
-        data={
-            "tool_name": tool_name,
-            "result": result,
-        },
     )
     transition = _refund_transition_summary(
         action=action,
@@ -523,8 +564,9 @@ def _execute_refund_mutation_step(
         expected_command=expected_command,
         received_command=state.get("message"),
         confirmation=confirmation_for_log,
+        tool_call_id=tool_call_id,
     )
-    return state, result, tool_name, None, transition
+    return state, result, tool_name, None, transition, tool_call_id
 
 
 def _complete_confirmed_refund_action(
@@ -669,11 +711,13 @@ def _refund_transition_summary(
     expected_command: str,
     received_command: str | None,
     confirmation: dict[str, Any] | None,
+    tool_call_id: str,
 ) -> dict[str, Any]:
     """Return one compact, audit-friendly atomic mutation transition summary."""
     return {
         "action": action,
         "tool": tool_name,
+        "tool_call_id": tool_call_id,
         "from_stage": workflow_before.get("refund_stage"),
         "required_action_before": workflow_before.get("required_action"),
         "permission": {

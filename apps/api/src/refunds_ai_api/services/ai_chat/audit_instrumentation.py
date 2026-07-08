@@ -304,7 +304,7 @@ def lifecycle_metadata(
     data: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Return authoritative operation metrics retained without payload summarization."""
-    if event_type == "model.completed":
+    if event_type in {"model.completed", "model.failure"}:
         keys = (
             "model_call_id",
             "model",
@@ -321,6 +321,19 @@ def lifecycle_metadata(
             "available_tools_count",
             "tool_results_provided",
             "conversation_state_summary",
+            "input_tokens_estimated",
+            "output_tokens_estimated",
+            "tokenizer",
+            "raw_context_tokens",
+            "projected_context_tokens",
+            "token_savings_estimated",
+            "prompt_module_tokens",
+            "tool_schema_tokens",
+            "tool_result_tokens",
+            "conversation_state_tokens",
+            "projection_reason",
+            "request_category",
+            "token_budget",
         )
         return {key: data.get(key) for key in keys}
     if event_type in {"tool_call.executing", "tool_call.completed"}:
@@ -339,6 +352,10 @@ def lifecycle_metadata(
             "customer_id",
             "input_summary",
             "output_summary",
+            "input_tokens_estimated",
+            "output_tokens_estimated",
+            "tokenizer",
+            "token_budget",
         )
         return {key: data.get(key) for key in keys}
     return None

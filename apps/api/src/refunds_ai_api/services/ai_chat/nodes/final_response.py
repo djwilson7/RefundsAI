@@ -14,10 +14,17 @@ from refunds_ai_api.services.ai_chat.logging import (
     build_model_context_summary,
     log_trace_step,
 )
+from refunds_ai_api.services.ai_chat.model_context_projection import (
+    ModelContextProjection,
+    build_model_context_projection,
+)
 from refunds_ai_api.services.ai_chat.models import ChatGraphState
 from refunds_ai_api.services.ai_chat.prompts import (
     SYSTEM_PROMPT,
     build_compact_model_context_message,
+)
+from refunds_ai_api.services.ai_chat.response_prompt_modules import (
+    final_response_instructions_for_category,
 )
 from refunds_ai_api.services.ai_chat.responses import (
     ACCOUNT_DATA_REQUIRED_RESPONSE,
@@ -25,6 +32,12 @@ from refunds_ai_api.services.ai_chat.responses import (
     sanitize_customer_response,
 )
 from refunds_ai_api.services.ai_chat.state import normalize_conversation_state
+from refunds_ai_api.services.ai_chat.token_budget import (
+    build_token_budget_breakdown,
+    count_serialized,
+    get_token_counter,
+    log_token_budget_breakdown,
+)
 from refunds_ai_api.services.ai_chat.workflow import (
     build_refund_confirmation_command_offer,
     normalize_refund_confirmation_command,
@@ -33,7 +46,7 @@ from refunds_ai_api.services.ai_chat.workflow import (
 
 def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGraphState:
     if state.get("assistant_response"):
-        return state
+        return _return_deterministic_response(runtime, state)
 
     from refunds_ai_api.services.ai_chat.state import validate_context_integrity
     conv_state = state.get("conversation_state") or {}
@@ -82,13 +95,23 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
             ),
         }
 
+    counter = get_token_counter(runtime.model)
+    projection = build_model_context_projection(
+        state=state,
+        tool_results=tool_results,
+        counter=counter,
+    )
+    response_instructions = final_response_instructions_for_category(
+        projection.request_category
+    )
+    prompt_module_tokens = count_serialized(response_instructions, counter)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": state["message"]},
     ]
     compact_context_message = build_compact_model_context_message(
         state,
-        tool_results=tool_results,
+        tool_results=projection.projected_tool_results,
         page_reference=state.get("page_reference"),
         application_service=runtime.application_service,
     )
@@ -106,23 +129,23 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
                 ),
             }
         )
-    if tool_results:
-        raw_tool_result_label = (
-            "Read-only account tool result: Raw trace/debug only. If "
+    if projection.projected_tool_results:
+        projected_tool_result_label = (
+            "Read-only account tool result: Projected for the current request. If "
             "deterministic response context sets primary_answer_source to "
-            "active_result_set, do not broaden your answer to these raw results: "
+            "active_result_set, do not broaden your answer beyond that scope: "
         )
         conversation_state = state.get("conversation_state")
         if not (
             isinstance(conversation_state, dict)
             and isinstance(conversation_state.get("active_result_set"), dict)
         ):
-            raw_tool_result_label = "Read-only account tool result: "
+            projected_tool_result_label = "Read-only account tool result: "
         messages.append(
             {
                 "role": "user",
-                "content": raw_tool_result_label
-                + f"{json.dumps(tool_results, default=str)}",
+                "content": projected_tool_result_label
+                + f"{json.dumps(projection.projected_tool_results, default=str)}",
             }
         )
     page_reference = state.get("page_reference")
@@ -140,62 +163,7 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
     messages.append(
         {
             "role": "user",
-            "content": (
-                "Answer the customer's request if it is about their account, "
-                "account history, purchases, orders, account activity, or "
-                "refund flows. Use the tool result when relevant. When the "
-                "backend provides resolved purchase context, use that concrete "
-                "purchase before ranking or selecting from broader purchase "
-                "history. For account-history count questions such as how "
-                "many purchases the customer made, use history_summary from "
-                "the tool result and list the matching product names. For "
-                "purchase-type count questions such as digital, physical, or "
-                "subscription purchases, use history_summary.by_purchase_type "
-                "for that type, state that type's total, and list the matching "
-                "product names. If every matching purchase has the same refund "
-                "state, do not mention refunded or non-refunded counts. Only "
-                "state the refund split when the matching purchases include "
-                "both refunded and non-refunded purchases. Do not mention a "
-                "purchase's completed status in count or list answers. For "
-                "account-history spend totals and "
-                "active aggregate counts, use the aggregate values from the "
-                "tool result; those aggregate values exclude fully refunded "
-                "purchases while refunds still in progress remain included. "
-                "If deterministic response context says "
-                "primary_answer_source is active_result_set, answer only from "
-                "active_result_set and do not broaden the answer to the full raw "
-                "tool result. Use the active result set label when describing "
-                "that scoped result. If the customer asks a ranking follow-up without "
-                "refund, return, policy, eligibility, approval, or process "
-                "wording, answer only the purchase fact requested and do not "
-                "discuss refund policy. Do not expose internal terms such as "
-                "workflow, mutation, backend, backend step, persisted state, "
-                "orchestration, issue_funds, invalidate_code, "
-                "cancel_subscription, required_action, selected context, "
-                "selected set, state, tool, resolver, or purchase ids. Refer "
-                "to refund handling as the refund process, and refer to "
-                "return-label or carrier handling for physical purchases as "
-                "the return process. For refund "
-                "policy questions, answer only from the refund-policy tool "
-                "result and keep the answer scoped to the customer's request. "
-                "For refund eligibility questions, answer only from the "
-                "refund-eligibility tool result and do not claim a refund was "
-                "started, prepared, issued, submitted, or processed. If "
-                "get_refund_eligibility evaluated zero purchases, do not say a "
-                "purchase is eligible or ineligible; say the check could not be "
-                "completed and ask for a product name or order number. Do not "
-                "invent blocked reasons or infer denial from an empty item list. "
-                "Distinguish not eligible, already refunded, refund pending, not "
-                "evaluated, needs confirmation, and completed. If deterministic "
-                "context includes a confirmation_command, explain what the "
-                "command will do and include that exact command before anything "
-                "changes. Generic replies "
-                "such as yes, proceed, do it, or continue are not enough to "
-                "continue the refund process. "
-                "If the request is unrelated, briefly redirect the customer "
-                "back to supported account topics. Return plain standard text "
-                "only, with no Markdown formatting."
-            ),
+            "content": f"Response instructions: {response_instructions}",
         },
     )
     tools: list[dict[str, Any]] = []
@@ -215,15 +183,27 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
             "tools": tools,
             "model_context": build_model_context_summary(
                 state,
-                tool_results=tool_results,
+                tool_results=projection.projected_tool_results,
                 page_reference=page_reference,
             ),
+            "request_category": projection.request_category,
+            "projection_reason": projection.projection_reason,
         },
     )
 
     try:
         turn = runtime.model_client.generate(messages=messages, tools=tools)
     except Exception as exc:
+        token_budget = _log_model_token_budget(
+            runtime,
+            state,
+            model_call_id=model_call_id,
+            messages=messages,
+            tools=tools,
+            output_text=None,
+            projection=projection,
+            prompt_module_tokens=prompt_module_tokens,
+        )
         model_completed_at = datetime.now(UTC)
         state = log_trace_step(
             state,
@@ -243,6 +223,7 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
                     0,
                     round((perf_counter() - model_started) * 1000),
                 ),
+                **_token_budget_lifecycle_fields(token_budget),
             },
         )
         return {
@@ -251,6 +232,16 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
             "error": "final_model_request_failed",
         }
 
+    token_budget = _log_model_token_budget(
+        runtime,
+        state,
+        model_call_id=model_call_id,
+        messages=messages,
+        tools=tools,
+        output_text=turn.content,
+        projection=projection,
+        prompt_module_tokens=prompt_module_tokens,
+    )
     model_completed_at = datetime.now(UTC)
     state = log_trace_step(
         state,
@@ -285,9 +276,12 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
             "tool_results_provided": len(tool_results),
             "conversation_state_summary": build_model_context_summary(
                 state,
-                tool_results=tool_results,
+                tool_results=projection.projected_tool_results,
                 page_reference=page_reference,
             ),
+            "request_category": projection.request_category,
+            "projection_reason": projection.projection_reason,
+            **_token_budget_lifecycle_fields(token_budget),
         },
     )
     assistant_response = sanitize_customer_response(
@@ -325,6 +319,132 @@ def generate_final_response_node(runtime: Any, state: ChatGraphState) -> ChatGra
             state.get("audit_token_usage"),
             turn.token_usage,
         ),
+    }
+
+
+def _return_deterministic_response(runtime: Any, state: ChatGraphState) -> ChatGraphState:
+    """Log token diagnostics for a backend-authored response that skips the model."""
+    assistant_response = str(state.get("assistant_response") or "")
+    counter = get_token_counter(str(state.get("model") or runtime.model))
+    projection = build_model_context_projection(
+        state=state,
+        tool_results=state.get("tool_results", []),
+        counter=counter,
+    )
+    output_tokens = count_serialized(assistant_response, counter)
+    conversation_state_tokens = count_serialized(
+        state.get("conversation_state", {}),
+        counter,
+    )
+    return log_trace_step(
+        state,
+        message="Deterministic assistant response generated without a model call.",
+        event_type="response.generated",
+        data={
+            "assistant_response": assistant_response,
+            "response_source": "deterministic_backend",
+            "request_category": projection.request_category,
+            "projection_reason": projection.projection_reason,
+            "raw_context_tokens": projection.raw_context_tokens,
+            "projected_context_tokens": projection.projected_context_tokens,
+            "token_savings_estimated": projection.token_savings_estimated,
+            "prompt_module_tokens": 0,
+            "tool_schema_tokens": 0,
+            "tool_result_tokens": projection.projected_context_tokens,
+            "conversation_state_tokens": conversation_state_tokens,
+            "input_tokens_estimated": 0,
+            "output_tokens_estimated": output_tokens,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": 0,
+            "tokenizer": counter.name,
+            "token_budget": {
+                "tokenizer": counter.name,
+                "input_tokens_estimated": 0,
+                "output_tokens_estimated": output_tokens,
+                "components": {
+                    "deterministic_response": output_tokens,
+                    "conversation_state": conversation_state_tokens,
+                    "tool_results": projection.projected_context_tokens,
+                },
+            },
+        },
+    )
+
+
+def _log_model_token_budget(
+    runtime: Any,
+    state: ChatGraphState,
+    *,
+    model_call_id: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    output_text: str | None,
+    projection: ModelContextProjection | None = None,
+    prompt_module_tokens: int | None = None,
+) -> dict[str, Any]:
+    page_context = state.get("page_context")
+    page = (
+        str(page_context.get("surface"))
+        if isinstance(page_context, dict) and page_context.get("surface")
+        else None
+    )
+    audit_session = state.get("audit_session")
+    request_id = (
+        str(getattr(audit_session, "id", model_call_id))
+        if audit_session is not None
+        else model_call_id
+    )
+    breakdown = build_token_budget_breakdown(
+        model=runtime.model,
+        messages=messages,
+        tools=tools,
+        current_user_message=state["message"],
+        request_id=request_id,
+        customer_id=state.get("customer_id"),
+        page=page,
+        output_text=output_text,
+        counter=get_token_counter(runtime.model),
+        diagnostics=(
+            _projection_diagnostics(projection, prompt_module_tokens)
+            if projection is not None
+            else None
+        ),
+    )
+    log_token_budget_breakdown(breakdown)
+    return breakdown
+
+
+def _token_budget_lifecycle_fields(breakdown: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "input_tokens_estimated": breakdown.get("input_tokens_total_estimated"),
+        "output_tokens_estimated": breakdown.get("output_tokens_estimated"),
+        "tokenizer": breakdown.get("tokenizer"),
+        "raw_context_tokens": breakdown.get("raw_context_tokens"),
+        "projected_context_tokens": breakdown.get("projected_context_tokens"),
+        "token_savings_estimated": breakdown.get("token_savings_estimated"),
+        "prompt_module_tokens": breakdown.get("prompt_module_tokens"),
+        "tool_schema_tokens": breakdown.get("tool_schema_tokens"),
+        "tool_result_tokens": breakdown.get("tool_result_tokens"),
+        "conversation_state_tokens": breakdown.get("conversation_state_tokens"),
+        "projection_reason": breakdown.get("projection_reason"),
+        "request_category": breakdown.get("request_category"),
+        "token_budget": breakdown,
+    }
+
+
+def _projection_diagnostics(
+    projection: ModelContextProjection,
+    prompt_module_tokens: int | None,
+) -> dict[str, Any]:
+    return {
+        "raw_context_tokens": projection.raw_context_tokens,
+        "projected_context_tokens": projection.projected_context_tokens,
+        "token_savings_estimated": projection.token_savings_estimated,
+        "prompt_module_tokens": prompt_module_tokens or 0,
+        "projection_reason": projection.projection_reason,
+        "request_category": projection.request_category,
     }
 
 

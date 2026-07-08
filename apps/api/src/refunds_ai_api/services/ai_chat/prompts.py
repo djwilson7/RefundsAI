@@ -280,12 +280,26 @@ def hydrate_active_result_set_items(
         purchases = result.get("purchases")
         if not isinstance(purchases, list):
             continue
+        ordered_projected_rows = [
+            purchase for purchase in purchases if isinstance(purchase, dict)
+        ]
         for purchase in purchases:
             if not isinstance(purchase, dict):
                 continue
             purchase_id = purchase.get("id")
             if isinstance(purchase_id, str) and purchase_id not in purchases_by_id:
                 purchases_by_id[purchase_id] = purchase
+        if not purchases_by_id and len(ordered_projected_rows) == len(purchase_ids):
+            purchases_by_id.update(
+                {
+                    purchase_id: purchase
+                    for purchase_id, purchase in zip(
+                        purchase_ids,
+                        ordered_projected_rows,
+                        strict=True,
+                    )
+                }
+            )
 
     missing_ids = [
         purchase_id for purchase_id in purchase_ids if purchase_id not in purchases_by_id
