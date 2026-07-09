@@ -423,4 +423,8 @@ Supporting project documents:
 
 This repository is provided as part of a technical demonstration and portfolio project.
 
-License information will be added prior to public release.
+RefundsAI is source-available for technical evaluation and reference only. The
+code is not open source and may not be used, copied, modified, redistributed,
+hosted, or commercialized without prior written permission.
+
+See [`LICENSE`](LICENSE) for the full terms.

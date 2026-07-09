@@ -2,6 +2,7 @@
   "name": "refunds-ai",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "Policy-governed AI customer support for refund workflows.",
   "workspaces": [
     "apps/web"
