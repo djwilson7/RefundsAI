@@ -35,7 +35,9 @@ Current implementation:
 
 * Mock admin can enter `/admin-home`.
 * `/admin-home` lists persisted model audit sessions with summary metrics.
-* `/admin/sessions/[sessionId]` shows one session's prompt, final response, tool history, and ordered execution timeline.
+* `/admin/sessions/[sessionId]` separates request identity, process performance, and
+  token usage; explains each backend tool; and presents every ordered event as a
+  readable execution narrative.
 * Admin screens refresh from realtime audit event notifications through the SSE proxy.
 
 Deferred production responsibilities:
@@ -61,6 +63,10 @@ It may:
 * Explain purchase facts, refund policy, and refund eligibility from backend data.
 * Guide confirmation-gated refund actions.
 
+Some “assistant” responses are backend-authored transactional messages. This is
+intentional when the customer has submitted an exact confirmation and no additional
+language reasoning is needed.
+
 It may not:
 
 * Act as the source of truth for policy or eligibility.
@@ -81,3 +87,4 @@ It owns:
 * Tool execution.
 * API response contracts.
 * Conflict detection for duplicate or stale writes.
+* Deterministic transactional responses after verified mutations.

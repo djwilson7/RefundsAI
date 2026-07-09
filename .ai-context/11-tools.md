@@ -58,6 +58,9 @@ validate_context
 The graph is intentionally small. Deterministic routing and context resolution happen
 inside the execution path before a model-requested tool is honored.
 
+Model use is selective. Read and explanation flows may use model calls; canonical
+confirmation flows may validate, execute, verify, and respond deterministically.
+
 ## Deterministic Workflow Routing
 
 Workflow routing is built from two resolved values:
@@ -125,9 +128,13 @@ It returns compact `conversation_state` for follow-up routing:
 * `active_purchase`
 * `active_workflow`
 * `pending_refund_action`
+* `pending_refund_product_reference`
+* `refund_context_status`
+* `last_completed_refund`
 * `customer_explanation_context`
 * `entity_extraction_result`
 * `current_page`
+* backend continuity fields: `state_metadata`, `_snapshot`, `_turn_processed`
 
 The model receives only compact context. The backend must not send full rendered page
 content or replay the full transcript as a substitute for structured state.
@@ -176,6 +183,10 @@ Workflow context audit events record `current_message_entity`,
 `selected_purchase_id`, and `resolution_reason`. These fields show whether an active
 result set was used or overridden without making audit metadata authoritative.
 
+State is normalized and snapshotted between turns. Domain switches clear incompatible
+refund state, and integrity checks reject or rebuild stale purchase/workflow context
+from backend facts.
+
 Each backend tool invocation has one lifecycle id shared by its start and completion
 events. Timeline views may show both events, while Tool History and session metrics
 merge them into one call. Tool totals count unique lifecycle ids; model totals count
@@ -199,6 +210,12 @@ deterministic backend-authored responses that intentionally skip a final model c
 Those response events record zero provider tokens plus estimated deterministic output
 tokens and request-category/projection diagnostics. Provider token totals remain
 limited to actual model calls.
+
+Audit terms:
+
+* Model call: provider request.
+* Tool call: instrumented backend capability invocation.
+* Deterministic response: backend-authored wording with no provider request.
 
 ## Active Result Sets and Ranking
 
@@ -530,12 +547,15 @@ Trace events should cover:
 * final response
 * route return
 
+The admin timeline keeps every event and original sequence number. It uses the stored
+trace type for concise narrative labels and keeps raw payloads available.
+
 Normal successful refund mutations should emit one grouped `workflow.refund_mutation_lifecycle`
 block with purchase, confirmation, transition, validation, and final-result fields.
 Error paths should still emit expanded diagnostics for authorization, policy, or
 persistence failures.
 
-Structured log records should retain event payloads for tests and future audit surfaces.
+Structured log records should retain event payloads for tests and admin audit views.
 Console summaries should remain concise and human-readable.
 
 ## Tool Evolution

@@ -88,8 +88,8 @@ Reason: Digital, physical, and subscription purchases have different lifecycle f
 Keeping them on `purchases` would create a nullable multi-purpose table.
 
 Consequence: Load `purchases` first, then exactly one matching detail row based on
-`purchases.purchase_type`. For v1.0, cross-table exclusivity is validated by seed tests
-and backend service logic rather than cross-table triggers.
+`purchases.purchase_type`. Cross-table exclusivity is validated by seed tests and
+backend service logic rather than cross-table triggers.
 
 ### Decision 008: Refund State Lives With Purchase Details
 
@@ -126,3 +126,28 @@ Consequence: Voice-agent support, production authentication, payment integration
 hosted deployment, mobile polish, and production support case management are deferred
 unless intentionally promoted. Future work should focus on polish, model quality,
 user experience tuning, validation hardening, or explicit deferred items.
+
+### Decision 011: Transactional Confirmation Turns May Skip The Model
+
+Decision: Exact refund-confirmation turns may execute and respond through deterministic
+backend code without an OpenAI request.
+
+Reason: Once the backend has resolved the purchase, supplied the canonical command,
+persisted exact consent, and verified current workflow permission, another model call
+adds cost and uncertainty without adding authority.
+
+Consequence: Model calls and backend tool calls are independent audit metrics.
+Confirmation-only sessions may report zero provider tokens. Transactional wording must
+come from verified backend results and safe response templates.
+
+### Decision 012: Audit Storage Remains Raw; Presentation Becomes Narrative
+
+Decision: Persist every ordered audit event and raw payload, then translate those facts
+into readable titles, summaries, labels, and tool descriptions in the admin client.
+
+Reason: Technical evidence should remain complete while the review experience must be
+understandable to product, engineering, and operational audiences.
+
+Consequence: Do not collapse, filter, or renumber stored events in the session timeline.
+Presentation mappings may clarify event types and domain facts but must retain original
+sequence and expandable payloads.

@@ -397,9 +397,13 @@ Accepted `conversation_state` fields:
 * `active_purchase`
 * `active_workflow`
 * `pending_refund_action`
+* `pending_refund_product_reference`
+* `refund_context_status`
+* `last_completed_refund`
 * `customer_explanation_context`
 * `entity_extraction_result`
 * `current_page`
+* backend continuity fields: `state_metadata`, `_snapshot`, `_turn_processed`
 
 `customer_explanation_context` is backend-normalized customer-facing explanation
 context for denied refund process actions. It describes what the system shows, the
@@ -416,7 +420,7 @@ the previous scope, scope used, candidate matches, selected purchase id, and res
 reason. Named products from the current message resolve against full purchase history
 and override stale active result-set scope.
 
-Each `POST /api/chat` request creates one audit session. Session totals cover every
+Each valid `POST /api/chat` request creates one audit session. Session totals cover every
 workflow step, model call, and backend tool operation caused by that single user
 prompt. A follow-up request creates a new session even when its model payload includes
 structured state from the previous turn. Model-request audit payloads distinguish
@@ -431,6 +435,10 @@ projection of deterministic tool results. Lifecycle metadata includes `request_c
 `projection_reason`, `raw_context_tokens`, `projected_context_tokens`,
 `token_savings_estimated`, `prompt_module_tokens`, `tool_schema_tokens`,
 `tool_result_tokens`, and `conversation_state_tokens` when available.
+
+Canonical refund confirmations may complete without a model request. Those sessions
+correctly report zero model calls and provider tokens while retaining workflow and tool
+events.
 
 Backend tools emit paired `TOOL_STARTED` and `TOOL_COMPLETED` timeline events with a
 shared `tool_call_id`. Tool History and session totals consolidate those records by
@@ -582,7 +590,8 @@ Data:
 * `sessions[]`
   * session identifiers: `id`, `trace_id`, `conversation_id`, `customer_id`, `request_id`
   * model/status fields: `model_name`, `status`
-  * metrics: `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_ms`, `event_count`
+  * metrics: provider/reasoning tokens, model/tool/workflow latency, model/tool/event
+    counts, estimated model/tool input/output tokens, and backend operation counts
   * timestamps: `started_at`, `completed_at`, `created_at`, `updated_at`
 
 ### `GET /api/admin/audit/sessions/{session_id}`
@@ -602,10 +611,12 @@ Returns ordered `events[]` for one session. Event rows include:
 * ordering and lookup metadata: `sequence_number`, `event_key`, `display_name`, `category`, `description`, `display_order`
 * trace facets: `workflow_kind`, `tool_name`, `summary`
 * payloads: `input_json`, `output_json`, `metadata_json`
+* flattened model and tool lifecycle metrics
 * `created_at`
 
-Event labels and categories come from `model_audit_event_lookup`; frontend code should
-not duplicate that mapping.
+Base labels and categories come from `model_audit_event_lookup`. The frontend uses the
+stored trace type for narrative labels while preserving every event, original sequence
+number, and raw payload.
 
 ### `GET /api/admin/audit/events/stream`
 

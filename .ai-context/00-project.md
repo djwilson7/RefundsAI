@@ -4,7 +4,8 @@
 
 ## Vision
 
-RefundsAI is a production-inspired customer support platform for refund workflows.
+RefundsAI is a production-inspired agentic customer support platform that can guide
+and execute refund workflows against strict backend-owned policy.
 
 The AI assistant is the conversational interface. It can understand customer intent,
 gather context, call backend tools, explain outcomes, and guide approved workflows.
@@ -12,6 +13,12 @@ It is not the business authority.
 
 Backend services, deterministic policy code, and persisted database facts decide
 refund eligibility and refund lifecycle transitions.
+
+The finished project demonstrates a bounded agent rather than an autonomous financial
+authority. Model calls are used where language interpretation, read-tool selection,
+or customer-facing explanation adds value. Exact confirmation turns may bypass the
+model entirely: deterministic code validates consent, executes the guarded workflow,
+verifies persistence, and returns a backend-authored transactional response.
 
 ## Current Implementation
 
@@ -30,8 +37,11 @@ Implemented surfaces:
 
 Current project state:
 
-* The core technical challenge implementation is complete through text chat, deterministic refund workflow execution, and administrative auditability.
-* Further work should be treated as polish, model-quality tuning, user experience refinement, validation hardening, or explicitly deferred production scope.
+* The core technical challenge is complete through text chat, strict policy evaluation,
+  confirmation-gated refund execution, and administrative auditability.
+* The repository is in final project/submission state. Remaining work should be
+  presentation preparation, selective polish, validation hardening, or explicitly
+  deferred production scope.
 
 Not yet productionized:
 
@@ -72,10 +82,18 @@ Customers can:
 
 The Admin Dashboard is designed to serve as an **AI Auditability and Observability Suite**, rather than a customer account management panel. 
 
-The primary goal is providing live monitoring and historical review of the AI agent's decision-making process:
+The primary goal is live monitoring and historical review of the complete agent
+workflow, including model calls and deterministic backend operations:
 * **Audit Session Overview**: Displays a reverse-chronological timeline of customer-agent chat sessions.
-* **Audit Session Details**: Direct deep-dive visibility into a single chat interaction session, rendering the customer prompt, final response, chosen workflow family, context resolution parameters, token usage metrics, latency, and real-time execution steps.
-* **Realtime Event Streaming**: WebSockets or SSE channels stream LangGraph trace events dynamically to the admin screen, creating a live timeline of the model's reasoning.
+* **Audit Session Details**: Request identity, process metrics, actual and estimated
+  token metrics, tool purposes and outcomes, and a narrative rendering of every
+  persisted execution event.
+* **Realtime Event Streaming**: SSE relays database-broadcast audit notifications so
+  active session lists and timelines refresh from persisted state.
+
+Actual model token totals remain separate from deterministic tool estimates. A
+successful confirmation-only refund session may correctly report zero model calls and
+zero provider tokens.
 
 ## Technology Stack
 

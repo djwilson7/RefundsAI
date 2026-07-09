@@ -43,6 +43,8 @@ Backend tests:
 | `apps/api/tests/test_database_migrator.py` | Migration discovery, status, and seed behavior. |
 | `apps/api/tests/test_application_api.py` | User, purchase, details, and refund workflow API behavior. |
 | `apps/api/tests/test_refund_policy.py` | Deterministic refund policy decisions. |
+| `apps/api/tests/test_model_audit.py` | Audit writer/repository ordering, completion, token metrics, aggregation, and streaming. |
+| `apps/api/tests/test_model_audit_api.py` | Admin audit response and SSE contracts. |
 | `apps/api/tests/ai_chat/` | Chat endpoint, routing, tools, policy resolution, eligibility, refund mutation, and trace formatting. |
 
 Frontend tests are colocated beside components and route handlers under `apps/web/src`.
@@ -83,6 +85,8 @@ Chat tests should validate deterministic orchestration boundaries:
 * Canonical confirmation command requirements for refund process actions.
 * Generic confirmations not mutating refund state at the command boundary.
 * Customer-facing response guard terms.
+* Deterministic confirmation turns preserving audit state while making zero model calls.
+* Audit sessions reaching `succeeded` or `failed` rather than remaining `running`.
 
 ## Frontend Coverage
 
@@ -96,6 +100,9 @@ the browser/backend boundary:
 * Help layer chat state persistence across messages.
 * Same-origin proxy routes preserving backend status/body.
 * Refund workflow refresh after mutations or chat side effects.
+* Admin overview cards showing actual provider tokens only.
+* Session detail grouping for identity, process, actual tokens, and estimated tokens.
+* Tool-purpose descriptions and narrative event mapping that preserves stored sequence.
 
 ## Completion Standard
 

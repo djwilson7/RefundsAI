@@ -71,6 +71,8 @@ Chat behavior should remain modular:
 
 OpenAI-facing tools should be read-only unless the architecture is explicitly changed.
 Refund mutations should continue through deterministic backend confirmation gates.
+Do not add a model call to a canonical confirmation path merely to rewrite an already
+verified transactional result.
 
 ## Database Standards
 
@@ -119,6 +121,20 @@ Avoid:
 * Long dense paragraphs that mix architecture, API payloads, and business rules.
 * Repeating the same authority statement in every document.
 * Generic product claims that are not backed by implemented code.
+
+Final project documentation should lead with the bounded-agent architecture and clearly
+separate model behavior, deterministic backend behavior, provider token usage, and
+estimated backend payload metrics.
+
+## Audit Presentation
+
+Admin audit presentation may translate stored trace fields into audience-readable
+labels and narrative summaries, but it must:
+
+* Preserve every persisted event and its original sequence number.
+* Keep raw payloads available for technical inspection.
+* Distinguish event type, lifecycle status, workflow, operation, and token provenance.
+* Describe tool purpose separately from the recorded outcome of one invocation.
 
 ## Validation
 

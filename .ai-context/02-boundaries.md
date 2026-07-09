@@ -48,6 +48,8 @@ AI chat graph:
 
 * Owns intent classification, context resolution, tool orchestration, and response grounding.
 * Must not own eligibility authority, direct database access, or ungated writes.
+* May terminate in a backend-authored response when a deterministic transactional path
+  does not require another model call.
 
 Database:
 
@@ -79,6 +81,10 @@ Current authentication is mocked. The selected customer id is carried through
 Administrators may enter the mock admin surface and inspect model audit sessions,
 ordered execution events, token/latency metrics, workflow/tool/mutation indicators,
 and realtime audit updates for chat interactions.
+
+The admin surface distinguishes provider model usage from deterministic backend work.
+Actual tokens and model calls describe provider activity; estimated tool input/output
+tokens describe serialized backend payload size and are not billed model usage.
 
 Production admin behavior should require customer verification before broader
 customer-specific support data is shown. Admin workflows remain subject to backend
@@ -142,6 +148,10 @@ The language model may not:
 * Access the database directly.
 * Prepare or issue refunds through an OpenAI-facing write tool.
 * Claim a mutation completed unless backend execution confirms it.
+
+The language model is not required for every chat turn. Canonical refund confirmation,
+validated mutation execution, persistence verification, and transactional success
+wording can be completed deterministically.
 
 ## Refund Authority
 

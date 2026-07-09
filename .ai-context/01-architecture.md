@@ -18,7 +18,9 @@ Customer / Administrator
 ```
 
 The important boundary is authority: frontend and model output can request or explain
-workflow actions, but backend policy and database state decide what is allowed.
+workflow actions, but backend policy and database state decide what is allowed. The
+architecture is intentionally hybrid: agentic language handling surrounds a
+deterministic transactional core.
 
 ## Frontend Surface
 
@@ -39,7 +41,7 @@ Routes:
 | `/` | Mock authentication landing page. |
 | `/user-home?customerId=...` | Server-loads customer profile and purchase history. |
 | `/admin-home` | Admin home screen with compact model-invocation audit cards loaded from persisted audit sessions and events. |
-| `/admin/sessions/[sessionId]` | Admin session detail screen with prompt, final response, tool history, and ordered execution timeline for one persisted audit session. |
+| `/admin/sessions/[sessionId]` | Admin session detail screen with request identity, process and token metrics, tool purposes/outcomes, and a narrative rendering of every ordered audit event. |
 | `/purchase-details/[purchaseId]` | Server-loads purchase detail data and refund workflow state. |
 
 The root layout wraps every page in `ApplicationHelpLayer`. The help layer is only
@@ -181,6 +183,17 @@ OpenAI-facing tools are read-only. Refund mutations are not model-selected write
 they run only after deterministic backend eligibility and an exact canonical customer
 confirmation command.
 
+Two valid execution modes share the same graph:
+
+| Mode | Model involvement | Example |
+| --- | --- | --- |
+| Agent-assisted read/explanation | Model may classify language, select a narrowed read tool, and generate grounded wording. | Purchase history, policy, and eligibility questions. |
+| Deterministic transaction | Backend recognizes the canonical command, validates persisted consent and workflow state, executes services, and authors the response. | Confirmed refund preparation or issuance. |
+
+A backend operation is instrumented as a tool lifecycle even when the model did not
+request it. “Tool call” therefore means an observable backend capability invocation;
+“model call” means an actual provider request.
+
 ## Database Architecture
 
 Implementation source:
@@ -297,3 +310,7 @@ streamed session updates into the visible client-side list.
 Session detail screens render one persisted audit session and subscribe to the same
 SSE stream filtered by `session_id` so active session timelines refresh as new events
 arrive.
+
+The admin client preserves every persisted event and original sequence number. It maps
+low-level trace types into audience-readable narrative titles, summaries, domain fact
+labels, and labeled footer metadata without changing stored payloads.

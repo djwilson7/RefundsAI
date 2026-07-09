@@ -157,6 +157,7 @@ The model may access backend tools only through the chat graph.
 
 Current OpenAI-facing tools are read-only:
 
+* active mock-customer validation
 * purchase history
 * date-range purchase history
 * amount-threshold counts
@@ -171,6 +172,9 @@ The model must not:
 * mutate refund state through tool arguments
 * claim a refund was prepared or issued unless backend execution confirms it
 
+Canonical confirmation turns may bypass the model so verified transactions are not
+reinterpreted before execution or customer notification.
+
 Refund process mutations require deterministic backend context, a backend-validated
 canonical confirmation command, persisted confirmation authorization, and current
 workflow permission.
@@ -183,6 +187,12 @@ unused, and allowed by the current workflow stage.
 
 Generic confirmations such as `yes`, `proceed`, `do it`, and `continue` are not valid
 write approval at the canonical-command boundary.
+
+## Audit Security Boundary
+
+Audit payloads can contain customer, purchase, and workflow metadata. The current
+mock-admin surface is local-demo scope. Production use requires admin authorization,
+data-access controls, retention policy, and payload review or redaction.
 
 ## Response Safety
 

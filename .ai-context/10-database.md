@@ -89,7 +89,7 @@ Rules:
 * `user_id` cascades on user delete.
 * `role_id` cascades on role delete.
 
-For v1.0, each seeded user has one role. The join table exists so role behavior does
+Each seeded user has one role. The join table exists so role behavior does
 not have to be duplicated onto `users`.
 
 ## Catalog and Purchase History
@@ -173,7 +173,7 @@ purchases.id
 ```
 
 Each purchase should have exactly one detail row matching `purchases.purchase_type`.
-For v1.0, this is validated by seed tests and backend service logic rather than a
+This is validated by seed tests and backend service logic rather than a
 cross-table exclusivity trigger.
 
 ### Shared Refund Confirmation Fields
@@ -304,11 +304,11 @@ Policy use:
 
 ## Model Audit Layer
 
-Migration `014_create_model_audit_tables.py` adds the Phase 1 audit foundation.
+Migration `014_create_model_audit_tables.py` adds the audit persistence foundation.
 
 | Table | Purpose |
 | --- | --- |
-| `model_audit_sessions` | Parent record for one model-backed chat request, including `trace_id`, customer/request identifiers, model name, status, token counts, and latency. |
+| `model_audit_sessions` | Parent record for one valid chat request. Deterministic sessions may contain zero model calls. |
 | `model_audit_events` | Ordered per-session timeline keyed by `(session_id, sequence_number)`, with optional workflow, tool, summary, input, output, and metadata JSON. |
 | `model_audit_event_lookup` | Normalized event-key catalog for admin UI labels, categories, ordering, descriptions, and active-state control. |
 
@@ -321,6 +321,8 @@ Rules:
 * `/api/chat` creates a session for each valid request, persists ordered graph trace events, and completes or fails the session with token and latency metrics.
 * Migration `015_broadcast_model_audit_events.py` adds an after-insert trigger on `model_audit_events` that publishes event payloads through PostgreSQL `pg_notify`.
 * Migration `016_trim_model_audit_notification_payload.py` keeps realtime notifications compact so large JSON event payloads remain persisted in `model_audit_events` without exceeding PostgreSQL notification limits.
+* Migration `017_add_model_completed_audit_event.py` adds the `MODEL_COMPLETED`
+  lookup key for provider-call usage and latency.
 
 ## Database-Managed Refund Fields
 
@@ -439,7 +441,9 @@ Model audit writes:
    completion writes through `NonBlockingModelAuditWriterService`.
 2. A single background worker preserves queued write order so audit persistence
    does not block the model response path.
-3. Write failures are logged and do not change the customer-facing chat response.
+3. The final write records `succeeded` or `failed`, workflow latency, and provider
+   token totals when a model was called.
+4. Write failures are logged and do not change the customer-facing chat response.
 
 Model audit stream reads:
 
@@ -466,9 +470,10 @@ Model audit stream reads:
 | `011_add_refund_workflow_state` | `refund_pending` status and physical label/barcode fields. |
 | `012_add_refund_issued_facts` | Purchase-level refund request and issued refund facts. |
 | `013_add_refund_confirmation_state` | Detail-level refund confirmation authorization and consumption facts. |
-| `014_create_model_audit_tables` | Model audit session, event timeline, and event lookup tables for v0.6.0. |
+| `014_create_model_audit_tables` | Model audit session, event timeline, and event lookup tables. |
 | `015_broadcast_model_audit_events` | PostgreSQL notification trigger for realtime model audit event streams. |
 | `016_trim_model_audit_notification_payload` | Compact PostgreSQL notification payloads for reliable realtime audit streams. |
+| `017_add_model_completed_audit_event` | Dedicated model-call lifecycle lookup key. |
 
 ## Migration Commands
 

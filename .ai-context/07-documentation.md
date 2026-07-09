@@ -85,3 +85,20 @@ For documentation changes:
 * Are future-phase features clearly marked as future work?
 * Are long paragraphs split into tables or shorter sections?
 * Are repeated rules consolidated into the most relevant document?
+* Does “agentic” describe language understanding and orchestration without implying
+  that the model owns policy or transaction authority?
+* Are deterministic confirmation turns and zero-model-call sessions described
+  accurately?
+* Are actual provider tokens kept distinct from estimated backend payload tokens?
+
+## Final Project Handoff
+
+For presentation and submission preparation, `.ai-context/` should explain:
+
+* The problem: conversational refund handling against strict policy.
+* The proof: grounded read tools plus confirmation-gated end-to-end refund execution.
+* The safety model: backend policy, persisted consent, guarded transitions, and
+  database verification.
+* The observability model: per-prompt sessions containing model and deterministic
+  execution evidence.
+* The limitations: mocked identity, mock funds, and local-first deployment.

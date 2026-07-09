@@ -28,6 +28,10 @@ RefundsAI has two policy surfaces:
 Policy catalog output is read-only explanation data. Workflow policy output is the
 backend decision used by routes, tools, and services.
 
+The implemented policy catalog and workflow helpers are the executable representation
+of the project’s strict refund policy. The model does not interpret a raw policy
+document to decide outcomes.
+
 ## Refund Workflow Model
 
 Refund handling is staged:
@@ -171,6 +175,10 @@ eligible workflow to prepared; `issue_refund` may only move a prepared workflow 
 issued. Digital and subscription orchestration may run both transitions after one
 valid confirmation, but each transition still gets its own permission check and
 persistence validation.
+
+After a confirmed mutation, customer wording is derived from the verified backend
+result. The successful confirmation turn does not require a model call and must not
+introduce model interpretation between authorization and persistence.
 
 ## Frontend Display Rules
 
