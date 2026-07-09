@@ -9,10 +9,8 @@ This file explains why the project evolved the way it did.
 
 ## Current Project State
 
-The core technical challenge implementation is complete through text chat orchestration,
-confirmation-gated refund workflow execution, and administrative model auditability.
-Future work should be treated as polish, model-quality tuning, UX refinement,
-validation hardening, or deferred production hardening unless scope changes.
+The core technical challenge is complete through text chat orchestration,
+confirmation-gated refund execution, and administrative auditability.
 
 ## Insight 001 - Context Before Code
 
@@ -243,3 +241,22 @@ It also gives logs a clean audit boundary:
 * confirmation received or rejected
 * mutation attempted
 * conflict or completion recorded
+
+## Insight 010 - Agentic Does Not Mean Model-Controlled
+
+The finished workflow is deliberately hybrid:
+
+* Models interpret language, request narrow read tools, and explain grounded results.
+* Deterministic code resolves authority, validates consent, and executes mutations.
+* Exact confirmation turns can complete with zero model calls.
+
+This avoids adding cost and uncertainty after the customer and backend have agreed on
+one authorized action.
+
+## Insight 011 - Audit Evidence And Presentation Serve Different Audiences
+
+The database keeps every ordered event and raw payload. The admin UI translates those
+facts into narrative titles, readable metadata, and tool-purpose descriptions.
+
+This preserves technical evidence without requiring reviewers to decode internal trace
+names. Provider tokens remain separate from estimated backend payload tokens.

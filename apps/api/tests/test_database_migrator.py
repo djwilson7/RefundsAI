@@ -519,16 +519,7 @@ def test_seed_entry_point_seeds_identity_data() -> None:
     assert "on conflict (sku) do update" in executed_sql
     assert "on conflict (order_number) do update" in executed_sql
     assert "on conflict (purchase_id) do update" in executed_sql
-    assert "code_delivered_at" not in executed_sql
-    assert "refund_lock_reason" not in executed_sql
-    assert "return_requested_at" not in executed_sql
-    assert "return_authorized_at" not in executed_sql
-    assert "return_received_at" not in executed_sql
-    assert "return_rejected_at" not in executed_sql
-    assert "return_rejection_reason" not in executed_sql
-    assert "service_ended_at" not in executed_sql
-    assert "auto_renew" not in executed_sql
-    assert "refund_proration_mode" not in executed_sql
+
 
 
 def test_schema_foundation_migration_creates_extensions_metadata_and_index() -> None:

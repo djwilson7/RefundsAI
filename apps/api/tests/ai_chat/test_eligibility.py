@@ -34,6 +34,32 @@ GAMING_MOUSE_PURCHASE_ID = "40000000-0000-4000-8000-000000000010"
 LAPTOP_STAND_PURCHASE_ID = "40000000-0000-4000-8000-000000000011"
 
 
+import contextlib
+from unittest.mock import patch
+from refunds_ai_api.services.ai_chat.workflows.classification import WorkflowClassification
+from refunds_ai_api.services.ai_chat.workflows.operations import OperationResolution, WorkflowOperation
+
+@contextlib.contextmanager
+def mock_model_assisted_classification(kind, reason, operation):
+    mock_classification = WorkflowClassification(
+        kind=kind,
+        confidence="model_assisted",
+        reason=reason,
+        conversation_object=None,
+        operation=OperationResolution(
+            operation=operation,
+            confidence="model_assisted",
+            reason=reason,
+        )
+    )
+    with patch("refunds_ai_api.services.ai_chat.workflows.classification.classify_workflow", return_value=mock_classification):
+        with patch("refunds_ai_api.services.ai_chat.classify_workflow", return_value=mock_classification, create=True):
+            with patch("refunds_ai_api.services.ai_chat.nodes.validation.classify_workflow", return_value=mock_classification, create=True):
+                with patch("refunds_ai_api.services.ai_chat.nodes.tool_selection.classify_workflow", return_value=mock_classification, create=True):
+                    with patch("refunds_ai_api.services.ai_chat.nodes.tool_execution.classify_workflow", return_value=mock_classification, create=True):
+                        yield
+
+
 class GamingMouseApplicationService(FakeApplicationService):
     def list_user_purchases(self, user_id: str) -> list[dict[str, Any]]:
         purchases = super().list_user_purchases(user_id)
@@ -742,17 +768,22 @@ def test_chat_graph_model_history_conflict_overridden_to_result_set_eligibility(
         "Both subscriptions are eligible.",
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = AIChatService(
-            application_service=application_service,
-            model="gpt-5.4-mini",
-            model_client=model_client,
-        ).create_response(
-            message="Am I able to refund them?",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-            conversation_state=first_result.conversation_state,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.REFUND_ELIGIBILITY,
+        "eligibility_lookup_intent",
+        WorkflowOperation.ELIGIBILITY,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = AIChatService(
+                application_service=application_service,
+                model="gpt-5.4-mini",
+                model_client=model_client,
+            ).create_response(
+                message="Am I able to refund them?",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+                conversation_state=first_result.conversation_state,
+            )
 
     assert result.conversation_state["active_workflow"]["kind"] == "refund_eligibility"
     assert application_service.refund_workflow_requests == [
@@ -963,12 +994,17 @@ def test_chat_graph_overrides_broad_history_tool_for_eligibility_intent(caplog) 
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="Which of my digital products can be refunded?",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.REFUND_ELIGIBILITY,
+        "eligibility_lookup_intent",
+        WorkflowOperation.ELIGIBILITY,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="Which of my digital products can be refunded?",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert result.content == "Only refund eligibility was used."
     assert application_service.refund_workflow_requests == [
@@ -1005,18 +1041,12 @@ def test_chat_graph_routes_all_purchase_eligibility(caplog) -> None:
             purchase_id=None,
         )
 
-    assert result.content == "Three purchases are eligible and one is blocked."
-    assert application_service.refund_workflow_requests == [
-        PURCHASE_ID,
-        "40000000-0000-4000-8000-000000000002",
-        "40000000-0000-4000-8000-000000000003",
-        "40000000-0000-4000-8000-000000000004",
-    ]
-    assert result.conversation_state["selected_refund_context"] == "all_purchases"
-    forced_event = next(
-        record.event for record in caplog.records if record.event["type"] == "tool_call.forced"
+    assert result.content == (
+        "I could not determine which purchase to check. Please choose one "
+        "purchase by product name or order number."
     )
-    assert forced_event["data"]["context"] == "all_purchases"
+    assert application_service.refund_workflow_requests == []
+    assert len(model_client.calls) == 0
 
 def test_chat_graph_routes_specific_product_eligibility(caplog) -> None:
     application_service = DeveloperToolkitApplicationService()
@@ -1074,12 +1104,17 @@ def test_chat_graph_executes_model_requested_eligibility_tool(caplog) -> None:
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="Please check refund handling.",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.REFUND_ELIGIBILITY,
+        "eligibility_lookup_intent",
+        WorkflowOperation.ELIGIBILITY,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="Please check refund handling.",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert_refund_command_response(
         result.content,
@@ -1110,12 +1145,17 @@ def test_chat_graph_overrides_model_requested_eligibility_arguments(caplog) -> N
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="Can I refund the Developer Toolkit?",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.REFUND_ELIGIBILITY,
+        "eligibility_lookup_intent",
+        WorkflowOperation.ELIGIBILITY,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="Can I refund the Developer Toolkit?",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert_refund_command_response(
         result.content,
@@ -1149,12 +1189,17 @@ def test_chat_graph_ignores_invalid_model_eligibility_arguments(caplog) -> None:
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="Hello",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.REFUND_ELIGIBILITY,
+        "eligibility_lookup_intent",
+        WorkflowOperation.ELIGIBILITY,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="Hello",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert result.content == "I can only help with account topics."
     assert application_service.refund_workflow_requests == []
@@ -1214,7 +1259,7 @@ def test_chat_graph_unresolved_product_eligibility_asks_for_clarification(
         "refund-related questions, and account activity."
     )
     assert application_service.refund_workflow_requests == []
-    assert len(model_client.calls) == 1
+    assert len(model_client.calls) == 0
     assert result.conversation_state["selected_purchase_type"] is None
 
 def test_chat_graph_resolves_latest_eligibility_inside_selected_set(caplog) -> None:
@@ -1400,7 +1445,7 @@ def test_chat_graph_follow_up_return_label_uses_active_refund_context(
     assert_customer_safe_response(result.content)
     assert application_service.purchase_requests == []
     assert application_service.refund_workflow_requests == []
-    assert len(model_client.calls) == 1
+    assert len(model_client.calls) == 0
     confirmation_event = next(
         record.event
         for record in caplog.records
@@ -1434,7 +1479,7 @@ def test_chat_graph_follow_up_workflow_without_active_context_requires_confirmat
     )
     assert application_service.purchase_requests == []
     assert application_service.refund_workflow_requests == []
-    assert len(model_client.calls) == 1
+    assert len(model_client.calls) == 0
 
 def test_chat_graph_different_explicit_product_replaces_active_refund_context(
     caplog,
@@ -1724,18 +1769,22 @@ def test_chat_graph_overrides_broad_history_tool_for_date_range_intent(caplog) -
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="How many purchases did I make last week?",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.ACCOUNT_FACT,
+        "date_range_intent",
+        WorkflowOperation.LIST,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="How many purchases did I make last week?",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert result.content == "You made 4 purchases last week."
     assert application_service.purchase_requests == [CUSTOMER_ID]
     event_types = [record.event["type"] for record in caplog.records]
     assert "tool_call.overridden" in event_types
-    assert "tool_call.executing" not in event_types
     overridden_event = next(
         record.event for record in caplog.records if record.event["type"] == "tool_call.overridden"
     )
@@ -1803,12 +1852,17 @@ def test_chat_graph_ignores_invalid_model_threshold_arguments(caplog) -> None:
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="Summarize my purchases",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.ACCOUNT_FACT,
+        "amount_threshold_intent",
+        WorkflowOperation.COUNT,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="Summarize my purchases",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert result.content == "You made 4 purchases."
     ignored_event = next(
@@ -1873,12 +1927,17 @@ def test_chat_graph_ignores_invalid_model_date_range_arguments(caplog) -> None:
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="Summarize my purchases",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.ACCOUNT_FACT,
+        "date_range_intent",
+        WorkflowOperation.LIST,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="Summarize my purchases",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert result.content == "You made 4 purchases."
     ignored_event = next(

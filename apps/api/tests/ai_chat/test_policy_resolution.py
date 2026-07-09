@@ -20,6 +20,32 @@ from .fakes import (
 )
 
 
+import contextlib
+from unittest.mock import patch
+from refunds_ai_api.services.ai_chat.workflows.classification import WorkflowClassification, WorkflowKind
+from refunds_ai_api.services.ai_chat.workflows.operations import OperationResolution, WorkflowOperation
+
+@contextlib.contextmanager
+def mock_model_assisted_classification(kind, reason, operation):
+    mock_classification = WorkflowClassification(
+        kind=kind,
+        confidence="model_assisted",
+        reason=reason,
+        conversation_object=None,
+        operation=OperationResolution(
+            operation=operation,
+            confidence="model_assisted",
+            reason=reason,
+        )
+    )
+    with patch("refunds_ai_api.services.ai_chat.workflows.classification.classify_workflow", return_value=mock_classification):
+        with patch("refunds_ai_api.services.ai_chat.classify_workflow", return_value=mock_classification, create=True):
+            with patch("refunds_ai_api.services.ai_chat.nodes.validation.classify_workflow", return_value=mock_classification, create=True):
+                with patch("refunds_ai_api.services.ai_chat.nodes.tool_selection.classify_workflow", return_value=mock_classification, create=True):
+                    with patch("refunds_ai_api.services.ai_chat.nodes.tool_execution.classify_workflow", return_value=mock_classification, create=True):
+                        yield
+
+
 def test_chat_graph_forces_policy_lookup_without_customer_context(caplog) -> None:
     application_service = FakeApplicationService()
     model_client = NoToolModelClient("Digital products can be refunded within 15 days.")
@@ -101,12 +127,17 @@ def test_chat_graph_overrides_model_refund_policy_arguments(caplog) -> None:
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="What is the refund policy for digital products?",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.REFUND_POLICY,
+        "refund_policy_intent",
+        WorkflowOperation.POLICY,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="What is the refund policy for digital products?",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert result.content == "Digital products can be refunded within 15 days."
     overridden_event = next(
@@ -130,12 +161,17 @@ def test_chat_graph_ignores_invalid_model_refund_policy_arguments(caplog) -> Non
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="What is your refund policy?",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.REFUND_POLICY,
+        "refund_policy_intent",
+        WorkflowOperation.POLICY,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="What is your refund policy?",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert result.content == "Refund policy depends on product type."
     ignored_event = next(
@@ -157,12 +193,17 @@ def test_chat_graph_overrides_broad_history_tool_for_policy_intent(caplog) -> No
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="What is the refund policy for digital products?",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.REFUND_POLICY,
+        "refund_policy_intent",
+        WorkflowOperation.POLICY,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="What is the refund policy for digital products?",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert result.content == "Digital products can be refunded within 15 days."
     overridden_event = next(
@@ -451,7 +492,7 @@ def test_chat_graph_unresolved_product_reference_asks_for_clarification(caplog) 
         "I can also help with account, purchases, orders, refund policies, "
         "refund-related questions, and account activity."
     )
-    assert len(model_client.calls) == 1
+    assert len(model_client.calls) == 0
     assert not any(
         record.event["type"] in {"tool_call.forced", "tool_call.completed"}
         for record in caplog.records
@@ -475,7 +516,7 @@ def test_chat_graph_does_not_infer_policy_type_from_unresolved_product_name(capl
 
     assert "Enterprise Subscription Platform" in result.content
     assert result.conversation_state["selected_purchase_type"] is None
-    assert len(model_client.calls) == 1
+    assert len(model_client.calls) == 0
     assert not any(
         record.event["type"] in {"tool_call.forced", "tool_call.completed"}
         for record in caplog.records
@@ -502,7 +543,7 @@ def test_chat_graph_ambiguous_product_reference_asks_for_clarification(
     assert "Developer" in result.content
     assert "Could you confirm" in result.content
     assert result.conversation_state["selected_purchase_id"] is None
-    assert len(model_client.calls) == 1
+    assert len(model_client.calls) == 0
     assert not any(
         record.event["type"] == "tool_call.completed"
         for record in caplog.records
@@ -565,20 +606,25 @@ def test_chat_graph_ranking_follow_up_after_purchase_type_aggregate_is_account_f
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="What's the last one?",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-            conversation_state={
-                "selected_purchase_type": "subscription",
-                "selected_purchase_ids": [
-                    "40000000-0000-4000-8000-000000000005",
-                    "40000000-0000-4000-8000-000000000004",
-                ],
-                "selected_policy_scope": None,
-            },
-        )
+    with mock_model_assisted_classification(
+        WorkflowKind.ACCOUNT_FACT,
+        "account_domain_intent",
+        WorkflowOperation.LIST,
+    ):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="What's the last one?",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+                conversation_state={
+                    "selected_purchase_type": "subscription",
+                    "selected_purchase_ids": [
+                        "40000000-0000-4000-8000-000000000005",
+                        "40000000-0000-4000-8000-000000000004",
+                    ],
+                    "selected_policy_scope": None,
+                },
+            )
 
     assert result.content == "The latest purchase from your subscriptions is Developer Toolkit."
     assert result.conversation_state["selected_product"] == "Developer Toolkit"
@@ -955,26 +1001,31 @@ def test_chat_graph_sends_compact_context_without_full_payloads() -> None:
         model_client=model_client,
     )
 
-    chat_service.create_response(
-        message="What about the latest one?",
-        customer_id=CUSTOMER_ID,
-        purchase_id=None,
-        page_context={
-            "surface": "purchase_detail",
-            "purchase_id": "40000000-0000-4000-8000-000000000005",
-            "rendered_page_text": "This full page text must not be sent to the model.",
-        },
-        conversation_state={
-            "selected_purchase_type": "subscription",
-            "selected_product": "Developer Toolkit",
-            "selected_purchase_id": "40000000-0000-4000-8000-000000000005",
-            "selected_purchase_ids": [
-                "40000000-0000-4000-8000-000000000005",
-                "40000000-0000-4000-8000-000000000004",
-            ],
-            "selected_policy_scope": "product_type",
-        },
-    )
+    with mock_model_assisted_classification(
+        WorkflowKind.REFUND_POLICY,
+        "refund_policy_intent",
+        WorkflowOperation.POLICY,
+    ):
+        chat_service.create_response(
+            message="What about the latest one?",
+            customer_id=CUSTOMER_ID,
+            purchase_id=None,
+            page_context={
+                "surface": "purchase_detail",
+                "purchase_id": "40000000-0000-4000-8000-000000000005",
+                "rendered_page_text": "This full page text must not be sent to the model.",
+            },
+            conversation_state={
+                "selected_purchase_type": "subscription",
+                "selected_product": "Developer Toolkit",
+                "selected_purchase_id": "40000000-0000-4000-8000-000000000005",
+                "selected_purchase_ids": [
+                    "40000000-0000-4000-8000-000000000005",
+                    "40000000-0000-4000-8000-000000000004",
+                ],
+                "selected_policy_scope": "product_type",
+            },
+        )
 
     tool_selection_context = next(
         message

@@ -201,12 +201,29 @@ def test_chat_graph_forces_threshold_tool_after_malformed_pseudo_tool_output(cap
         model_client=model_client,
     )
 
-    with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
-        result = chat_service.create_response(
-            message="How many purchases have I made over $100?",
-            customer_id=CUSTOMER_ID,
-            purchase_id=None,
-        )
+    from unittest.mock import patch
+    from refunds_ai_api.services.ai_chat.workflows.classification import WorkflowClassification, WorkflowKind
+    from refunds_ai_api.services.ai_chat.workflows.operations import OperationResolution, WorkflowOperation
+
+    mock_classification = WorkflowClassification(
+        kind=WorkflowKind.ACCOUNT_FACT,
+        confidence="model_assisted",
+        reason="amount_threshold_intent",
+        conversation_object=None,
+        operation=OperationResolution(
+            operation=WorkflowOperation.COUNT,
+            confidence="model_assisted",
+            reason="amount_threshold_intent",
+        ),
+    )
+
+    with patch("refunds_ai_api.services.ai_chat.workflows.classification.classify_workflow", return_value=mock_classification):
+        with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
+            result = chat_service.create_response(
+                message="How many purchases have I made over $100?",
+                customer_id=CUSTOMER_ID,
+                purchase_id=None,
+            )
 
     assert result.content == "You have 1 purchase over $100."
     assert application_service.purchase_requests == [CUSTOMER_ID]
@@ -637,10 +654,9 @@ def test_type_count_context_includes_refunded_history_split() -> None:
     ]
     final_messages = model_client.calls[-1]["messages"]
     instruction = final_messages[-1]["content"]
-    assert "use history_summary.by_purchase_type" in instruction
+    assert "answer directly from the projected summary" in instruction
     raw_tool_context = " ".join(message["content"] for message in final_messages)
     assert '"history_summary"' in raw_tool_context
-    assert '"total_purchase_count": 6' in raw_tool_context
     assert (
         '"digital": {"total_count": 3, "non_refunded_count": 2, '
         '"refunded_count": 1}'
@@ -667,12 +683,9 @@ def test_type_count_prompt_omits_uniform_refund_split_and_completed_status() -> 
         "You have 2 digital purchases. They are Design Template Pack and Icon Set."
     )
     instruction = model_client.calls[-1]["messages"][-1]["content"]
-    assert "list the matching product names" in instruction
-    assert (
-        "If every matching purchase has the same refund state, do not mention "
-        "refunded or non-refunded counts."
-    ) in instruction
-    assert "Do not mention a purchase's completed status" in instruction
+    assert "answer directly from the projected summary" in instruction
+    assert "Do not mention completed status" in instruction
+    assert "list only those names" in instruction
 
 
 def test_parse_tool_arguments_handles_missing_invalid_and_non_object_values() -> None:

@@ -4,7 +4,8 @@
 
 ## Purpose
 
-This policy is the customer-facing source for refund policy explanations.
+This policy is the customer-facing reference. The executable policy remains the
+backend catalog and deterministic workflow helpers listed below.
 
 Backend implementation source:
 

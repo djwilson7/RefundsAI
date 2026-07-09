@@ -154,6 +154,8 @@ _GENERIC_NOUN_TERMS = {
     "purchases",
     "subscription",
     "subscriptions",
+    "return",
+    "returns",
 }
 _SUPPORT_TERMS = {"please", "help", "support"}
 _PURCHASE_TYPE_TERMS = {"digital", "physical", "subscription", "subscriptions"}
@@ -320,6 +322,21 @@ def is_contextual_reference(candidate: str) -> bool:
         "that purchase",
         "that product",
         "this please",
+        "latest",
+        "latest one",
+        "the latest one",
+        "newest",
+        "newest one",
+        "oldest",
+        "oldest one",
+        "first",
+        "first one",
+        "last",
+        "last one",
+        "previous",
+        "previous one",
+        "prior",
+        "prior one",
     }:
         return True
     return bool(

@@ -5,10 +5,8 @@ This roadmap defines the planned implementation sequence for RefundsAI.
 Each milestone establishes a stable foundation for the next. The goal is incremental
 delivery without losing architecture, test quality, or documentation alignment.
 
-The checked milestones through v0.6.0 are the current implementation stopping point for
-the core technical challenge. Work beyond this point is intentionally scoped as polish:
-model quality, user experience tuning, documentation cleanup, validation hardening, or
-select deferred production-realism items.
+The core implementation through v0.6.0 is complete. v1.0.0 tracks final submission
+work only; deferred production features remain intentionally out of scope.
 
 ---
 
@@ -470,9 +468,9 @@ Provide administrators with operational visibility, AI auditability, and live mo
 
 * [x] Add audit session list.
 * [x] Add session detail timeline.
-* [x] Add event detail drawer or panel.
-* [x] Add token and latency summary.
-* [x] Add workflow, tool, and mutation badges.
+* [x] Add expandable raw event payloads.
+* [x] Separate request identity, process performance, and token metrics.
+* [x] Add tool-purpose descriptions and a complete narrative event timeline.
 
 ### Validation
 
@@ -480,7 +478,7 @@ Provide administrators with operational visibility, AI auditability, and live mo
 * [x] Backend SSE stream exposes database-broadcast audit events.
 * [x] Live timeline replayed in the Admin UI without page refreshes.
 * [x] Historical sessions accessible through backend read APIs with token usage and latency fields.
-* [x] Admin UI correctly resolves stable event keys to user-friendly labels and icons.
+* [x] Admin UI preserves every event and maps trace types to audience-readable labels.
 
 ---
 
@@ -539,18 +537,18 @@ This milestone should not add new product surfaces unless a blocking issue is fo
 ### Planned Deliverables
 
 * [x] Feature-complete core implementation through text chat, refund workflow execution, and admin auditability.
-* [ ] Final documentation review
-* [ ] README completion
-* [ ] Comprehensive testing pass
+* [x] Final `.ai-context` review
+* [x] README and supporting-document completion
+* [x] Comprehensive testing pass
 * [ ] Repository cleanup
 * [ ] Loom walkthrough
 * [ ] Public GitHub repository
 
 ### Validation
 
-* [ ] Repository builds successfully.
-* [ ] Test suite passes.
-* [ ] Coverage maintained above project targets.
+* [x] Repository builds successfully.
+* [x] Test suite passes.
+* [x] Coverage maintained above project targets.
 * [ ] README complete.
 * [ ] Loom walkthrough recorded.
-* [ ] Repository ready for reviewer evaluation.
+* [x] Repository ready for reviewer evaluation.

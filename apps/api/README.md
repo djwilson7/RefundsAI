@@ -1,8 +1,11 @@
 # RefundsAI API
 
-FastAPI backend for RefundsAI's customer, purchase, refund workflow, text AI chat, and administrative model-audit surfaces.
+FastAPI backend for RefundsAI's customer, purchase, policy-governed refund, chat-agent,
+and administrative audit surfaces.
 
-The current backend scope is complete for the core technical challenge: deterministic refund services, confirmation-gated chat mutations, persisted model audit sessions/events, and realtime audit streaming are implemented. Future backend work should be treated as polish, model-quality tuning, UX support, or deferred production hardening unless scope changes.
+The backend is the business authority. Model calls support language interpretation,
+read-tool selection, and grounded explanations; deterministic services own policy,
+consent, mutations, and verified transactional responses.
 
 ## Local Setup
 
@@ -92,6 +95,7 @@ Requests carry a compact `conversation_state` and `page_context`:
 
 ### 2. Read-Only Backend Tools
 The LangGraph workflow resolves and executes deterministic tools on behalf of the customer:
+* `validate_customer_account`: Read the active mock customer.
 * `get_customer_purchase_history`: Fetch all customer purchases.
 * `get_purchase_history_by_date_range`: Search purchases within a date window.
 * `get_purchase_count_by_amount_threshold`: Count purchases above/below a price.
@@ -106,9 +110,12 @@ The model never holds the consent authority to mutate database state. Mutations 
 
 * **Safety Guards**: Ambiguous confirmations (*"yes"*, *"do it"*, *"proceed"*) are rejected at the mutation boundary; only the exact canonical command grants authorization.
 * **Atomic Transitions**: Digital and subscription validations may trigger preparation and issuance back-to-back, but the backend processes them as distinct database transactions. Physical workflows halt at return preparation until carrier acceptance is logged.
+* **Selective Model Use**: Exact confirmation turns can execute and respond without an OpenAI request.
 
-### 4. Trace Events
-The backend emits sequential trace events for model requests, tool selection, tool execution, tool results, blocked responses, and final assistant responses. Real-time tracing and session persistence are captured for administrative audit.
+### 4. Audit Events
+Each valid chat prompt creates one audit session. Ordered events cover model requests,
+tool lifecycles, validation, mutations, responses, and failures. Sessions finish as
+`succeeded` or `failed`; deterministic confirmation sessions may report zero model calls.
 
 ## Database Migrations
 

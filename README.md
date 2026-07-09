@@ -1,12 +1,18 @@
 # RefundsAI
 
-> Policy-governed AI customer support for modern refund workflows.
+> A bounded AI agent that explains and executes refunds against strict backend policy.
 
-RefundsAI is a production-inspired AI customer support platform. It demonstrates how Large Language Models can serve as conversational interfaces while preserving deterministic business logic, transparent policy enforcement, and complete operational auditability.
+RefundsAI is a production-inspired customer support system for end-to-end refund
+workflows. The model interprets customer language, requests narrow read tools, and
+explains backend results. Deterministic services remain authoritative for policy,
+consent, refund amounts, and lifecycle transitions.
 
-Instead of allowing the language model to independently decide on or execute refunds, RefundsAI isolates AI to context-gathering and tool-based orchestration. Authoritative business policy remains strictly on the backend.
+Exact confirmation turns can bypass the model entirely. The backend validates persisted
+consent, executes guarded refund operations, verifies the database result, and returns
+transactional wording without another provider call.
 
-The current core implementation is complete through the text-based customer support agent, confirmation-gated refund workflow execution, and administrative model-audit experience. Further work is expected to be polish: improving model behavior, tuning the user experience, strengthening validation, or selectively promoting deferred production features.
+The core implementation is complete through text chat, confirmation-gated refund
+execution, and administrative auditability.
 
 ---
 
@@ -14,10 +20,10 @@ The current core implementation is complete through the text-based customer supp
 
 RefundsAI demonstrates:
 
-* **AI Conversational Interface**: Engaging support interaction using natural language.
+* **Bounded Agentic Interface**: Natural-language understanding and grounded tool orchestration.
 * **Deterministic Enforcement**: Backend policy rules decide eligibility, not LLM inference.
-* **Structured Orchestration**: Graph-based tool routing for AI workflows.
-* **Observability & Auditability**: Deep logging of AI reasoning steps and metrics.
+* **Safe Execution**: Exact, persisted, once-consumable confirmation gates protect mutations.
+* **Observability & Auditability**: Ordered model, tool, validation, and mutation evidence.
 * **Layered System Boundaries**: Clean separation between model, services, and database.
 
 ---
@@ -36,38 +42,33 @@ RefundsAI demonstrates:
 
 * Mock administrator login
 * **Audit Session Overview**: Chronological list of customer-agent chat sessions
-* **Audit Session Details**: Live deep-dive timeline viewer for any chat thread
-* **Reasoning Trace Stream**: Real-time streaming of LangGraph steps (tools, validation, token/latency metrics)
+* **Audit Session Details**: Request identity, process metrics, token usage, tool history, and complete narrative timeline
+* **Realtime Audit Stream**: SSE-backed refresh from persisted PostgreSQL events
 
 ---
 
 ## Architecture
 
-RefundsAI follows a layered architecture that separates user experience from business authority.
+RefundsAI separates conversational orchestration from transaction authority.
 
 ```text
 Customer / Administrator
-            │
-            ▼
-      Next.js Web UI
-            │
-            ▼
-      FastAPI Backend
-            │
-            ▼
-     LangGraph Graph
-            │
-            ▼
-    OpenAI GPT Model
-            │
-            ▼
-   Backend Tool Layer
-            │
-            ▼
-Deterministic Services
-            │
-            ▼
-   Supabase Postgres
+        |
+        v
+  Next.js Web UI
+        |
+        v
+ FastAPI + LangGraph
+    /           \
+   v             v
+OpenAI read/   Deterministic routing,
+explanation   policy, consent, mutations
+    \           /
+     v         v
+   Backend services
+          |
+          v
+ Supabase PostgreSQL
 ```
 
 ### Business Policy & Authority
@@ -78,13 +79,22 @@ Deterministic Services
   * `digital_purchase_details`
   * `physical_purchase_details`
   * `subscription_purchase_details`
-* **Gated Mutations**: Mutations require a persisted, validated, and once-consumable confirmation token in the database, preventing the AI from initiating actions without explicit user consent.
+* **Gated Mutations**: Mutations require persisted, validated, once-consumable confirmation facts, preventing the model from authorizing writes.
 * **Database Triggers**: PostgreSQL triggers derive refund deadlines and defaults automatically from persisted purchase/detail state.
+
+### End-to-End Refund Proof
+
+1. The customer asks about policy or a purchase.
+2. The backend resolves the customer, purchase scope, and workflow.
+3. Read-only tools return policy or eligibility facts.
+4. The assistant presents the exact product-specific confirmation command.
+5. The backend persists consent and executes guarded preparation or issuance.
+6. The purchase view refreshes from database state.
+7. The admin audit surface shows every model and deterministic step.
 
 ---
 
 ## Technology Stack
-### Technology Stack
 
 #### Frontend
 
@@ -300,7 +310,7 @@ Check database connectivity:
 curl http://localhost:8000/health/database
 ```
 
-The database health check endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` when database configuration is missing or connectivity checks fail. It validates connectivity only; schema, migrations, seed data, and business tables remain part of the next milestone.
+The database health check endpoint returns HTTP `200 OK` on success, or `503 Service Unavailable` when database configuration is missing or connectivity checks fail. It validates connectivity only; use the migration commands for schema readiness.
 
 Apply migrations and seed demo data from `apps/api`:
 
@@ -347,6 +357,7 @@ To resolve references like *"those purchases"* or *"this item"* without replayin
 
 #### 2. Read-Only Backend Tools
 The LangGraph workflow resolves and executes deterministic tools on behalf of the customer:
+* `validate_customer_account`: Read the active mock customer.
 * `get_customer_purchase_history`: Fetch all customer purchases.
 * `get_purchase_history_by_date_range`: Search purchases within a date window.
 * `get_purchase_count_by_amount_threshold`: Count purchases above/below a price.
@@ -361,6 +372,7 @@ The model never holds the consent authority to mutate database state. Mutations 
 
 * **Safety Guards**: Ambiguous confirmations (*"yes"*, *"do it"*, *"proceed"*) are rejected at the mutation boundary; only the exact canonical command grants authorization.
 * **Atomic Transitions**: Digital and subscription validations may trigger preparation and issuance back-to-back, but the backend processes them as distinct database transactions. Physical workflows halt at return preparation until carrier acceptance is logged.
+* **Selective Model Use**: Canonical confirmation turns can execute and respond deterministically with zero model calls.
 
 ---
 
@@ -368,13 +380,14 @@ The model never holds the consent authority to mutate database state. Mutations 
 
 ```text
 .
-├── .ai-context/
-├── apps/
-│   ├── api/
-│   └── web/
-├── AGENTS.md
-├── docker-compose.yml
-└── README.md
+|-- .ai-context/
+|-- apps/
+|   |-- api/
+|   `-- web/
+|-- docs/
+|-- AGENTS.md
+|-- docker-compose.yml
+`-- README.md
 ```
 
 ---
@@ -397,6 +410,12 @@ The `.ai-context/` directory contains the authoritative project documentation, i
 * Security boundaries
 
 Both human contributors and AI engineering agents should reference this documentation before making implementation decisions.
+
+Supporting project documents:
+
+* [`docs/REFUND_POLICY.md`](docs/REFUND_POLICY.md)
+* [`docs/DEVELOPER_INSIGHTS.md`](docs/DEVELOPER_INSIGHTS.md)
+* [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
 ---
 
