@@ -293,6 +293,7 @@ export type ModelAuditToolCall = Readonly<{
   sequenceNumber: number;
   title: string;
   toolName: string;
+  description: string;
   summary: string;
   occurredAt: string;
   status: "completed" | "started" | "requested" | "failed";
@@ -324,6 +325,7 @@ export type ModelAuditTimelineEvent = Readonly<{
   status: string | null;
   latency: string | null;
   tokenCount: number | null;
+  tokenCountIsEstimated: boolean;
   workflow: string | null;
   operation: string | null;
   rawPayload: string | null;
@@ -767,7 +769,7 @@ export function mapApiModelAuditSessionToDetail(
     prompt: getOriginalPrompt(events),
     finalResponse: getFinalResponse(events),
     toolCalls: getToolCalls(events),
-    timelineEvents: events.map(mapApiModelAuditEventToTimelineEvent),
+    timelineEvents: buildNarrativeTimeline(events),
   };
 }
 
@@ -866,6 +868,7 @@ function mapApiModelAuditEventToToolCall(
     sequenceNumber: event.sequence_number,
     title: event.display_name,
     toolName,
+    description: getToolDescription(toolName),
     summary: event.summary ?? event.description ?? "Tool event recorded.",
     occurredAt: formatAuditTime(event.created_at),
     status: getToolStatus(event),
@@ -905,10 +908,11 @@ function getToolStatus(event: ApiModelAuditEvent): ModelAuditToolCall["status"] 
 function mapApiModelAuditEventToTimelineEvent(
   event: ApiModelAuditEvent,
 ): ModelAuditTimelineEvent {
+  const traceEventType = getTraceEventType(event);
   return {
     id: event.id,
     sequenceNumber: event.sequence_number,
-    title: event.display_name,
+    title: getNarrativeEventTitle(event, traceEventType),
     category: event.category,
     summary: getTimelineEventSummary(event),
     details: getTimelineEventDetails(event),
@@ -921,6 +925,8 @@ function mapApiModelAuditEventToTimelineEvent(
     tokenCount:
       event.total_tokens ??
       sumNullable(event.input_tokens_estimated, event.output_tokens_estimated),
+    tokenCountIsEstimated:
+      event.total_tokens === null || event.total_tokens === undefined,
     workflow: event.workflow_kind,
     operation: event.operation ?? null,
     rawPayload:
@@ -938,6 +944,89 @@ function mapApiModelAuditEventToTimelineEvent(
   };
 }
 
+function getToolDescription(toolName: string) {
+  const descriptions: Record<string, string> = {
+    get_customer_purchase_history:
+      "Reads the customer’s purchase history and account-level purchase totals.",
+    get_purchase_count_by_amount_threshold:
+      "Counts purchases above or below a requested amount using backend purchase data.",
+    get_purchase_history_by_date_range:
+      "Finds purchases and totals within a requested local date range.",
+    get_refund_policy:
+      "Retrieves the applicable refund-policy rules for the customer’s question.",
+    get_refund_eligibility:
+      "Checks purchase facts and refund policy to determine whether the selected purchase is eligible and what must happen next.",
+    validate_customer_account:
+      "Confirms that the active customer account exists and can be used for this request.",
+    request_refund:
+      "Performs the confirmed preparation step, such as creating a return label, invalidating a digital code, or cancelling a subscription.",
+    issue_refund:
+      "Finalizes an authorized refund and records the issued amount and outcome.",
+  };
+
+  return (
+    descriptions[toolName] ??
+    "Runs a backend operation needed to complete the customer’s request."
+  );
+}
+
+function buildNarrativeTimeline(
+  events: readonly ApiModelAuditEvent[],
+): ModelAuditTimelineEvent[] {
+  return [...events]
+    .sort((first, second) => first.sequence_number - second.sequence_number)
+    .map(mapApiModelAuditEventToTimelineEvent);
+}
+
+function getTraceEventType(event: ApiModelAuditEvent) {
+  const value = event.metadata_json?.trace_event_type;
+  return typeof value === "string" ? value : null;
+}
+
+function getNarrativeEventTitle(
+  event: ApiModelAuditEvent,
+  traceEventType: string | null,
+) {
+  const titles: Record<string, string> = {
+    "message.received": "Customer request received",
+    "graph.started": "Request processing started",
+    "model.requested": "Model input prepared",
+    "tool_call.requested": "Backend operation selected",
+    "tool_call.forced": "Backend operation selected",
+    "tool_call.overridden": "Backend operation adjusted",
+    "tool_call.executing": "Backend operation started",
+    "workflow.executing": "Workflow execution started",
+    "workflow.completed": "Backend workflow completed",
+    "workflow.state_updated": "Conversation context updated",
+    "workflow.eligibility_reconciled": "Eligibility result verified",
+    "workflow.tool_overridden": "Backend operation adjusted",
+    "workflow.classified": "Request understood",
+    "workflow.context_resolved": "Relevant context selected",
+    "workflow.confirmation_requested": "Customer confirmation required",
+    "workflow.confirmation_command_generated":
+      "Confirmation instructions prepared",
+    "workflow.confirmation_command_received": "Customer confirmation received",
+    "workflow.confirmation_validated": "Customer confirmation verified",
+    "workflow.confirmation_command_verified": "Confirmation authorization verified",
+    "workflow.refund_mutation_started": "Refund update started",
+    "tool_call.completed": "Backend operation completed",
+    "workflow.refund_mutation_lifecycle": "Refund workflow updated",
+    "workflow.refund_context_cleared": "Refund context closed",
+    "mutation_completed": "Refund update verified",
+    "model.completed": "Model call completed",
+    "response.generated": "Customer response prepared",
+    "route.response_returned": "Response delivered",
+  };
+
+  if (traceEventType && titles[traceEventType]) {
+    return titles[traceEventType];
+  }
+  if (event.event_key === "ERROR_RAISED" || event.category === "error") {
+    return "Process failed";
+  }
+  return event.display_name;
+}
+
 function summarizeAuditPayload(payload: Record<string, unknown> | null) {
   if (!payload) {
     return "Not recorded";
@@ -947,6 +1036,7 @@ function summarizeAuditPayload(payload: Record<string, unknown> | null) {
 }
 
 function getTimelineEventSummary(event: ApiModelAuditEvent) {
+  const traceEventType = getTraceEventType(event);
   const toolName = getEventToolName(event);
   const message = event.input_json?.message;
 
@@ -962,7 +1052,7 @@ function getTimelineEventSummary(event: ApiModelAuditEvent) {
     const resultSummary = findStringValue(event.output_json, "summary");
 
     if (event.event_key === "TOOL_COMPLETED" && resultSummary) {
-      return `${formatEventValue(toolName)} completed: ${resultSummary}.`;
+      return `The backend completed ${formatEventValue(toolName)} and recorded this result: ${formatEventValue(resultSummary)}.`;
     }
 
     const action =
@@ -979,10 +1069,54 @@ function getTimelineEventSummary(event: ApiModelAuditEvent) {
     findStringValue(event.input_json, "workflow");
   const reason = findStringValue(event.input_json, "reason");
 
-  if (event.event_key === "WORKFLOW_CLASSIFIED" && workflow) {
+  if (traceEventType === "workflow.classified" && workflow) {
     return reason
-      ? `Classified the request as ${formatEventValue(workflow)} because ${reason}.`
-      : `Classified the request as ${formatEventValue(workflow)}.`;
+      ? `The request was understood as ${formatEventValue(workflow)} based on ${formatEventValue(reason)}.`
+      : `The request was understood as ${formatEventValue(workflow)}.`;
+  }
+
+  if (traceEventType === "workflow.executing") {
+    return "The backend began the selected workflow using the resolved customer and purchase context.";
+  }
+
+  if (traceEventType === "workflow.completed") {
+    return "The selected backend workflow finished and its result was recorded for the response.";
+  }
+
+  if (traceEventType === "workflow.state_updated") {
+    return "The conversation context was updated with the selected purchase, workflow result, and next expected action.";
+  }
+
+  if (traceEventType === "workflow.eligibility_reconciled") {
+    return "The eligibility result was checked against the selected purchase before continuing.";
+  }
+
+  if (traceEventType === "workflow.confirmation_requested") {
+    const expectedCommand = findStringValue(event.input_json, "expected_command");
+    return expectedCommand
+      ? `The refund is eligible, but execution requires the customer to submit this exact confirmation: "${expectedCommand}".`
+      : "The refund is eligible, but execution requires explicit customer confirmation.";
+  }
+
+  if (traceEventType === "workflow.confirmation_command_generated") {
+    const expectedCommand = findStringValue(event.input_json, "expected_command");
+    return expectedCommand
+      ? `The backend prepared the confirmation instruction: "${expectedCommand}".`
+      : "The backend prepared the confirmation instruction for the customer.";
+  }
+
+  if (traceEventType === "workflow.confirmation_validated") {
+    return "The submitted confirmation matched the expected command and backend authorization checks passed.";
+  }
+
+  if (traceEventType === "workflow.refund_mutation_lifecycle") {
+    const finalStage = findStringValue(event.output_json, "final_stage");
+    const requiredAction = findStringValue(event.output_json, "required_action");
+    if (finalStage) {
+      return requiredAction && requiredAction !== "none"
+        ? `The refund workflow advanced to ${formatEventValue(finalStage)}. The next required action is ${formatEventValue(requiredAction)}.`
+        : `The refund workflow advanced to ${formatEventValue(finalStage)} with no further action required.`;
+    }
   }
 
   if (
@@ -991,11 +1125,15 @@ function getTimelineEventSummary(event: ApiModelAuditEvent) {
   ) {
     const response = getResponseText(event.output_json);
     return response
-      ? `${event.event_key === "RESPONSE_RETURNED" ? "Returned" : "Generated"} a ${response.length}-character response for the customer.`
+      ? `${event.event_key === "RESPONSE_RETURNED" ? "The response was delivered" : "A response was prepared"} for the customer: "${truncateTimelineText(response)}"`
       : (event.summary ?? event.description ?? "Assistant response recorded.");
   }
 
   return event.summary ?? event.description ?? "Audit event recorded.";
+}
+
+function truncateTimelineText(value: string) {
+  return value.length <= 180 ? value : `${value.slice(0, 177)}...`;
 }
 
 function getTimelineEventDetails(event: ApiModelAuditEvent) {
@@ -1051,11 +1189,41 @@ function collectTimelineFacts(
     return;
   }
 
-  const fingerprint = `${path}:${formattedValue}`;
+  const label = simplifyTimelineFactLabel(path);
+  const fingerprint = `${label}:${formattedValue}`;
   if (!seen.has(fingerprint)) {
     seen.add(fingerprint);
-    details.push({ label: path, value: formattedValue });
+    details.push({ label, value: formattedValue });
   }
+}
+
+function simplifyTimelineFactLabel(path: string) {
+  const segments = path.split(" / ");
+  const distinctSegments = segments.filter(
+    (segment, index) => segment !== segments[index - 1],
+  );
+  const field = distinctSegments.at(-1) ?? path;
+  const parent = distinctSegments.at(-2);
+  const fieldLabels: Record<string, string> = {
+    "Active Refund Stage": "Refund stage",
+    "Customer Id": "Customer ID",
+    "Expected Command": "Required confirmation",
+    "Object Kind": "Referenced object",
+    "Object Label": "Referenced item",
+    "Product Name": "Product",
+    "Purchase Id": "Purchase ID",
+    "Purchase Type": "Purchase type",
+    "Refund Stage": "Refund stage",
+    "Required Action": "Next action",
+  };
+
+  if (field === "Kind" && parent === "Active Workflow") {
+    return "Workflow";
+  }
+  if (field === "Kind") {
+    return "Workflow";
+  }
+  return fieldLabels[field] ?? field;
 }
 
 function formatTimelineFactValue(value: unknown) {

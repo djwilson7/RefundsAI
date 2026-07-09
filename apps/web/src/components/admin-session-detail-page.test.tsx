@@ -51,6 +51,8 @@ const detail: ModelAuditSessionDetail = {
       sequenceNumber: 6,
       title: "Tool completed",
       toolName: "get_refund_eligibility",
+      description:
+        "Checks purchase facts and refund policy to determine whether the selected purchase is eligible and what must happen next.",
       summary: "Backend refund-eligibility tool completed.",
       occurredAt: "4:18:01 PM",
       status: "completed",
@@ -72,13 +74,13 @@ const detail: ModelAuditSessionDetail = {
     {
       id: "73000000-0000-4000-8000-000000000001",
       sequenceNumber: 1,
-      title: "Request received",
+      title: "Customer request received",
       category: "request",
       summary:
         'Received customer request: "Can you check whether my wireless headphones are eligible for a refund?"',
       details: [
         {
-          label: "Input / Customer Id",
+          label: "Customer ID",
           value: "20000000-0000-4000-8000-000000000001",
         },
       ],
@@ -86,6 +88,7 @@ const detail: ModelAuditSessionDetail = {
       status: null,
       latency: null,
       tokenCount: null,
+      tokenCountIsEstimated: false,
       workflow: null,
       operation: null,
       rawPayload: null,
@@ -124,21 +127,40 @@ describe("AdminSessionDetailPage", () => {
       screen.getByText("Yes, the purchase is eligible for a refund."),
     ).toBeInTheDocument();
     expect(screen.getAllByText("get_refund_eligibility")).toHaveLength(2);
+    expect(
+      screen.getByText(
+        "Checks purchase facts and refund policy to determine whether the selected purchase is eligible and what must happen next.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Recorded outcome:")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Request Identity" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Process Metadata" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Token Usage" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Actual" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Estimated" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Model Calls")).toBeInTheDocument();
-    expect(screen.getByText("Reasoning Tokens")).toBeInTheDocument();
-    expect(screen.getByText("Estimated Input Tokens")).toBeInTheDocument();
+    expect(screen.getByText("Reasoning")).toBeInTheDocument();
     expect(screen.getByText("1,240")).toBeInTheDocument();
     expect(screen.getByText("Input Tokens")).toBeInTheDocument();
     expect(screen.getByText("Output Tokens")).toBeInTheDocument();
     expect(screen.getByText("tiktoken:cl100k_base")).toBeInTheDocument();
     expect(screen.getAllByText("18ms")).toHaveLength(2);
-    expect(screen.getByText("Request received")).toBeInTheDocument();
+    expect(screen.getByText("Customer request received")).toBeInTheDocument();
+    expect(screen.getByText("Event Type")).toBeInTheDocument();
     expect(
       screen.getByText(
         'Received customer request: "Can you check whether my wireless headphones are eligible for a refund?"',
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("Input / Customer Id")).toBeInTheDocument();
+    expect(screen.getByText("Customer ID")).toBeInTheDocument();
   });
 
   it("renders an unavailable state when the session cannot be loaded", () => {

@@ -47,75 +47,108 @@ export function AdminSessionDetailPage({
           </span>
         </div>
 
-        <div className={styles.metaLayout}>
-          <dl className={styles.primaryMetaGrid}>
-            <div>
-              <dt>Model</dt>
-              <dd>{detail.modelName}</dd>
+        <div className={styles.metaSections}>
+          <section className={styles.metaSection} aria-labelledby="request-identity">
+            <h2 className={styles.metaSectionTitle} id="request-identity">
+              Request Identity
+            </h2>
+            <dl className={`${styles.metaGrid} ${styles.identityGrid}`}>
+              <div>
+                <dt>Model</dt>
+                <dd>{detail.modelName}</dd>
+              </div>
+              <div>
+                <dt>Trace ID</dt>
+                <dd>{detail.traceId}</dd>
+              </div>
+              <div>
+                <dt>Request ID</dt>
+                <dd>{detail.requestId}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className={styles.metaSection} aria-labelledby="process-metadata">
+            <h2 className={styles.metaSectionTitle} id="process-metadata">
+              Process Metadata
+            </h2>
+            <dl className={`${styles.metaGrid} ${styles.processGrid}`}>
+              <div>
+                <dt>Session Duration</dt>
+                <dd>{detail.metrics.duration}</dd>
+              </div>
+              <div>
+                <dt>Workflow Steps</dt>
+                <dd>{detail.metrics.workflowSteps}</dd>
+              </div>
+              <div>
+                <dt>Model Calls</dt>
+                <dd>{detail.metrics.modelCalls}</dd>
+              </div>
+              <div>
+                <dt>Tool Calls</dt>
+                <dd>{detail.metrics.toolCalls}</dd>
+              </div>
+              <div>
+                <dt>Model Latency</dt>
+                <dd>{detail.metrics.modelLatency}</dd>
+              </div>
+              <div>
+                <dt>Tool Latency</dt>
+                <dd>{detail.metrics.toolLatency}</dd>
+              </div>
+              <div>
+                <dt>Workflow Latency</dt>
+                <dd>{detail.metrics.workflowLatency}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className={styles.metaSection} aria-labelledby="token-usage">
+            <h2 className={styles.metaSectionTitle} id="token-usage">
+              Token Usage
+            </h2>
+            <div className={styles.tokenGroups}>
+              <div className={styles.tokenGroup}>
+                <h3>Actual</h3>
+                <dl className={`${styles.metaGrid} ${styles.actualTokenGrid}`}>
+                  <div>
+                    <dt>Total</dt>
+                    <dd>{detail.metrics.totalTokens.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>Prompt</dt>
+                    <dd>{detail.metrics.promptTokens.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>Completion</dt>
+                    <dd>{detail.metrics.completionTokens.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>Reasoning</dt>
+                    <dd>{detail.metrics.reasoningTokens.toLocaleString()}</dd>
+                  </div>
+                </dl>
+              </div>
+              <div className={styles.tokenGroup}>
+                <h3>Estimated</h3>
+                <dl className={`${styles.metaGrid} ${styles.estimatedTokenGrid}`}>
+                  <div>
+                    <dt>Input</dt>
+                    <dd>
+                      {detail.metrics.estimatedInputTokens.toLocaleString()}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Output</dt>
+                    <dd>
+                      {detail.metrics.estimatedOutputTokens.toLocaleString()}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
             </div>
-            <div>
-              <dt>Session Duration</dt>
-              <dd>{detail.metrics.duration}</dd>
-            </div>
-            <div>
-              <dt>Workflow Steps</dt>
-              <dd>{detail.metrics.workflowSteps}</dd>
-            </div>
-            <div>
-              <dt>Model Calls</dt>
-              <dd>{detail.metrics.modelCalls}</dd>
-            </div>
-            <div>
-              <dt>Tool Calls</dt>
-              <dd>{detail.metrics.toolCalls}</dd>
-            </div>
-            <div>
-              <dt>Prompt Tokens</dt>
-              <dd>{detail.metrics.promptTokens.toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>Completion Tokens</dt>
-              <dd>{detail.metrics.completionTokens.toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>Reasoning Tokens</dt>
-              <dd>{detail.metrics.reasoningTokens.toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>Total Tokens</dt>
-              <dd>{detail.metrics.totalTokens.toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>Estimated Input Tokens</dt>
-              <dd>{(detail.metrics.estimatedInputTokens ?? 0).toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>Estimated Output Tokens</dt>
-              <dd>{(detail.metrics.estimatedOutputTokens ?? 0).toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>Model Latency</dt>
-              <dd>{detail.metrics.modelLatency}</dd>
-            </div>
-            <div>
-              <dt>Tool Latency</dt>
-              <dd>{detail.metrics.toolLatency}</dd>
-            </div>
-            <div>
-              <dt>Workflow Latency</dt>
-              <dd>{detail.metrics.workflowLatency}</dd>
-            </div>
-          </dl>
-          <dl className={styles.identifierMetaGrid}>
-            <div>
-              <dt>Trace</dt>
-              <dd>{detail.traceId}</dd>
-            </div>
-            <div>
-              <dt>Request</dt>
-              <dd>{detail.requestId}</dd>
-            </div>
-          </dl>
+          </section>
         </div>
       </AppCard>
 
@@ -143,7 +176,10 @@ export function AdminSessionDetailPage({
                   <h3>{toolCall.toolName}</h3>
                   <span>{toolCall.status}</span>
                 </div>
-                <p>{toolCall.summary}</p>
+                <p className={styles.toolPurpose}>{toolCall.description}</p>
+                <p className={styles.toolOutcome}>
+                  <strong>Recorded outcome:</strong> {toolCall.summary}
+                </p>
                 <dl className={styles.toolDetails}>
                   <div><dt>Latency</dt><dd>{toolCall.latency}</dd></div>
                   <div><dt>Source</dt><dd>{toolCall.source}</dd></div>
@@ -192,15 +228,9 @@ export function AdminSessionDetailPage({
               <div>
                 <div className={styles.timelineHeader}>
                   <h3>{event.title}</h3>
-                  <div className={styles.badges}>
-                    <span>{event.status ?? event.category}</span>
-                    {event.latency ? <span>{event.latency}</span> : null}
-                    {event.tokenCount !== null ? (
-                      <span>{event.tokenCount.toLocaleString()} tokens</span>
-                    ) : null}
-                    {event.workflow ? <span>{event.workflow}</span> : null}
-                    {event.operation ? <span>{event.operation}</span> : null}
-                  </div>
+                  <span className={styles.eventStatus}>
+                    <strong>Event Type</strong> {event.category}
+                  </span>
                 </div>
                 <p>{event.summary}</p>
                 {event.details.length > 0 ? (
@@ -211,6 +241,41 @@ export function AdminSessionDetailPage({
                         <dd>{detail.value}</dd>
                       </div>
                     ))}
+                  </dl>
+                ) : null}
+                {event.latency ||
+                event.tokenCount !== null ||
+                event.workflow ||
+                event.operation ? (
+                  <dl className={styles.eventContext} aria-label="Event context">
+                    {event.latency ? (
+                      <div>
+                        <dt>Latency</dt>
+                        <dd>{event.latency}</dd>
+                      </div>
+                    ) : null}
+                    {event.tokenCount !== null ? (
+                      <div>
+                        <dt>
+                          {event.tokenCountIsEstimated
+                            ? "Estimated tokens"
+                            : "Model tokens"}
+                        </dt>
+                        <dd>{event.tokenCount.toLocaleString()}</dd>
+                      </div>
+                    ) : null}
+                    {event.workflow ? (
+                      <div>
+                        <dt>Workflow</dt>
+                        <dd>{event.workflow}</dd>
+                      </div>
+                    ) : null}
+                    {event.operation ? (
+                      <div>
+                        <dt>Operation</dt>
+                        <dd>{event.operation}</dd>
+                      </div>
+                    ) : null}
                   </dl>
                 ) : null}
                 {event.rawPayload ? (

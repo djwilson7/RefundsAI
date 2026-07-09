@@ -325,6 +325,24 @@ describe("application API client", () => {
     });
   });
 
+  it("keeps deterministic audit cards at zero actual model tokens", () => {
+    const invocation = mapApiModelAuditSessionToInvocation(
+      {
+        ...apiModelAuditSession,
+        prompt_tokens: null,
+        completion_tokens: null,
+        total_tokens: 0,
+        total_model_input_tokens_estimated: 0,
+        total_model_output_tokens_estimated: 0,
+        total_tool_input_tokens_estimated: 33,
+        total_tool_output_tokens_estimated: 262,
+      },
+      apiModelAuditEvents,
+    );
+
+    expect(invocation.totalTokens).toBe(0);
+  });
+
   it("maps model audit session and events to detail view data", () => {
     expect(
       mapApiModelAuditSessionToDetail(apiModelAuditSession, apiModelAuditEvents),
@@ -338,23 +356,25 @@ describe("application API client", () => {
       toolCalls: [
         expect.objectContaining({
           toolName: "get_refund_eligibility",
+          description:
+            "Checks purchase facts and refund policy to determine whether the selected purchase is eligible and what must happen next.",
           status: "completed",
         }),
       ],
       timelineEvents: expect.arrayContaining([
         expect.objectContaining({
-          title: "Request received",
+          title: "Customer request received",
           category: "request",
           summary:
             'Received customer request: "Can you check whether my wireless headphones are eligible for a refund?"',
         }),
         expect.objectContaining({
-          title: "Tool completed",
+          title: "Backend operation completed",
           summary:
-            "get refund eligibility completed: refund eligible, next=request_refund.",
+            "The backend completed get refund eligibility and recorded this result: refund eligible, next=request refund.",
           details: expect.arrayContaining([
             {
-              label: "Result / Result / Refund Stage",
+              label: "Refund stage",
               value: "eligible",
             },
           ]),
@@ -397,6 +417,8 @@ describe("application API client", () => {
     expect(detail.toolCalls).toHaveLength(1);
     expect(detail.toolCalls[0]).toMatchObject({
       toolName: "get_refund_eligibility",
+      description:
+        "Checks purchase facts and refund policy to determine whether the selected purchase is eligible and what must happen next.",
       status: "completed",
       latency: "18ms",
       source: "deterministic_forced",
@@ -409,9 +431,112 @@ describe("application API client", () => {
       backendCategory: "backend_read",
     });
     expect(
-      detail.timelineEvents.find((event) => event.title === "Tool completed")
-        ?.tokenCount,
+      detail.timelineEvents.find(
+        (event) => event.title === "Backend operation completed",
+      )?.tokenCount,
     ).toBe(243);
+  });
+
+  it("preserves every backend event in its original audit sequence", () => {
+    const graphStarted = {
+      ...apiModelAuditEvents[0],
+      id: "73000000-0000-4000-8000-000000000010",
+      sequence_number: 2,
+      event_key: "GRAPH_STARTED",
+      display_name: "Graph started",
+      category: "routing",
+      metadata_json: { trace_event_type: "graph.started" },
+    };
+    const toolStarted = {
+      ...apiModelAuditEvents[1],
+      id: "73000000-0000-4000-8000-000000000011",
+      sequence_number: 5,
+      event_key: "TOOL_STARTED",
+      display_name: "Tool started",
+      tool_call_id: "tool-call-1",
+      metadata_json: { trace_event_type: "tool_call.executing" },
+    };
+    const toolCompleted = {
+      ...apiModelAuditEvents[1],
+      tool_call_id: "tool-call-1",
+      metadata_json: { trace_event_type: "tool_call.completed" },
+    };
+    const responseReturned = {
+      ...apiModelAuditEvents[2],
+      id: "73000000-0000-4000-8000-000000000012",
+      sequence_number: 13,
+      event_key: "RESPONSE_RETURNED",
+      display_name: "Response returned",
+      metadata_json: { trace_event_type: "route.response_returned" },
+    };
+
+    const timeline = mapApiModelAuditSessionToDetail(apiModelAuditSession, [
+      apiModelAuditEvents[0],
+      graphStarted,
+      toolStarted,
+      toolCompleted,
+      apiModelAuditEvents[2],
+      responseReturned,
+    ]).timelineEvents;
+
+    expect(timeline.map((event) => event.title)).toEqual([
+      "Customer request received",
+      "Request processing started",
+      "Backend operation started",
+      "Backend operation completed",
+      "Customer response prepared",
+      "Response delivered",
+    ]);
+    expect(timeline.map((event) => event.sequenceNumber)).toEqual([
+      1, 2, 5, 6, 12, 13,
+    ]);
+  });
+
+  it("distinguishes workflow events that share the classified database key", () => {
+    const stateUpdated = {
+      ...apiModelAuditEvents[0],
+      id: "73000000-0000-4000-8000-000000000020",
+      sequence_number: 10,
+      event_key: "WORKFLOW_CLASSIFIED",
+      display_name: "Workflow classified",
+      category: "routing",
+      workflow_kind: "refund_eligibility",
+      input_json: {
+        kind: "refund_eligibility",
+        active_purchase: { product_name: "Smart Watch" },
+      },
+      metadata_json: { trace_event_type: "workflow.state_updated" },
+    };
+    const confirmationRequested = {
+      ...stateUpdated,
+      id: "73000000-0000-4000-8000-000000000021",
+      sequence_number: 11,
+      input_json: {
+        kind: "refund_eligibility",
+        expected_command: "Confirm start return and issue label",
+      },
+      metadata_json: { trace_event_type: "workflow.confirmation_requested" },
+    };
+
+    const timeline = mapApiModelAuditSessionToDetail(apiModelAuditSession, [
+      stateUpdated,
+      confirmationRequested,
+    ]).timelineEvents;
+
+    expect(timeline).toMatchObject([
+      {
+        sequenceNumber: 10,
+        title: "Conversation context updated",
+        summary:
+          "The conversation context was updated with the selected purchase, workflow result, and next expected action.",
+      },
+      {
+        sequenceNumber: 11,
+        title: "Customer confirmation required",
+        summary:
+          'The refund is eligible, but execution requires the customer to submit this exact confirmation: "Confirm start return and issue label".',
+      },
+    ]);
   });
 
   it("prefers the exact response returned to the user", () => {

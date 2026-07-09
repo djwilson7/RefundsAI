@@ -219,7 +219,9 @@ function AuditSessionCard({
           <span>{formatCount(invocation.failureCount, "failure")}</span>
         </p>
         <p className={styles.metaRow}>
-          <span>{invocation.totalTokens} tokens</span>
+          <span>
+            {invocation.totalTokens} tokens
+          </span>
           <span>{invocation.latency} latency</span>
           <span>{invocation.timeToResponse} TTR</span>
         </p>

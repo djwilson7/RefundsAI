@@ -100,6 +100,24 @@ describe("AdminAuditSessionList", () => {
     );
     expect(screen.getAllByText("View Session")).toHaveLength(2);
   });
+
+  it("shows zero actual tokens for deterministic workflows", () => {
+    installIntersectionObserverMock();
+
+    render(
+      <AdminAuditSessionList
+        initialHasMore={false}
+        initialInvocations={[
+          {
+            ...firstInvocation,
+            totalTokens: 0,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("0 tokens")).toBeInTheDocument();
+  });
 });
 
 function buildInvocation({

@@ -74,30 +74,67 @@
   color: #1f5f9f;
 }
 
-.metaLayout {
+.metaSections {
   display: grid;
-  gap: 12px;
+  gap: 24px;
   margin: 24px 0 0;
 }
 
-.primaryMetaGrid,
-.identifierMetaGrid {
+.metaSection {
+  display: grid;
+  gap: 12px;
+}
+
+.metaSectionTitle {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.metaGrid {
   display: grid;
   gap: 12px;
   margin: 0;
   padding: 0;
 }
 
-.primaryMetaGrid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+.identityGrid {
+  grid-template-columns: minmax(160px, 0.7fr) repeat(2, minmax(0, 1.65fr));
 }
 
-.identifierMetaGrid {
+.processGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tokenGroups {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+}
+
+.tokenGroup {
+  display: grid;
+  gap: 10px;
+}
+
+.tokenGroup h3 {
+  margin: 0;
+  color: #6a7988;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.actualTokenGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.estimatedTokenGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.primaryMetaGrid div,
-.identifierMetaGrid div,
+.metaGrid div,
 .panel,
 .emptyState {
   border: 1px solid var(--border);
@@ -106,20 +143,19 @@
   box-shadow: 0 12px 30px rgb(23 32 42 / 6%);
 }
 
-.primaryMetaGrid div,
-.identifierMetaGrid div {
+.metaGrid div {
   min-width: 0;
   padding: 14px 16px;
 }
 
-.metaLayout dt {
+.metaSections dt {
   color: #6a7988;
   font-size: 0.6875rem;
   font-weight: 800;
   text-transform: uppercase;
 }
 
-.metaLayout dd {
+.metaSections dd {
   margin: 8px 0 0;
   overflow-wrap: anywhere;
   color: var(--foreground);
@@ -181,11 +217,62 @@
   text-transform: uppercase;
 }
 
-.badges {
+.eventContext {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 6px;
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.toolPurpose {
+  color: var(--foreground) !important;
+}
+
+.toolOutcome {
+  margin-top: 10px !important;
+}
+
+.toolOutcome strong {
+  color: var(--foreground);
+}
+
+.eventContext div {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  padding: 5px 8px;
+}
+
+.eventContext dt {
+  color: #6a7988;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.eventContext dd {
+  margin: 0;
+  color: #40505f;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.eventStatus {
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: #40505f;
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.eventStatus strong {
+  color: #6a7988;
 }
 
 .toolDetails {
@@ -302,8 +389,11 @@
 }
 
 @media (max-width: 760px) {
-  .primaryMetaGrid,
-  .identifierMetaGrid,
+  .identityGrid,
+  .processGrid,
+  .tokenGroups,
+  .actualTokenGrid,
+  .estimatedTokenGrid,
   .toolGrid,
   .toolDetails,
   .timelineDetails {
