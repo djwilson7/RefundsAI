@@ -540,9 +540,9 @@ This milestone should not add new product surfaces unless a blocking issue is fo
 * [x] Final `.ai-context` review
 * [x] README and supporting-document completion
 * [x] Comprehensive testing pass
-* [ ] Repository cleanup
-* [ ] Loom walkthrough
-* [ ] Public GitHub repository
+* [x] Repository cleanup
+* [x] Loom walkthrough
+* [x] Public GitHub repository
 
 ### Validation
 
@@ -553,5 +553,5 @@ This milestone should not add new product surfaces unless a blocking issue is fo
 * [x] Frontend coverage remains strictly above the 90% project threshold.
 * [x] Backend coverage remains strictly above the 90% project threshold.
 * [x] Docker Compose images build successfully for the web and API services.
-* [ ] Loom walkthrough recorded.
+* [x] Loom walkthrough recorded.
 * [x] Repository ready for reviewer evaluation.
