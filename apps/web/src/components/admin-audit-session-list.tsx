@@ -41,6 +41,47 @@ export function AdminAuditSessionList({
     hasMoreRef.current = hasMore;
   }, [hasMore]);
 
+  useEffect(() => {
+    const missingPromptSessionIds = invocations
+      .filter((invocation) => invocation.description === "Original prompt unavailable")
+      .map((invocation) => invocation.id);
+
+    if (missingPromptSessionIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all(
+      missingPromptSessionIds.map((sessionId) => getModelAuditInvocation(sessionId)),
+    ).then((updates) => {
+      if (cancelled) {
+        return;
+      }
+
+      const repairedInvocations = updates.filter(
+        (invocation): invocation is ModelAuditInvocation =>
+          invocation !== null &&
+          invocation.description !== "Original prompt unavailable",
+      );
+
+      if (repairedInvocations.length === 0) {
+        return;
+      }
+
+      setInvocations((current) => {
+        const merged = mergeInvocations(current, repairedInvocations);
+        loadedPageCountRef.current = merged.length;
+
+        return merged;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [invocations]);
+
   const loadMoreInvocations = useCallback(async () => {
     if (isLoadingMoreRef.current || !hasMoreRef.current) {
       return;

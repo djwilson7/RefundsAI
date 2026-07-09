@@ -5,6 +5,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useId,
@@ -81,6 +82,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatMessageIdCounterRef = useRef(0);
+  const chatSessionVersionRef = useRef(0);
   const [conversationState, setConversationState] =
     useState<ConversationState>({});
   const [chatState, setChatState] = useState<"idle" | "sending" | "error">(
@@ -91,14 +93,31 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   const router = useRouter();
   const isAvailable = isHelpAvailable(pathname);
   const purchaseId = getPurchaseIdFromPathname(pathname);
+  const resetChat = useCallback(() => {
+    chatSessionVersionRef.current += 1;
+    chatMessageIdCounterRef.current = 0;
+    setChatInput("");
+    setChatMessages(initialChatMessages);
+    setConversationState({});
+    setChatState("idle");
+  }, []);
+  const toggleHelpPanel = useCallback(() => {
+    setIsOpen((current) => {
+      if (current) {
+        resetChat();
+      }
+
+      return !current;
+    });
+  }, [resetChat]);
   const contextValue = useMemo<ApplicationHelpContextValue>(
     () => ({
       isAvailable,
       isOpen,
       panelId,
-      toggle: () => setIsOpen((current) => !current),
+      toggle: toggleHelpPanel,
     }),
-    [isAvailable, isOpen, panelId],
+    [isAvailable, isOpen, panelId, toggleHelpPanel],
   );
 
   useEffect(() => {
@@ -135,6 +154,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
       role: "user",
       content: message,
     };
+    const requestSessionVersion = chatSessionVersionRef.current;
 
     setChatInput("");
     setChatState("sending");
@@ -150,6 +170,10 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
         conversationState,
       );
 
+      if (requestSessionVersion !== chatSessionVersionRef.current) {
+        return;
+      }
+
       setChatMessages((messages) => [
         ...messages,
         {
@@ -162,6 +186,10 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
       await refreshPurchaseDataAfterChatSideEffects(chatResponse.sideEffects);
       setChatState("idle");
     } catch {
+      if (requestSessionVersion !== chatSessionVersionRef.current) {
+        return;
+      }
+
       setChatMessages((messages) => [
         ...messages,
         {

@@ -51,15 +51,8 @@ class ModelAuditReadService:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Return audit sessions, optionally capped by a caller-supplied limit."""
-        sessions = self.repository.list_sessions(limit=limit, offset=offset)
-        return [
-            enrich_session_summary(
-                session,
-                self.repository.list_events(session["id"]),
-            )
-            for session in sessions
-        ]
+        """Return audit sessions without loading full event payloads for each row."""
+        return self.repository.list_sessions(limit=limit, offset=offset)
 
     def get_session(self, session_id: UUID) -> dict[str, Any]:
         """Return one audit session."""

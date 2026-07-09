@@ -28,6 +28,7 @@ class ModelAuditSessionRead(BaseModel):
     started_at: datetime
     completed_at: datetime | None = None
     latency_ms: int | None = None
+    original_prompt: str | None = None
     event_count: int
     total_model_calls: int = 0
     total_tool_calls: int = 0

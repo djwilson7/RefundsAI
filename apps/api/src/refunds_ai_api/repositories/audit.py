@@ -297,6 +297,9 @@ class ModelAuditRepository:
                         s.latency_ms,
                         s.created_at,
                         s.updated_at,
+                        max(e.input_json ->> 'message')
+                            filter (where e.event_key = 'REQUEST_RECEIVED')
+                            as original_prompt,
                         count(e.id)::integer as event_count
                     from public.model_audit_sessions s
                     left join public.model_audit_events e on e.session_id = s.id
@@ -335,6 +338,9 @@ class ModelAuditRepository:
                         s.latency_ms,
                         s.created_at,
                         s.updated_at,
+                        max(e.input_json ->> 'message')
+                            filter (where e.event_key = 'REQUEST_RECEIVED')
+                            as original_prompt,
                         count(e.id)::integer as event_count
                     from public.model_audit_sessions s
                     left join public.model_audit_events e on e.session_id = s.id

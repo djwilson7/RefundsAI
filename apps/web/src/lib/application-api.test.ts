@@ -91,6 +91,8 @@ const apiModelAuditSession = {
   started_at: "2026-07-07T16:18:00Z",
   completed_at: "2026-07-07T16:18:03.200Z",
   latency_ms: 3200,
+  original_prompt:
+    "Can you check whether my wireless headphones are eligible for a refund?",
   event_count: 14,
   created_at: "2026-07-07T16:18:00Z",
   updated_at: "2026-07-07T16:18:03.200Z",
@@ -515,6 +517,7 @@ describe("application API client", () => {
         completed_at: null,
         updated_at: "not-a-date",
         latency_ms: null,
+        original_prompt: null,
         total_workflow_steps: 7,
         total_model_calls: 3,
         total_tool_calls: 4,
@@ -1032,29 +1035,17 @@ describe("application API client", () => {
     );
   });
 
-  it("loads model audit invocations from session and event APIs", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: { sessions: [apiModelAuditSession] },
-            error: null,
-            meta: {},
-          }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: { events: apiModelAuditEvents },
-            error: null,
-            meta: {},
-          }),
-      });
+  it("loads model audit invocation summaries from the session API", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: { sessions: [apiModelAuditSession] },
+          error: null,
+          meta: {},
+        }),
+    });
     vi.stubGlobal("fetch", fetch);
 
     await expect(getModelAuditInvocations(1)).resolves.toEqual([
@@ -1063,8 +1054,8 @@ describe("application API client", () => {
           "Can you check whether my wireless headphones are eligible for a refund?",
         eventCount: 14,
         latency: "3.2s",
-        timeToResponse: "3.0s",
-        toolCount: 1,
+        timeToResponse: "3.2s",
+        toolCount: 0,
       }),
     ]);
     expect(fetch).toHaveBeenNthCalledWith(
@@ -1072,11 +1063,7 @@ describe("application API client", () => {
       "/api/admin/audit/sessions?limit=2",
       { cache: "no-store" },
     );
-    expect(fetch).toHaveBeenNthCalledWith(
-      2,
-      "/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001/events",
-      { cache: "no-store" },
-    );
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("loads all model audit invocations when no limit is supplied", async () => {
@@ -1276,7 +1263,7 @@ describe("application API client", () => {
           json: () =>
             Promise.resolve({
               success: true,
-              data: { sessions: [apiModelAuditSession] },
+              data: { sessions: [{ ...apiModelAuditSession, original_prompt: null }] },
               error: null,
               meta: {},
             }),

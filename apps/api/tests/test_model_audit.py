@@ -103,6 +103,7 @@ class StubConnection:
             "latency_ms": 425,
             "created_at": STARTED_AT,
             "updated_at": COMPLETED_AT,
+            "original_prompt": "Can I refund this order?",
             "event_count": 1,
         }
         self.event_rows = [
@@ -698,6 +699,7 @@ def test_model_audit_repository_lists_sessions() -> None:
     query_sql, query_params = connection.executed[0]
     assert "from public.model_audit_sessions" in query_sql.lower()
     assert "left join public.model_audit_events" in query_sql.lower()
+    assert "as original_prompt" in query_sql.lower()
     assert "order by s.started_at desc" in query_sql.lower()
     assert query_params == (25,)
     assert sessions == [connection.session_row]

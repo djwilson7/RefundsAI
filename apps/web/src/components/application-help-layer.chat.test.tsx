@@ -95,6 +95,90 @@ describe("ApplicationHelpLayer", () => {
     expect(getNavigationRefreshMock()).not.toHaveBeenCalled();
   });
 
+  it("resets chat messages and context when the help panel closes", async () => {
+    setMockedPathname("/user-home");
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              message: {
+                content: "You made 2 digital purchases.",
+              },
+              conversation_state: {
+                selected_purchase_type: "digital",
+              },
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              message: {
+                content: "Fresh context.",
+              },
+            },
+          }),
+      });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      <ApplicationHelpLayer>
+        <main>Purchase summary</main>
+        <HelpTriggerButton />
+      </ApplicationHelpLayer>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open help chat" }));
+    fireEvent.change(screen.getByLabelText("Message the AI assistant"), {
+      target: { value: "Which of my purchases are digital?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("You made 2 digital purchases.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close help chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open help chat" }));
+
+    expect(
+      screen.queryByText("Which of my purchases are digital?"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("You made 2 digital purchases."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Ask me about your purchases, orders, or account activity."),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Message the AI assistant"), {
+      target: { value: "What is the policy?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await screen.findByText("Fresh context.");
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/chat",
+      expect.objectContaining({
+        body: JSON.stringify({
+          message: "What is the policy?",
+          customer_id: null,
+          purchase_id: null,
+          page_context: {
+            surface: "purchase_history",
+            purchase_id: null,
+          },
+          conversation_state: {},
+        }),
+      }),
+    );
+  });
+
   it("refreshes purchase data after a chat purchase-data side effect", async () => {
     setMockedPathname("/purchase-details/40000000-0000-4000-8000-000000000001");
     const fetch = vi.fn().mockResolvedValue({

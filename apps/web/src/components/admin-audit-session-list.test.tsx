@@ -86,6 +86,31 @@ describe("AdminAuditSessionList", () => {
     ).toBeInTheDocument();
   });
 
+  it("repairs summary cards with missing original prompts after render", async () => {
+    installIntersectionObserverMock();
+    vi.mocked(getModelAuditInvocation).mockResolvedValue(firstInvocation);
+
+    render(
+      <AdminAuditSessionList
+        initialHasMore={false}
+        initialInvocations={[
+          {
+            ...firstInvocation,
+            description: "Original prompt unavailable",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Original prompt unavailable")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "Can you check whether my wireless headphones are eligible?",
+      ),
+    ).toBeInTheDocument();
+    expect(getModelAuditInvocation).toHaveBeenCalledWith(firstInvocation.id);
+  });
+
   it("reports a load error when the next page cannot be loaded", async () => {
     const observer = installIntersectionObserverMock();
     vi.mocked(getModelAuditInvocationPage).mockResolvedValue(null);

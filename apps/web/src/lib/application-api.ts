@@ -121,6 +121,7 @@ type ApiModelAuditSession = Readonly<{
   started_at: string;
   completed_at: string | null;
   latency_ms: number | null;
+  original_prompt?: string | null;
   event_count: number;
   total_model_calls?: number;
   total_tool_calls?: number;
@@ -510,12 +511,8 @@ export async function getModelAuditInvocationPage({
 
     const sessions =
       limit === undefined ? body.data.sessions : body.data.sessions.slice(0, limit);
-    const invocations = await Promise.all(
-      sessions.map(async (session) => {
-        const events = await getModelAuditSessionEvents(session.id);
-
-        return mapApiModelAuditSessionToInvocation(session, events ?? []);
-      }),
+    const invocations = sessions.map((session) =>
+      mapApiModelAuditSessionToInvocation(session, []),
     );
 
     return {
@@ -724,7 +721,7 @@ export function mapApiModelAuditSessionToInvocation(
     startedAt: session.started_at,
     title: formatAuditDate(session.started_at),
     lastActive: formatAuditLastActive(session.completed_at ?? session.updated_at),
-    description: getOriginalPrompt(events),
+    description: getOriginalPrompt(events, session.original_prompt),
     status: session.status,
     eventCount: session.event_count,
     toolCount: countToolInvocations(events),
@@ -766,7 +763,7 @@ export function mapApiModelAuditSessionToDetail(
         session.total_workflow_latency_ms ?? session.latency_ms,
       ),
     },
-    prompt: getOriginalPrompt(events),
+    prompt: getOriginalPrompt(events, session.original_prompt),
     finalResponse: getFinalResponse(events),
     toolCalls: getToolCalls(events),
     timelineEvents: buildNarrativeTimeline(events),
@@ -1285,12 +1282,17 @@ function formatEventValue(value: string) {
   return value.replaceAll("_", " ");
 }
 
-function getOriginalPrompt(events: readonly ApiModelAuditEvent[]) {
+function getOriginalPrompt(
+  events: readonly ApiModelAuditEvent[],
+  sessionPrompt?: string | null,
+) {
   const requestEvent = events.find((event) => event.event_key === "REQUEST_RECEIVED");
   const message = requestEvent?.input_json?.message;
 
   return typeof message === "string" && message.trim()
     ? message
+    : typeof sessionPrompt === "string" && sessionPrompt.trim()
+      ? sessionPrompt
     : "Original prompt unavailable";
 }
 
