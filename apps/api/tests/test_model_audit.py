@@ -353,6 +353,8 @@ def test_model_audit_writer_creates_session_event_and_completion() -> None:
             "prompt_tokens": 12,
             "completion_tokens": 7,
             "total_tokens": 19,
+            "input_tokens_estimated": None,
+            "output_tokens_estimated": None,
             "completed_at": COMPLETED_AT,
             "latency_ms": 425,
         }
@@ -620,6 +622,8 @@ def test_model_audit_repository_completes_session() -> None:
         prompt_tokens=12,
         completion_tokens=7,
         total_tokens=19,
+        input_tokens_estimated=27,
+        output_tokens_estimated=8,
         completed_at=COMPLETED_AT,
         latency_ms=425,
     )

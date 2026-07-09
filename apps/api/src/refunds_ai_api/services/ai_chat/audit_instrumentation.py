@@ -469,6 +469,14 @@ def merge_token_usage(
             additional.reasoning_tokens,
         ),
         total_tokens=sum_optional(current.total_tokens, additional.total_tokens),
+        input_tokens_estimated=sum_optional(
+            current.input_tokens_estimated,
+            additional.input_tokens_estimated,
+        ),
+        output_tokens_estimated=sum_optional(
+            current.output_tokens_estimated,
+            additional.output_tokens_estimated,
+        ),
     )
 
 

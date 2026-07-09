@@ -66,6 +66,19 @@ class FailingEventAuditWriter(FakeAuditWriter):
         raise RuntimeError("audit event timeout")
 
 
+class FailedStaticChatService(StaticChatService):
+    def create_response(self, **kwargs) -> AIChatResult:  # type: ignore[no-untyped-def]
+        result = super().create_response(**kwargs)
+        return AIChatResult(
+            content=result.content,
+            graph_ready=result.graph_ready,
+            conversation_state=result.conversation_state,
+            next_trace_step=result.next_trace_step,
+            token_usage=TokenUsage(total_tokens=17),
+            audit_failed=True,
+        )
+
+
 class TokenReportingModelClient:
     def __init__(self) -> None:
         self.calls = 0
@@ -324,6 +337,28 @@ def test_chat_endpoint_audit_session_creation_failure_does_not_fail_response(cap
     assert response.status_code == 200
     assert response.json()["data"]["message"]["content"] == "Received Show my purchases"
     assert caplog.records[0].event["type"] == "audit.session_create_failed"
+
+
+def test_chat_endpoint_marks_failed_audit_session_terminal() -> None:
+    chat_service = FailedStaticChatService()
+    chat_service.audit_writer = FakeAuditWriter()
+    client = build_client(chat_service)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Issue my refund",
+            "customer_id": CUSTOMER_ID,
+            "purchase_id": PURCHASE_ID,
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(chat_service.audit_writer.completed) == 1
+    assert chat_service.audit_writer.completed[0]["status"] == "failed"
+    assert chat_service.audit_writer.completed[0]["token_usage"] == TokenUsage(
+        total_tokens=17
+    )
 
 
 def test_chat_endpoint_rejects_empty_messages() -> None:
@@ -720,3 +755,74 @@ def test_openapi_documents_chat_endpoint() -> None:
 
     assert response.status_code == 200
     assert "/api/chat" in response.json()["paths"]
+
+
+def test_chat_audit_token_usage_preserved_on_deterministic_refund_confirmation() -> None:
+    """Regression: audit_token_usage must be correctly propagated when the
+    refund confirmation path bypasses request_tool_call_node entirely.
+
+    When a customer sends the exact canonical confirmation command, the graph
+    routes validate_context -> execute_tools -> generate_final_response,
+    skipping the model call in request_tool_call_node. The final-response node
+    takes the _return_deterministic_response branch because assistant_response
+    is pre-set by execute_tools. This test confirms that audit_token_usage
+    (None for this no-model path) is explicitly returned from the graph state
+    and handed to complete_session, rather than being silently dropped.
+    """
+    from .fakes import MutableRefundApplicationService, NoToolModelClient
+
+    DIGITAL_CONFIRMATION_COMMAND = "Confirm invalidate code and issue refund"
+
+    application_service = MutableRefundApplicationService()
+    # Seed a persisted confirmation so the mutation is authorized
+    application_service.refund_confirmations[PURCHASE_ID] = {
+        "refund_confirmation_granted": True,
+        "refund_confirmation_message": f"{DIGITAL_CONFIRMATION_COMMAND}.",
+        "refund_confirmation_granted_at": None,
+        "refund_confirmation_expected_command": DIGITAL_CONFIRMATION_COMMAND,
+        "refund_confirmation_matched": True,
+        "refund_confirmation_source": "chat_confirmation_validator",
+        "refund_confirmation_customer_id": CUSTOMER_ID,
+        "refund_confirmation_purchase_id": PURCHASE_ID,
+        "refund_confirmation_consumed_at": None,
+        "refund_confirmation_consumed_by_action": None,
+    }
+
+    pending_action = {
+        "action": "request_refund",
+        "purchase_id": PURCHASE_ID,
+        "product_name": "Design Template Pack",
+        "purchase_type": "digital",
+        "confirmation_expected_command": DIGITAL_CONFIRMATION_COMMAND,
+    }
+
+    audit_writer = FakeAuditWriter()
+    chat_service = AIChatService(
+        application_service=application_service,
+        model="gpt-5.4-mini",
+        model_client=NoToolModelClient("Unused model response."),
+        audit_writer=audit_writer,  # type: ignore[arg-type]
+    )
+    client = build_client(chat_service)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": DIGITAL_CONFIRMATION_COMMAND,
+            "customer_id": CUSTOMER_ID,
+            "purchase_id": PURCHASE_ID,
+            "conversation_state": {
+                "pending_refund_action": pending_action,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    # The graph took the deterministic confirmation path — no model call was made.
+    # complete_session must be called exactly once with token_usage=None (not dropped).
+    assert len(audit_writer.completed) == 1
+    completed = audit_writer.completed[0]
+    assert completed["status"] == "succeeded"
+    # For a purely deterministic refund turn, no model tokens were consumed.
+    # token_usage should be None (not a stale value or an exception).
+    assert completed["token_usage"] is None

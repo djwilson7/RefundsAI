@@ -336,7 +336,7 @@ def _return_deterministic_response(runtime: Any, state: ChatGraphState) -> ChatG
         state.get("conversation_state", {}),
         counter,
     )
-    return log_trace_step(
+    state = log_trace_step(
         state,
         message="Deterministic assistant response generated without a model call.",
         event_type="response.generated",
@@ -371,6 +371,10 @@ def _return_deterministic_response(runtime: Any, state: ChatGraphState) -> ChatG
             },
         },
     )
+    return {
+        **state,
+        "audit_token_usage": state.get("audit_token_usage"),
+    }
 
 
 def _log_model_token_budget(

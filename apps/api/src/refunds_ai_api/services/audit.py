@@ -61,6 +61,8 @@ class ModelAuditRepositoryProtocol(Protocol):
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        input_tokens_estimated: int | None = None,
+        output_tokens_estimated: int | None = None,
         latency_ms: int | None = None,
     ) -> None:
         """Persist final session status and metrics."""
@@ -107,12 +109,14 @@ class ModelAuditSession:
 
 @dataclass(frozen=True)
 class TokenUsage:
-    """Token usage metrics captured for a completed model request."""
+    """Token usage metrics captured for a completed model request or tool execution."""
 
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     reasoning_tokens: int | None = None
     total_tokens: int | None = None
+    input_tokens_estimated: int | None = None
+    output_tokens_estimated: int | None = None
 
 
 @dataclass(frozen=True)
@@ -212,6 +216,8 @@ class ModelAuditWriterService:
             prompt_tokens=effective_token_usage.prompt_tokens,
             completion_tokens=effective_token_usage.completion_tokens,
             total_tokens=effective_token_usage.total_tokens,
+            input_tokens_estimated=effective_token_usage.input_tokens_estimated,
+            output_tokens_estimated=effective_token_usage.output_tokens_estimated,
             completed_at=effective_completed_at,
             latency_ms=effective_latency_ms,
         )
@@ -347,6 +353,8 @@ class NonBlockingModelAuditWriterService(ModelAuditWriterService):
             prompt_tokens=effective_token_usage.prompt_tokens,
             completion_tokens=effective_token_usage.completion_tokens,
             total_tokens=effective_token_usage.total_tokens,
+            input_tokens_estimated=effective_token_usage.input_tokens_estimated,
+            output_tokens_estimated=effective_token_usage.output_tokens_estimated,
             completed_at=effective_completed_at,
             latency_ms=effective_latency_ms,
         )

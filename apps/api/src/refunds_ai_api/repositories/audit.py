@@ -214,9 +214,15 @@ class ModelAuditRepository:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        input_tokens_estimated: int | None = None,
+        output_tokens_estimated: int | None = None,
         latency_ms: int | None = None,
     ) -> None:
         """Mark one audit session finished with token and latency metrics."""
+        # Estimated token totals are derived from lifecycle events by the audit read
+        # service. Accept them here to keep this repository aligned with the writer
+        # contract without duplicating those aggregates on the session row.
+        del input_tokens_estimated, output_tokens_estimated
         with self.connection_provider.open() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
