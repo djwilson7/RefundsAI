@@ -16,7 +16,10 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+    depends_on:
+      - api
     ports:
       - "3000:3000"
     environment:
       NODE_ENV: production
+      REFUNDS_AI_API_BASE_URL: "http://api:8000"

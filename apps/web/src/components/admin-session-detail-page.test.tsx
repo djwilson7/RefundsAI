@@ -178,4 +178,55 @@ describe("AdminSessionDetailPage", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("renders failed and running statuses plus optional empty details", () => {
+    render(
+      <AdminSessionDetailPage
+        detail={{
+          ...detail,
+          invocation: {
+            ...detail.invocation,
+            status: "failed",
+          },
+          toolCalls: [],
+          timelineEvents: [
+            {
+              ...detail.timelineEvents[0],
+              details: [],
+              latency: "25ms",
+              tokenCount: 12,
+              tokenCountIsEstimated: true,
+              workflow: "refund_eligibility",
+              operation: "get_refund_eligibility",
+              rawPayload: '{\n  "input": {}\n}',
+            },
+          ],
+        }}
+        sessionId="70000000-0000-4000-8000-000000000001"
+      />,
+    );
+
+    expect(screen.getByText("failed")).toBeInTheDocument();
+    expect(screen.getByText("No tool calls were recorded.")).toBeInTheDocument();
+    expect(screen.getByText("Estimated tokens")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.getByText("Recorded payload")).toBeInTheDocument();
+  });
+
+  it("renders the default status pill for unknown statuses", () => {
+    render(
+      <AdminSessionDetailPage
+        detail={{
+          ...detail,
+          invocation: {
+            ...detail.invocation,
+            status: "queued",
+          },
+        }}
+        sessionId="70000000-0000-4000-8000-000000000001"
+      />,
+    );
+
+    expect(screen.getByText("queued")).toBeInTheDocument();
+  });
 });

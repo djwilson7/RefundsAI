@@ -71,6 +71,54 @@ describe("AdminAuditSessionList", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the empty state when no sessions are available", () => {
+    installIntersectionObserverMock();
+
+    render(
+      <AdminAuditSessionList
+        initialHasMore={false}
+        initialInvocations={[]}
+      />,
+    );
+
+    expect(
+      screen.getByText("No model invocations captured yet."),
+    ).toBeInTheDocument();
+  });
+
+  it("reports a load error when the next page cannot be loaded", async () => {
+    const observer = installIntersectionObserverMock();
+    vi.mocked(getModelAuditInvocationPage).mockResolvedValue(null);
+
+    render(
+      <AdminAuditSessionList
+        initialHasMore
+        initialInvocations={[firstInvocation]}
+      />,
+    );
+
+    observer.triggerIntersect();
+
+    expect(
+      await screen.findByText("Older audit sessions could not be loaded."),
+    ).toBeInTheDocument();
+  });
+
+  it("ignores non-intersecting pagination updates", () => {
+    const observer = installIntersectionObserverMock();
+
+    render(
+      <AdminAuditSessionList
+        initialHasMore
+        initialInvocations={[firstInvocation]}
+      />,
+    );
+
+    observer.triggerNonIntersect();
+
+    expect(getModelAuditInvocationPage).not.toHaveBeenCalled();
+  });
+
   it("inserts streamed session updates into the visible list", async () => {
     vi.useFakeTimers();
     installIntersectionObserverMock();
@@ -101,6 +149,39 @@ describe("AdminAuditSessionList", () => {
     expect(screen.getAllByText("View Session")).toHaveLength(2);
   });
 
+  it("ignores streamed events without a valid session update", async () => {
+    vi.useFakeTimers();
+    installIntersectionObserverMock();
+    const eventSources = installEventSourceMock();
+    vi.mocked(getModelAuditInvocation).mockResolvedValue(null);
+
+    const { unmount } = render(
+      <AdminAuditSessionList
+        initialHasMore={false}
+        initialInvocations={[firstInvocation]}
+      />,
+    );
+
+    await act(async () => {
+      eventSources[0].emit("model_audit_event", "{not-json");
+      eventSources[0].emit("model_audit_event", JSON.stringify({ session_id: 123 }));
+      eventSources[0].emit(
+        "model_audit_event",
+        JSON.stringify({ session_id: liveInvocation.id }),
+      );
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    expect(
+      screen.queryByText("A new customer just asked about a refund."),
+    ).not.toBeInTheDocument();
+    expect(getModelAuditInvocation).toHaveBeenCalledTimes(1);
+
+    unmount();
+
+    expect(eventSources[0].close).toHaveBeenCalledTimes(1);
+  });
+
   it("shows zero actual tokens for deterministic workflows", () => {
     installIntersectionObserverMock();
 
@@ -117,6 +198,36 @@ describe("AdminAuditSessionList", () => {
     );
 
     expect(screen.getByText("0 tokens")).toBeInTheDocument();
+  });
+
+  it("renders singular counts and non-success status labels", () => {
+    installIntersectionObserverMock();
+
+    render(
+      <AdminAuditSessionList
+        initialHasMore={false}
+        initialInvocations={[
+          {
+            ...firstInvocation,
+            status: "failed",
+            eventCount: 1,
+            toolCount: 1,
+            failureCount: 1,
+          },
+          {
+            ...olderInvocation,
+            status: "running",
+            failureCount: 2,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("failed")).toBeInTheDocument();
+    expect(screen.getByText("running")).toBeInTheDocument();
+    expect(screen.getByText("1 event")).toBeInTheDocument();
+    expect(screen.getAllByText("1 tool")).toHaveLength(2);
+    expect(screen.getByText("1 failure")).toBeInTheDocument();
   });
 });
 
@@ -166,6 +277,9 @@ function installIntersectionObserverMock() {
   return {
     triggerIntersect: () => {
       callback?.([{ isIntersecting: true } as IntersectionObserverEntry]);
+    },
+    triggerNonIntersect: () => {
+      callback?.([{ isIntersecting: false } as IntersectionObserverEntry]);
     },
   };
 }

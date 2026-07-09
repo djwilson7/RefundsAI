@@ -550,5 +550,8 @@ This milestone should not add new product surfaces unless a blocking issue is fo
 * [x] Test suite passes.
 * [x] Coverage maintained above project targets.
 * [x] README complete.
+* [x] Frontend coverage remains strictly above the 90% project threshold.
+* [x] Backend coverage remains strictly above the 90% project threshold.
+* [x] Docker Compose images build successfully for the web and API services.
 * [ ] Loom walkthrough recorded.
 * [x] Repository ready for reviewer evaluation.

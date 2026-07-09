@@ -11,10 +11,12 @@ from uuid import UUID
 
 import pytest
 
+from refunds_ai_api.config import Settings
 from refunds_ai_api.repositories.application import RepositoryConflictError
 from refunds_ai_api.repositories.audit import (
     AuditSessionNotFoundError,
     ModelAuditRepository,
+    PsycopgDedicatedAuditConnectionProvider,
     serialize_json_value,
 )
 from refunds_ai_api.services.ai_chat.audit_instrumentation import model_request_payload
@@ -131,6 +133,14 @@ class StubConnection:
         notifications = self.notifications
         self.notifications = []
         return notifications
+
+
+class ContextStubConnection(StubConnection):
+    def __enter__(self) -> ContextStubConnection:
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
 
 
 class StubConnectionProvider:
@@ -596,6 +606,31 @@ def test_model_audit_repository_releases_connections_after_writes() -> None:
 
     assert provider.active_connections == 0
     assert provider.closed_connections == 2
+
+
+def test_dedicated_audit_provider_opens_unpooled_connection(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+    connection = ContextStubConnection()
+
+    def connect(*args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append({"args": args, "kwargs": kwargs})
+        return connection
+
+    monkeypatch.setattr("refunds_ai_api.repositories.audit.psycopg.connect", connect)
+    provider = PsycopgDedicatedAuditConnectionProvider(
+        Settings(
+            SUPABASE_DB_URL="postgresql://user:password@example.supabase.co:5432/postgres",
+            DATABASE_CONNECT_TIMEOUT_SECONDS=7,
+        )
+    )
+
+    with provider.open() as opened_connection:
+        assert opened_connection is connection
+
+    assert calls[0]["args"] == (
+        "postgresql://user:password@example.supabase.co:5432/postgres",
+    )
+    assert calls[0]["kwargs"]["connect_timeout"] == 7
 
 
 def test_serialize_json_value_converts_datetime_payloads() -> None:

@@ -24,15 +24,16 @@ PURCHASE_ID = "40000000-0000-4000-8000-000000000001"
 def _maybe_inject_dummy_call(calls: list, messages: list[dict[str, Any]], tools: Any) -> None:
     if not tools and not calls:
         user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
-        from refunds_ai_api.services.ai_chat.prompts import SYSTEM_PROMPT
         from refunds_ai_api.services.ai_chat.nodes.tool_selection import (
-            validate_customer_account_tool_schema,
             get_customer_purchase_history_tool_schema,
             get_purchase_count_by_amount_threshold_tool_schema,
             get_purchase_history_by_date_range_tool_schema,
-            get_refund_policy_tool_schema,
             get_refund_eligibility_tool_schema,
+            get_refund_policy_tool_schema,
+            validate_customer_account_tool_schema,
         )
+        from refunds_ai_api.services.ai_chat.prompts import SYSTEM_PROMPT
+
         dummy_tools = [
             validate_customer_account_tool_schema(),
             get_customer_purchase_history_tool_schema(),
@@ -41,13 +42,15 @@ def _maybe_inject_dummy_call(calls: list, messages: list[dict[str, Any]], tools:
             get_refund_policy_tool_schema(),
             get_refund_eligibility_tool_schema(),
         ]
-        calls.append({
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_msg},
-            ],
-            "tools": dummy_tools
-        })
+        calls.append(
+            {
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_msg},
+                ],
+                "tools": dummy_tools,
+            }
+        )
 
 
 class FakeModelClient:

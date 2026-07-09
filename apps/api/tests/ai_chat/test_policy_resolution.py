@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import contextlib
 import json
+from unittest.mock import patch
 
 from refunds_ai_api.services.ai_chat import AIChatService, ModelToolCall
+from refunds_ai_api.services.ai_chat.workflows.classification import (
+    WorkflowClassification,
+    WorkflowKind,
+)
+from refunds_ai_api.services.ai_chat.workflows.operations import (
+    OperationResolution,
+    WorkflowOperation,
+)
 
 from .assertions import assert_customer_safe_response, assert_refund_command_response
 from .fakes import (
@@ -20,11 +30,6 @@ from .fakes import (
 )
 
 
-import contextlib
-from unittest.mock import patch
-from refunds_ai_api.services.ai_chat.workflows.classification import WorkflowClassification, WorkflowKind
-from refunds_ai_api.services.ai_chat.workflows.operations import OperationResolution, WorkflowOperation
-
 @contextlib.contextmanager
 def mock_model_assisted_classification(kind, reason, operation):
     mock_classification = WorkflowClassification(
@@ -36,14 +41,21 @@ def mock_model_assisted_classification(kind, reason, operation):
             operation=operation,
             confidence="model_assisted",
             reason=reason,
-        )
+        ),
     )
-    with patch("refunds_ai_api.services.ai_chat.workflows.classification.classify_workflow", return_value=mock_classification):
-        with patch("refunds_ai_api.services.ai_chat.classify_workflow", return_value=mock_classification, create=True):
-            with patch("refunds_ai_api.services.ai_chat.nodes.validation.classify_workflow", return_value=mock_classification, create=True):
-                with patch("refunds_ai_api.services.ai_chat.nodes.tool_selection.classify_workflow", return_value=mock_classification, create=True):
-                    with patch("refunds_ai_api.services.ai_chat.nodes.tool_execution.classify_workflow", return_value=mock_classification, create=True):
-                        yield
+    patch_targets = (
+        "refunds_ai_api.services.ai_chat.workflows.classification.classify_workflow",
+        "refunds_ai_api.services.ai_chat.classify_workflow",
+        "refunds_ai_api.services.ai_chat.nodes.validation.classify_workflow",
+        "refunds_ai_api.services.ai_chat.nodes.tool_selection.classify_workflow",
+        "refunds_ai_api.services.ai_chat.nodes.tool_execution.classify_workflow",
+    )
+    with contextlib.ExitStack() as stack:
+        for target in patch_targets:
+            stack.enter_context(
+                patch(target, return_value=mock_classification, create=True)
+            )
+        yield
 
 
 def test_chat_graph_forces_policy_lookup_without_customer_context(caplog) -> None:

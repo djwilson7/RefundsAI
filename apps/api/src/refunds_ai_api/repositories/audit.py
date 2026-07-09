@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 from uuid import UUID
 
+import psycopg
 from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -41,7 +42,7 @@ class PsycopgPoolAuditConnectionProvider:
     """Reuse pooled psycopg connections using backend Supabase configuration."""
 
     settings: Settings
-    max_size: int = 4
+    max_size: int = 10
 
     @contextmanager
     def open(self) -> Iterator[Connection]:
@@ -59,6 +60,26 @@ class PsycopgPoolAuditConnectionProvider:
 
 
 PsycopgAuditConnectionProvider = PsycopgPoolAuditConnectionProvider
+
+
+@dataclass(frozen=True)
+class PsycopgDedicatedAuditConnectionProvider:
+    """Open dedicated audit connections for long-lived database listeners."""
+
+    settings: Settings
+
+    @contextmanager
+    def open(self) -> Iterator[Connection]:
+        """Yield a dedicated psycopg connection outside the shared audit pool."""
+        if not self.settings.supabase_db_url:
+            raise RepositoryConfigurationError("SUPABASE_DB_URL is not configured.")
+
+        with psycopg.connect(
+            self.settings.supabase_db_url,
+            connect_timeout=self.settings.database_connect_timeout_seconds,
+            row_factory=dict_row,
+        ) as connection:
+            yield connection
 
 
 def get_audit_connection_pool(

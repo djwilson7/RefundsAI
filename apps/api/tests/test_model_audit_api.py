@@ -10,7 +10,10 @@ from fastapi.testclient import TestClient
 from refunds_ai_api.main import create_app
 from refunds_ai_api.repositories.application import RepositoryConfigurationError
 from refunds_ai_api.repositories.audit import AuditSessionNotFoundError
-from refunds_ai_api.routes.admin_audit import get_model_audit_service
+from refunds_ai_api.routes.admin_audit import (
+    get_model_audit_service,
+    get_model_audit_stream_service,
+)
 from refunds_ai_api.services.audit import ModelAuditEventKey
 from refunds_ai_api.services.model_audit import format_sse_event
 
@@ -110,6 +113,7 @@ class StubModelAuditService:
 def build_client(service: StubModelAuditService) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_model_audit_service] = lambda: service
+    app.dependency_overrides[get_model_audit_stream_service] = lambda: service
     return TestClient(app)
 
 

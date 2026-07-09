@@ -18,6 +18,7 @@ from refunds_ai_api.repositories.audit import (
     AuditSessionNotFoundError,
     ModelAuditRepository,
     PsycopgAuditConnectionProvider,
+    PsycopgDedicatedAuditConnectionProvider,
 )
 from refunds_ai_api.schemas.audit import ModelAuditEventRead, ModelAuditSessionRead
 from refunds_ai_api.schemas.responses import ApiResponse
@@ -35,6 +36,14 @@ def response_meta() -> dict[str, str]:
 def get_model_audit_service() -> ModelAuditReadService:
     """Build the model audit read service from backend database settings."""
     repository = ModelAuditRepository(PsycopgAuditConnectionProvider(get_settings()))
+    return ModelAuditReadService(repository)
+
+
+def get_model_audit_stream_service() -> ModelAuditReadService:
+    """Build the model audit stream service with a dedicated listener connection."""
+    repository = ModelAuditRepository(
+        PsycopgDedicatedAuditConnectionProvider(get_settings())
+    )
     return ModelAuditReadService(repository)
 
 
@@ -119,7 +128,7 @@ def list_audit_session_events(
 
 @router.get("/events/stream")
 def stream_audit_events(
-    service: Annotated[ModelAuditReadService, Depends(get_model_audit_service)],
+    service: Annotated[ModelAuditReadService, Depends(get_model_audit_stream_service)],
     session_id: UUID | None = None,
 ) -> StreamingResponse:
     """Stream database-broadcast model audit events as SSE frames."""

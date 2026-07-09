@@ -25,6 +25,7 @@ from refunds_ai_api.services.ai_chat.state import (
 from refunds_ai_api.services.ai_chat.tools import get_purchase_history_by_date_range
 from refunds_ai_api.services.application import ApplicationService
 
+from .products import explicit_purchase_type_word
 from .purchases import (
     resolve_purchase_by_id,
     resolve_purchase_from_selected_set,
@@ -71,9 +72,11 @@ def resolve_refund_eligibility_query(
             current_message_entity.matched_purchase_id,
         )
         if resolved_purchase is not None:
-            from refunds_ai_api.services.ai_chat.resolvers.products import explicit_purchase_type_word
             requested_type = explicit_purchase_type_word(current_message_entity.raw_text)
-            if requested_type is not None and resolved_purchase.get("purchase_type") != requested_type:
+            if (
+                requested_type is not None
+                and resolved_purchase.get("purchase_type") != requested_type
+            ):
                 return EligibilityResolution(
                     [],
                     "scoped_product_type_mismatch",

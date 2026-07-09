@@ -84,7 +84,9 @@ class AIChatService:
                 audit_failed=True,
             )
 
-        final_conv_state = state.get("conversation_state") or normalize_conversation_state(conversation_state)
+        final_conv_state = state.get(
+            "conversation_state"
+        ) or normalize_conversation_state(conversation_state)
         final_conv_state["_turn_processed"] = True
 
         return AIChatResult(

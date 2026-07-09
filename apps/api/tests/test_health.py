@@ -175,3 +175,65 @@ def test_openai_model_health_checker_reports_missing_configuration() -> None:
         model="gpt-5.4-mini",
         detail="OPENAI_API_KEY is not configured.",
     )
+
+
+def test_openai_model_health_checker_reports_success(monkeypatch) -> None:
+    class StubCompletions:
+        def create(self, **kwargs) -> dict[str, str]:
+            return {"id": "chatcmpl-test"}
+
+    completions = StubCompletions()
+    chat = type("Chat", (), {"completions": completions})()
+
+    class StubOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.api_key = api_key
+            self.chat = chat
+
+    monkeypatch.setattr("refunds_ai_api.services.model_health.OpenAI", StubOpenAI)
+
+    checker = OpenAIModelHealthChecker(
+        Settings(
+            OPENAI_API_KEY="sk-test",
+            OPENAI_MODEL="gpt-5.4-mini",
+        )
+    )
+
+    assert checker.check() == ModelHealth(
+        provider="openai",
+        configured=True,
+        connected=True,
+        model="gpt-5.4-mini",
+        detail="OpenAI model handshake succeeded.",
+    )
+
+
+def test_openai_model_health_checker_wraps_handshake_errors(monkeypatch) -> None:
+    class StubCompletions:
+        def create(self, **kwargs) -> None:
+            raise RuntimeError("network unavailable")
+
+    completions = StubCompletions()
+    chat = type("Chat", (), {"completions": completions})()
+
+    class StubOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.api_key = api_key
+            self.chat = chat
+
+    monkeypatch.setattr("refunds_ai_api.services.model_health.OpenAI", StubOpenAI)
+
+    checker = OpenAIModelHealthChecker(
+        Settings(
+            OPENAI_API_KEY="sk-test",
+            OPENAI_MODEL="gpt-5.4-mini",
+        )
+    )
+
+    try:
+        checker.check()
+    except ModelConnectionError as exc:
+        assert str(exc) == "OpenAI model handshake failed."
+        assert isinstance(exc.__cause__, RuntimeError)
+    else:
+        raise AssertionError("Expected ModelConnectionError.")

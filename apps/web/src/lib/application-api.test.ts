@@ -4,6 +4,7 @@ import {
   formatPurchaseDate,
   formatPurchaseStatus,
   getPurchaseDetails,
+  getModelAuditInvocation,
   getModelAuditInvocationPage,
   getModelAuditInvocations,
   getModelAuditSessionDetail,
@@ -492,6 +493,292 @@ describe("application API client", () => {
     ]);
   });
 
+  it("maps fallback audit fields, failure events, and workflow timeline variants", () => {
+    const baseEvent = {
+      ...apiModelAuditEvents[0],
+      input_json: null,
+      output_json: null,
+      metadata_json: null,
+      summary: null,
+      description: null,
+      created_at: "not-a-date",
+      latency_ms: -1,
+    };
+    const detail = mapApiModelAuditSessionToDetail(
+      {
+        ...apiModelAuditSession,
+        request_id: null,
+        prompt_tokens: null,
+        completion_tokens: null,
+        total_tokens: null,
+        started_at: "not-a-date",
+        completed_at: null,
+        updated_at: "not-a-date",
+        latency_ms: null,
+        total_workflow_steps: 7,
+        total_model_calls: 3,
+        total_tool_calls: 4,
+        total_prompt_tokens: 11,
+        total_completion_tokens: 12,
+        total_reasoning_tokens: 2,
+        total_model_latency_ms: 1400,
+        total_tool_latency_ms: 25,
+        total_model_input_tokens_estimated: 40,
+        total_model_output_tokens_estimated: 5,
+        total_tool_input_tokens_estimated: 7,
+        total_tool_output_tokens_estimated: 9,
+        total_workflow_latency_ms: 1500,
+      },
+      [
+        {
+          ...baseEvent,
+          id: "event-tool-started",
+          sequence_number: 2,
+          event_key: "TOOL_STARTED",
+          display_name: "Tool started",
+          category: "tool",
+          tool_name: "unknown_backend_tool",
+          tool_call_id: "tool-call-started",
+          status: "started",
+        },
+        {
+          ...baseEvent,
+          id: "event-mutation-completed",
+          sequence_number: 3,
+          event_key: "MUTATION_COMPLETED",
+          display_name: "Mutation completed",
+          category: "tool",
+          metadata_json: {
+            data: {
+              requested_tool_name: "request_refund",
+              active_workflow: { kind: "refund_mutation" },
+              values: ["alpha", 2, true],
+              nested_objects: [{ id: 1 }],
+              empty_values: [],
+            },
+          },
+        },
+        {
+          ...baseEvent,
+          id: "event-error",
+          sequence_number: 4,
+          event_key: "ERROR_RAISED",
+          display_name: "Error raised",
+          category: "error",
+          input_json: { tool_name: "issue_refund", reason: "backend rejected" },
+        },
+        {
+          ...baseEvent,
+          id: "event-classified",
+          sequence_number: 5,
+          event_key: "WORKFLOW_CLASSIFIED",
+          display_name: "Workflow classified",
+          category: "routing",
+          input_json: { workflow: "refund_policy" },
+          metadata_json: { trace_event_type: "workflow.classified" },
+        },
+        {
+          ...baseEvent,
+          id: "event-workflow-executing",
+          sequence_number: 6,
+          display_name: "Workflow executing",
+          category: "workflow",
+          metadata_json: { trace_event_type: "workflow.executing" },
+        },
+        {
+          ...baseEvent,
+          id: "event-workflow-completed",
+          sequence_number: 7,
+          display_name: "Workflow completed",
+          category: "workflow",
+          metadata_json: { trace_event_type: "workflow.completed" },
+        },
+        {
+          ...baseEvent,
+          id: "event-eligibility-reconciled",
+          sequence_number: 8,
+          display_name: "Eligibility reconciled",
+          category: "workflow",
+          metadata_json: { trace_event_type: "workflow.eligibility_reconciled" },
+        },
+        {
+          ...baseEvent,
+          id: "event-confirmation-requested",
+          sequence_number: 9,
+          display_name: "Confirmation requested",
+          category: "workflow",
+          metadata_json: { trace_event_type: "workflow.confirmation_requested" },
+        },
+        {
+          ...baseEvent,
+          id: "event-confirmation-generated",
+          sequence_number: 10,
+          display_name: "Confirmation generated",
+          category: "workflow",
+          metadata_json: {
+            trace_event_type: "workflow.confirmation_command_generated",
+          },
+        },
+        {
+          ...baseEvent,
+          id: "event-confirmation-validated",
+          sequence_number: 11,
+          display_name: "Confirmation validated",
+          category: "workflow",
+          metadata_json: { trace_event_type: "workflow.confirmation_validated" },
+        },
+        {
+          ...baseEvent,
+          id: "event-mutation-lifecycle",
+          sequence_number: 12,
+          display_name: "Mutation lifecycle",
+          category: "workflow",
+          output_json: {
+            final_stage: "issued",
+            required_action: "none",
+          },
+          metadata_json: {
+            trace_event_type: "workflow.refund_mutation_lifecycle",
+          },
+        },
+        {
+          ...baseEvent,
+          id: "event-response-returned",
+          sequence_number: 13,
+          event_key: "RESPONSE_RETURNED",
+          display_name: "Response returned",
+          category: "response",
+          output_json: {
+            response:
+              "This response is intentionally long enough to exercise the timeline truncation branch. ".repeat(
+                4,
+              ),
+          },
+        },
+        {
+          ...baseEvent,
+          id: "event-response-generated-summary",
+          sequence_number: 14,
+          event_key: "RESPONSE_GENERATED",
+          display_name: "Response generated",
+          category: "response",
+          summary: "Response generated without payload text.",
+          output_json: {},
+        },
+        {
+          ...baseEvent,
+          id: "event-default",
+          sequence_number: 15,
+          display_name: "Default display",
+          category: "workflow",
+        },
+      ],
+    );
+
+    expect(detail.invocation).toMatchObject({
+      title: "Date unavailable",
+      lastActive: "Last active unavailable",
+      description: "Original prompt unavailable",
+      failureCount: 1,
+      latency: "unknown",
+      timeToResponse: "unknown",
+      totalTokens: 0,
+    });
+    expect(detail.requestId).toBe("Unavailable");
+    expect(detail.metrics).toMatchObject({
+      workflowSteps: 7,
+      modelCalls: 3,
+      toolCalls: 4,
+      promptTokens: 11,
+      completionTokens: 12,
+      reasoningTokens: 2,
+      estimatedInputTokens: 47,
+      estimatedOutputTokens: 14,
+      modelLatency: "1.4s",
+      toolLatency: "25ms",
+      workflowLatency: "1.5s",
+    });
+    expect(detail.finalResponse).toMatch(/^This response is intentionally long/);
+    expect(detail.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: "unknown_backend_tool",
+          description: expect.stringContaining("Runs a backend operation"),
+          status: "started",
+          summary: "Tool event recorded.",
+          inputSummary: "Not recorded",
+          outputSummary: "Not recorded",
+          latency: "unknown",
+        }),
+        expect.objectContaining({
+          toolName: "request_refund",
+          status: "completed",
+        }),
+        expect.objectContaining({
+          toolName: "issue_refund",
+          status: "failed",
+        }),
+      ]),
+    );
+    expect(detail.timelineEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Process failed",
+          summary: "issue refund selected.",
+        }),
+        expect.objectContaining({
+          title: "Request understood",
+          summary: "The request was understood as refund policy.",
+        }),
+        expect.objectContaining({
+          title: "Workflow execution started",
+        }),
+        expect.objectContaining({
+          title: "Backend workflow completed",
+        }),
+        expect.objectContaining({
+          title: "Eligibility result verified",
+        }),
+        expect.objectContaining({
+          title: "Customer confirmation required",
+          summary:
+            "The refund is eligible, but execution requires explicit customer confirmation.",
+        }),
+        expect.objectContaining({
+          title: "Confirmation instructions prepared",
+          summary:
+            "The backend prepared the confirmation instruction for the customer.",
+        }),
+        expect.objectContaining({
+          title: "Customer confirmation verified",
+        }),
+        expect.objectContaining({
+          title: "Refund workflow updated",
+          summary:
+            "The refund workflow advanced to issued with no further action required.",
+        }),
+        expect.objectContaining({
+          title: "Response generated",
+          summary: "Response generated without payload text.",
+        }),
+        expect.objectContaining({
+          title: "Default display",
+          summary: "Audit event recorded.",
+        }),
+      ]),
+    );
+    expect(
+      detail.timelineEvents.find((event) => event.id === "event-mutation-completed")
+        ?.details,
+    ).toEqual(
+      expect.arrayContaining([
+        { label: "Workflow", value: "refund_mutation" },
+        { label: "Values", value: "alpha, 2, true" },
+        { label: "Nested Objects", value: "1 items" },
+      ]),
+    );
+  });
+
   it("distinguishes workflow events that share the classified database key", () => {
     const stateUpdated = {
       ...apiModelAuditEvents[0],
@@ -919,6 +1206,93 @@ describe("application API client", () => {
       "/api/admin/audit/sessions/70000000-0000-4000-8000-000000000001/events",
       { cache: "no-store" },
     );
+  });
+
+  it("returns null when a single audit invocation cannot load its session or events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { events: apiModelAuditEvents },
+            }),
+        }),
+    );
+
+    await expect(getModelAuditInvocation(apiModelAuditSession.id)).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { session: apiModelAuditSession },
+            }),
+        })
+        .mockResolvedValueOnce({ ok: false }),
+    );
+
+    await expect(getModelAuditInvocation(apiModelAuditSession.id)).resolves.toBeNull();
+  });
+
+  it("returns null when audit session detail cannot load events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { session: apiModelAuditSession },
+            }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: false, data: null }),
+        }),
+    );
+
+    await expect(getModelAuditSessionDetail(apiModelAuditSession.id)).resolves.toBeNull();
+  });
+
+  it("maps paged audit sessions with no event payload as empty event history", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { sessions: [apiModelAuditSession] },
+              error: null,
+              meta: {},
+            }),
+        })
+        .mockResolvedValueOnce({ ok: false }),
+    );
+
+    await expect(getModelAuditInvocationPage({ limit: 1 })).resolves.toMatchObject({
+      hasMore: false,
+      invocations: [
+        expect.objectContaining({
+          description: "Original prompt unavailable",
+          toolCount: 0,
+        }),
+      ],
+    });
   });
 
   it("returns null when the user API is unavailable or unsuccessful", async () => {

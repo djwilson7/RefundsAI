@@ -202,8 +202,15 @@ def test_chat_graph_forces_threshold_tool_after_malformed_pseudo_tool_output(cap
     )
 
     from unittest.mock import patch
-    from refunds_ai_api.services.ai_chat.workflows.classification import WorkflowClassification, WorkflowKind
-    from refunds_ai_api.services.ai_chat.workflows.operations import OperationResolution, WorkflowOperation
+
+    from refunds_ai_api.services.ai_chat.workflows.classification import (
+        WorkflowClassification,
+        WorkflowKind,
+    )
+    from refunds_ai_api.services.ai_chat.workflows.operations import (
+        OperationResolution,
+        WorkflowOperation,
+    )
 
     mock_classification = WorkflowClassification(
         kind=WorkflowKind.ACCOUNT_FACT,
@@ -217,7 +224,10 @@ def test_chat_graph_forces_threshold_tool_after_malformed_pseudo_tool_output(cap
         ),
     )
 
-    with patch("refunds_ai_api.services.ai_chat.workflows.classification.classify_workflow", return_value=mock_classification):
+    with patch(
+        "refunds_ai_api.services.ai_chat.workflows.classification.classify_workflow",
+        return_value=mock_classification,
+    ):
         with caplog.at_level("INFO", logger="refunds_ai_api.chat"):
             result = chat_service.create_response(
                 message="How many purchases have I made over $100?",
@@ -477,6 +487,14 @@ def test_policy_catalog_funds_release_lookup_returns_processing_context() -> Non
     assert [section["key"] for section in result["sections"]] == ["refund_processing"]
     facts = " ".join(result["sections"][0]["facts"])
     assert "3-10 business days" in facts
+
+def test_policy_catalog_administrative_review_lookup_returns_review_context() -> None:
+    result = get_refund_policy(scope="administrative_review", purchase_type="digital")
+
+    assert [section["key"] for section in result["sections"]] == [
+        "digital",
+        "administrative_review",
+    ]
 
 def test_refund_policy_parser_detects_policy_scope_and_product_type() -> None:
     assert parse_refund_policy_query("What is the refund policy for my digital products?") == {
