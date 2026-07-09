@@ -549,6 +549,6 @@ This milestone should not add new product surfaces unless a blocking issue is fo
 * [x] Repository builds successfully.
 * [x] Test suite passes.
 * [x] Coverage maintained above project targets.
-* [ ] README complete.
+* [x] README complete.
 * [ ] Loom walkthrough recorded.
 * [x] Repository ready for reviewer evaluation.
