@@ -28,6 +28,7 @@ Implementation source:
 
 * `apps/web/src/app/layout.tsx`
 * `apps/web/src/app/page.tsx`
+* `apps/web/src/components/product-landing.tsx`
 * `apps/web/src/app/user-home/page.tsx`
 * `apps/web/src/app/purchase-details/[purchaseId]/page.tsx`
 * `apps/web/src/components/application-help-layer.tsx`
@@ -38,7 +39,7 @@ Routes:
 
 | Route | Current behavior |
 | --- | --- |
-| `/` | Mock authentication landing page. |
+| `/` | Product landing page by default; mock authentication when `REFUNDS_AI_DEMO_MODE=false`. |
 | `/user-home?customerId=...` | Server-loads customer profile and purchase history. |
 | `/admin-home` | Admin home screen with compact model-invocation audit cards loaded from persisted audit sessions and events. |
 | `/admin/sessions/[sessionId]` | Admin session detail screen with request identity, process and token metrics, tool purposes/outcomes, and a narrative rendering of every ordered audit event. |
@@ -46,6 +47,11 @@ Routes:
 
 The root layout wraps every page in `ApplicationHelpLayer`. The help layer is only
 available on `/user-home` and purchase detail routes.
+
+The product landing branch is presentational. It does not load backend data or expose
+chat and refund controls. The root route opts out of static prerendering so selection
+can be evaluated at runtime from server-side `REFUNDS_AI_DEMO_MODE`; the public landing
+is the default when the variable is absent.
 
 The customer home screen renders purchase cards from backend data. Before navigating,
 each card stores a small session-storage header summary for purchase detail continuity.

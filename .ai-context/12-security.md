@@ -56,12 +56,14 @@ Backend-only environment variables:
 Frontend server-side configuration:
 
 * `REFUNDS_AI_API_BASE_URL`
+* `REFUNDS_AI_DEMO_MODE`
 
 Rules:
 
 * Do not commit secrets or local `.env` values.
 * Do not expose `SUPABASE_DB_URL` or `OPENAI_API_KEY` to browser code.
 * Browser requests should use frontend route handlers or backend APIs, never direct service credentials.
+* `REFUNDS_AI_DEMO_MODE` selects the root presentation only and grants no additional authority.
 
 ## Frontend Trust Boundary
 

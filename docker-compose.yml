@@ -23,3 +23,4 @@ services:
     environment:
       NODE_ENV: production
       REFUNDS_AI_API_BASE_URL: "http://api:8000"
+      REFUNDS_AI_DEMO_MODE: "${REFUNDS_AI_DEMO_MODE:-true}"

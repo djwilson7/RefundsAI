@@ -25,6 +25,7 @@ verifies persistence, and returns a backend-authored transactional response.
 Implemented surfaces:
 
 * Next.js customer portal in `apps/web`.
+* Environment-gated public product landing page at `/` for demo presentation.
 * FastAPI backend in `apps/api`.
 * Supabase PostgreSQL migrations and seed data.
 * Mock customer and administrator entry paths.
@@ -66,6 +67,13 @@ as `status`, `refund_requested_at`, `refunded_at`, `refund_amount_cents`, and
 No standalone `refunds` table should be introduced under the current architecture.
 
 ## Primary Interfaces
+
+### Product Landing
+
+The root route presents RefundsAI as a commercially integrable, policy-governed support
+product. It is a static conceptual surface and does not call the API, database, or model.
+`REFUNDS_AI_DEMO_MODE=false` restores the mock authentication screen at `/` for
+integrated application walkthroughs.
 
 ### Customer Portal
 
