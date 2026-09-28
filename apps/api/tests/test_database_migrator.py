@@ -504,7 +504,12 @@ def test_seed_entry_point_seeds_identity_data() -> None:
     completed_steps = seeds.seed(connection)
 
     executed_sql = "\n".join(statement for statement, _params in connection.executed).lower()
-    assert completed_steps == ["identity", "purchase_catalog", "purchase_details"]
+    assert completed_steps == [
+        "identity",
+        "purchase_catalog",
+        "purchase_details",
+        "model_audit_event_lookup",
+    ]
     assert executed_sql.count("insert into public.roles") == 2
     assert executed_sql.count("insert into public.users") == 16
     assert executed_sql.count("insert into public.user_roles") == 16
@@ -513,6 +518,8 @@ def test_seed_entry_point_seeds_identity_data() -> None:
     assert executed_sql.count("insert into public.digital_purchase_details") == 54
     assert executed_sql.count("insert into public.physical_purchase_details") == 90
     assert executed_sql.count("insert into public.subscription_purchase_details") == 36
+    assert "insert into public.model_audit_event_lookup" in executed_sql
+    assert "'model_completed'" in executed_sql
     assert "on conflict (key) do update" in executed_sql
     assert "on conflict (id) do update" in executed_sql
     assert "on conflict (user_id, role_id) do nothing" in executed_sql

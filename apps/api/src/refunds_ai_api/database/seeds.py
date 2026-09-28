@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 from datetime import UTC, datetime, timedelta
@@ -25,7 +26,25 @@ def seed(connection: Connection, *, anchor_now: datetime | None = None) -> list[
     seed_identity(connection)
     seed_purchase_catalog(connection, anchor_now=anchor_now)
     seed_purchase_details(connection, anchor_now=anchor_now)
-    return ["identity", "purchase_catalog", "purchase_details"]
+    seed_model_audit_event_lookup(connection)
+    return ["identity", "purchase_catalog", "purchase_details", "model_audit_event_lookup"]
+
+
+def seed_model_audit_event_lookup(connection: Connection) -> None:
+    """Re-seed audit event lookup keys wiped by CASCADE truncation during demo reset.
+
+    The model_audit_event_lookup table is seeded by migrations 014 and 017.
+    Those migrations do not re-run after initial apply. Because purge_demo_data
+    uses TRUNCATE ... CASCADE, the FK chain from model_audit_events clears the
+    lookup table. This step re-inserts all canonical rows idempotently after
+    every reset so audit event writes do not fail FK constraints.
+    """
+    for migration_name in (
+        "refunds_ai_api.database.migrations.014_create_model_audit_tables",
+        "refunds_ai_api.database.migrations.017_add_model_completed_audit_event",
+    ):
+        module = importlib.import_module(migration_name)
+        module.upgrade(connection)
 
 
 def reset_demo_database(connection: Connection, *, anchor_now: datetime | None = None) -> list[str]:
@@ -683,10 +702,17 @@ def seed_purchase_anchor(anchor_now: datetime | None = None) -> datetime:
 
 
 def seed_detail_anchor(anchor_now: datetime | None = None) -> datetime:
-    """Return the end-of-day timestamp used for derived delivery seed facts."""
+    """Return the effective cutoff timestamp used for derived delivery seed facts.
+
+    When no explicit anchor is provided the nominal cutoff is end-of-day today,
+    but it is capped at the actual current wall-clock time.  This prevents
+    delivered_at from being set to a future timestamp (e.g. 14:39 UTC when it is
+    only 03:57 UTC), which would violate the DB trigger that checks
+    ``delivered_at > now()``.
+    """
     source = anchor_now or datetime.now(UTC)
     source = source.astimezone(UTC)
-    return datetime(
+    nominal_eod = datetime(
         source.year,
         source.month,
         source.day,
@@ -695,6 +721,12 @@ def seed_detail_anchor(anchor_now: datetime | None = None) -> datetime:
         59,
         tzinfo=UTC,
     )
+    # When anchor_now is explicit (tests / forced resets) trust it as-is.
+    # When it is derived from real wall-clock time, cap at actual now so that
+    # scheduled deliveries later today are not written as already delivered.
+    if anchor_now is None:
+        return min(nominal_eod, datetime.now(UTC))
+    return nominal_eod
 
 
 def parse_seed_datetime(value: str) -> datetime:
