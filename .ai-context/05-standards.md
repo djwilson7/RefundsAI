@@ -27,6 +27,9 @@ Use the existing patterns:
 * `apps/web/src/lib/application-api.ts` maps backend snake_case API payloads into frontend camelCase types.
 * CSS modules own component styling.
 * Global CSS owns application baseline styling.
+* Shared icon-button primitives live in the root stylesheet's `components` cascade
+  layer. Component themes remain in CSS modules and override that layer, so route
+  stylesheet load order cannot reset icon sizes, colors, or surfaces.
 
 Do not:
 

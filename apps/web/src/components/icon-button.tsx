@@ -1,5 +1,4 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import styles from "./icon-button.module.css";
 
 type IconButtonVariant = "default" | "danger";
 
@@ -19,8 +18,8 @@ export function IconButton({
   className,
   ...buttonProps
 }: IconButtonProps) {
-  const variantClassName = variant === "danger" ? styles.danger : "";
-  const buttonClassName = [styles.button, variantClassName, className]
+  const variantClassName = variant === "danger" ? "app-icon-button-danger" : "";
+  const buttonClassName = ["app-icon-button", variantClassName, className]
     .filter(Boolean)
     .join(" ");
 
