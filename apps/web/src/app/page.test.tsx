@@ -25,7 +25,7 @@ describe("root experience", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "Refund conversations with transactional boundaries.",
+        name: "Refunds, governed.",
       }),
     ).toBeInTheDocument();
   });
