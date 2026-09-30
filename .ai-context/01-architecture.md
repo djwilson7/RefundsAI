@@ -53,6 +53,12 @@ chat and refund controls. The root route opts out of static prerendering so sele
 can be evaluated at runtime from server-side `REFUNDS_AI_DEMO_MODE`; the public landing
 is the default when the variable is absent.
 
+Frontend-only Docker development uses `docker-compose.dev.yml` and the `development`
+target in `apps/web/Dockerfile`. That topology runs only the Next.js development server,
+bind-mounts `apps/web`, keeps `.next` in a container volume, and uses webpack polling
+for reliable Windows bind-mount updates. The standard `docker-compose.yml` remains the
+production-style integrated web/API topology.
+
 The customer home screen renders purchase cards from backend data. Before navigating,
 each card stores a small session-storage header summary for purchase detail continuity.
 The detail route still loads authoritative detail data from FastAPI.

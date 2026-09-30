@@ -15,6 +15,10 @@
 
 Implementation surface: `apps/web`.
 
+For containerized frontend-only development, use `docker-compose.dev.yml`. It provides
+source bind mounts and polling-based hot reload without starting FastAPI. Keep the
+standard `docker-compose.yml` aligned with the integrated production-style build.
+
 Use the existing patterns:
 
 * Server components load backend data for page-level reads.

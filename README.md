@@ -184,6 +184,37 @@ The local development server runs on `http://localhost:3000`.
 
 The frontend server reads `REFUNDS_AI_API_BASE_URL` when calling the FastAPI backend from server-rendered routes. For local development this defaults to `http://localhost:8000`.
 
+#### Frontend-only Docker development
+
+Use the dedicated development Compose file when working on the product landing page or
+other frontend-only changes:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+This configuration starts only the Next.js development server. It bind-mounts
+`apps/web`, keeps the generated `.next` output in a Docker volume, and enables polling
+with Next.js webpack development mode so edits and atomic file replacements made on
+Windows trigger hot reload without rebuilding the image. The FastAPI and database
+services do not start. Local development outside Docker continues to use Next.js's
+default development bundler.
+
+The development container reads `REFUNDS_AI_DEMO_MODE` when it is created:
+
+* Unset or `true`: show the product landing page at `/`.
+* `false`: show the original mock authentication screen at `/`.
+
+Source edits hot reload immediately. After changing `.env`, recreate the container so
+Docker injects the updated process environment:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --force-recreate
+```
+
+Set `REFUNDS_AI_WEB_PORT` when port 3000 is already occupied, for example
+`REFUNDS_AI_WEB_PORT=3010`.
+
 #### Root experience
 
 The frontend root route (`/`) shows the public RefundsAI product landing page by
@@ -205,7 +236,9 @@ This mock login state is frontend-only. It does not authenticate against the Fas
 docker compose up web --build
 ```
 
-The container exposes the frontend on `http://localhost:3000`.
+The standard Compose configuration builds the production-style standalone frontend
+and starts its API dependency. Use `docker-compose.dev.yml` for frontend-only hot
+reload. The container exposes the frontend on `http://localhost:3000`.
 
 ### Backend
 

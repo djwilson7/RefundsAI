@@ -1,0 +1,22 @@
+name: refundsai-dev
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: development
+    ports:
+      - "${REFUNDS_AI_WEB_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+      REFUNDS_AI_API_BASE_URL: "${REFUNDS_AI_API_BASE_URL:-http://host.docker.internal:8000}"
+      REFUNDS_AI_DEMO_MODE: "${REFUNDS_AI_DEMO_MODE:-true}"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./apps/web:/app/apps/web
+      - refunds_ai_web_next_cache:/app/apps/web/.next
+
+volumes:
+  refunds_ai_web_next_cache:
