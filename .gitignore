@@ -6,6 +6,7 @@ apps/*/.venv/
 # Next.js
 .next/
 out/
+*.tsbuildinfo
 
 # Test and coverage output
 coverage/

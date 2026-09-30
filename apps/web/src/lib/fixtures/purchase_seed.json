@@ -1,0 +1,231 @@
+{
+  "products": [
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "name": "Wireless Headphones",
+      "sku": "PHY-WIRELESS-HEADPHONES",
+      "product_type": "physical",
+      "base_price_cents": 12999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000002",
+      "name": "Mechanical Keyboard",
+      "sku": "PHY-MECHANICAL-KEYBOARD",
+      "product_type": "physical",
+      "base_price_cents": 14999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000003",
+      "name": "Gaming Mouse",
+      "sku": "PHY-GAMING-MOUSE",
+      "product_type": "physical",
+      "base_price_cents": 7999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000004",
+      "name": "USB-C Dock",
+      "sku": "PHY-USBC-DOCK",
+      "product_type": "physical",
+      "base_price_cents": 11999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000005",
+      "name": "Laptop Stand",
+      "sku": "PHY-LAPTOP-STAND",
+      "product_type": "physical",
+      "base_price_cents": 5999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000006",
+      "name": "27\" Monitor",
+      "sku": "PHY-27-MONITOR",
+      "product_type": "physical",
+      "base_price_cents": 27999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000007",
+      "name": "Portable SSD",
+      "sku": "PHY-PORTABLE-SSD",
+      "product_type": "physical",
+      "base_price_cents": 15999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000008",
+      "name": "Webcam",
+      "sku": "PHY-WEBCAM",
+      "product_type": "physical",
+      "base_price_cents": 8999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000009",
+      "name": "Bluetooth Speaker",
+      "sku": "PHY-BLUETOOTH-SPEAKER",
+      "product_type": "physical",
+      "base_price_cents": 9999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000010",
+      "name": "Office Chair",
+      "sku": "PHY-OFFICE-CHAIR",
+      "product_type": "physical",
+      "base_price_cents": 22999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000011",
+      "name": "Smart Watch",
+      "sku": "PHY-SMART-WATCH",
+      "product_type": "physical",
+      "base_price_cents": 19999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000012",
+      "name": "Desk Lamp",
+      "sku": "PHY-DESK-LAMP",
+      "product_type": "physical",
+      "base_price_cents": 4499
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000013",
+      "name": "USB Microphone",
+      "sku": "PHY-USB-MICROPHONE",
+      "product_type": "physical",
+      "base_price_cents": 10999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000014",
+      "name": "Wireless Charger",
+      "sku": "PHY-WIRELESS-CHARGER",
+      "product_type": "physical",
+      "base_price_cents": 3499
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000015",
+      "name": "Windows License",
+      "sku": "DIG-WINDOWS-LICENSE",
+      "product_type": "digital",
+      "base_price_cents": 13999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000016",
+      "name": "Photo Editing Software",
+      "sku": "DIG-PHOTO-EDITING",
+      "product_type": "digital",
+      "base_price_cents": 8999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000017",
+      "name": "Productivity Suite",
+      "sku": "DIG-PRODUCTIVITY-SUITE",
+      "product_type": "digital",
+      "base_price_cents": 11999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000018",
+      "name": "Programming Course",
+      "sku": "DIG-PROGRAMMING-COURSE",
+      "product_type": "digital",
+      "base_price_cents": 14999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000019",
+      "name": "E-book Collection",
+      "sku": "DIG-EBOOK-COLLECTION",
+      "product_type": "digital",
+      "base_price_cents": 4999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000020",
+      "name": "Game Download",
+      "sku": "DIG-GAME-DOWNLOAD",
+      "product_type": "digital",
+      "base_price_cents": 5999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000021",
+      "name": "Design Asset Pack",
+      "sku": "DIG-DESIGN-ASSET-PACK",
+      "product_type": "digital",
+      "base_price_cents": 3999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000022",
+      "name": "Cloud Storage Upgrade",
+      "sku": "DIG-CLOUD-STORAGE-UPGRADE",
+      "product_type": "digital",
+      "base_price_cents": 2999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000023",
+      "name": "Music Collection",
+      "sku": "DIG-MUSIC-COLLECTION",
+      "product_type": "digital",
+      "base_price_cents": 2499
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000024",
+      "name": "Premium Template Pack",
+      "sku": "DIG-PREMIUM-TEMPLATE-PACK",
+      "product_type": "digital",
+      "base_price_cents": 6999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000025",
+      "name": "Streaming Service",
+      "sku": "SUB-STREAMING-SERVICE",
+      "product_type": "subscription",
+      "base_price_cents": 1499
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000026",
+      "name": "Cloud Backup",
+      "sku": "SUB-CLOUD-BACKUP",
+      "product_type": "subscription",
+      "base_price_cents": 999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000027",
+      "name": "AI Assistant Pro",
+      "sku": "SUB-AI-ASSISTANT-PRO",
+      "product_type": "subscription",
+      "base_price_cents": 2999
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000028",
+      "name": "Music Streaming",
+      "sku": "SUB-MUSIC-STREAMING",
+      "product_type": "subscription",
+      "base_price_cents": 1199
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000029",
+      "name": "VPN Service",
+      "sku": "SUB-VPN-SERVICE",
+      "product_type": "subscription",
+      "base_price_cents": 1299
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000030",
+      "name": "Developer Toolkit",
+      "sku": "SUB-DEVELOPER-TOOLKIT",
+      "product_type": "subscription",
+      "base_price_cents": 3999
+    }
+  ],
+  "purchase_plan": {
+    "customer_count": 15,
+    "purchases_per_customer": 12,
+    "type_distribution": {
+      "physical": 90,
+      "digital": 54,
+      "subscription": 36
+    },
+    "first_order_number": 10001,
+    "first_purchase_at": "2026-05-20T14:00:00Z",
+    "last_purchase_at": "2026-07-03T14:00:00Z",
+    "digital_purchase_window": {
+      "first_purchase_at": "2026-06-20T14:00:00Z",
+      "last_purchase_at": "2026-07-04T14:00:00Z"
+    },
+    "status": "completed"
+  }
+}
