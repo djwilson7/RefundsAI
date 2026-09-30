@@ -112,3 +112,12 @@ Before work is complete:
 * State what was validated.
 * State any validation that was skipped or incomplete.
 * Add or update tests when behavior, contract, policy, or workflow state changes.
+
+## Demo isolation tests
+
+Vitest projects separate `demo` (`*.demo.test.tsx`, demo mode enabled) from existing
+`integrated` expectations (mode explicitly disabled, backend responses mocked).
+`npm run test:demo --workspace @refunds-ai/web` checks no fetch/SSE calls, all nine
+proxy guards, API-reader guards, direct URLs without tour parameters, accidental
+live-component mounts, the support preview, and the demo CSP. The normal test command
+runs both projects; `test:integrated` selects existing application tests separately.

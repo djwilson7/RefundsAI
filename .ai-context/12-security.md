@@ -63,7 +63,20 @@ Rules:
 * Do not commit secrets or local `.env` values.
 * Do not expose `SUPABASE_DB_URL` or `OPENAI_API_KEY` to browser code.
 * Browser requests should use frontend route handlers or backend APIs, never direct service credentials.
-* `REFUNDS_AI_DEMO_MODE` selects the root presentation only and grants no additional authority.
+* `REFUNDS_AI_DEMO_MODE` selects frontend-only demo or integrated service access at build/development startup. `next.config.ts` fixes the non-secret `NEXT_PUBLIC_REFUNDS_AI_DEMO_MODE` flag for both server and browser guards. A demo build cannot be unlocked by URL parameters or runtime environment changes.
+
+## Demo Service Isolation
+
+The default demo renders frontend-owned seed snapshots and fixed support examples.
+No live facts or mutations are available. `demo-mode.ts` guards page data sources,
+API readers, subscriptions, and live refresh/mutation calls. All nine Next.js service
+proxies return 404/DEMO_SERVICE_DISABLED before processing input or contacting a
+backend. Unknown demo IDs return not found without a live fallback.
+
+The demo CSP restricts connections and external assets to its own origin; same-origin
+navigation and asset loading remain available. Demo tests prohibit fetch and SSE,
+including accidental live-component mounts. This isolation grants no authentication
+or financial authority; integrated backend business/security boundaries remain intact.
 
 ## Frontend Trust Boundary
 

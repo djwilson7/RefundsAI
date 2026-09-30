@@ -1,3 +1,4 @@
+import { isDemoModeEnabled, demoServiceUnavailable } from "@/lib/demo-mode";
 const defaultApiBaseUrl = "http://localhost:8000";
 
 type ConfirmCarrierAcceptanceRouteContext = Readonly<{
@@ -10,6 +11,7 @@ export async function POST(
   _request: Request,
   context: ConfirmCarrierAcceptanceRouteContext,
 ) {
+  if (isDemoModeEnabled()) return demoServiceUnavailable();
   const { purchaseId } = await context.params;
 
   return proxyBackendCarrierAcceptance(

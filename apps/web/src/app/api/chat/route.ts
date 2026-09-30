@@ -1,6 +1,8 @@
+import { isDemoModeEnabled, demoServiceUnavailable } from "@/lib/demo-mode";
 const defaultApiBaseUrl = "http://localhost:8000";
 
 export async function POST(request: Request) {
+  if (isDemoModeEnabled()) return demoServiceUnavailable();
   const body = await request.json();
 
   try {

@@ -7,6 +7,8 @@ RUN npm ci --workspace @refunds-ai/web
 
 FROM node:24-alpine AS builder
 WORKDIR /app
+ARG REFUNDS_AI_DEMO_MODE=true
+ENV REFUNDS_AI_DEMO_MODE=$REFUNDS_AI_DEMO_MODE
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

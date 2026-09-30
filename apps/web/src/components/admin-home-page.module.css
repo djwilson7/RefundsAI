@@ -10,7 +10,7 @@
 
 .sectionTitle {
   margin: 0;
-  color: var(--foreground);
+  color: #513729;
   font-size: 1.125rem;
   font-weight: 700;
   line-height: 1.3;
@@ -24,17 +24,17 @@
 
 .emptyState {
   margin: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: #40505f;
+  border: 1px solid rgb(185 124 83 / 24%);
+  border-radius: 12px;
+  background: rgb(255 253 249 / 94%);
+  color: #765849;
   padding: 20px;
-  box-shadow: 0 12px 30px rgb(23 32 42 / 6%);
+  box-shadow: 0 2px 8px rgb(110 64 33 / 4%);
 }
 
 .paginationStatus {
   min-height: 24px;
-  color: #6a7988;
+  color: #92705c;
   font-size: 0.875rem;
   font-weight: 700;
   text-align: center;
@@ -44,11 +44,11 @@
   display: grid;
   gap: 16px;
   min-height: 164px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border: 1px solid rgb(185 124 83 / 24%);
+  border-radius: 12px;
+  background: linear-gradient(100deg, #fffdfa 12%, #fcebdc 100%);
   padding: 20px;
-  box-shadow: 0 12px 30px rgb(23 32 42 / 6%);
+  box-shadow: 0 2px 8px rgb(110 64 33 / 4%);
   color: inherit;
   text-decoration: none;
   transition:
@@ -58,12 +58,12 @@
 
 .sessionCard:hover,
 .sessionCard:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 16px 34px rgb(23 32 42 / 10%);
+  border-color: #a64d24;
+  box-shadow: 0 4px 12px rgb(110 64 33 / 8%);
 }
 
 .sessionCard:focus-visible {
-  outline: 3px solid rgb(11 107 203 / 16%);
+  outline: 3px solid rgb(185 102 50 / 24%);
   outline-offset: 2px;
 }
 
@@ -76,7 +76,7 @@
 
 .cardTitle {
   margin: 0;
-  color: var(--foreground);
+  color: #513729;
   font-size: 1rem;
   font-weight: 700;
   line-height: 1.3;
@@ -93,8 +93,9 @@
 .lastActive {
   display: inline-flex;
   border-radius: 999px;
-  background: var(--surface-muted);
-  color: #40505f;
+  background: #fffaf4;
+  box-shadow: inset 0 0 0 1px rgb(185 124 83 / 10%);
+  color: #765849;
   font-size: 0.8125rem;
   font-weight: 700;
   line-height: 1;
@@ -111,7 +112,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--accent);
+  color: #a64d24;
   font-size: 0.8125rem;
   font-weight: 700;
   line-height: 1;
@@ -137,7 +138,7 @@
 
 .description {
   margin: 0;
-  color: #40505f;
+  color: #765849;
   font-size: 0.9375rem;
   line-height: 1.5;
 }
@@ -153,7 +154,7 @@
   grid-auto-flow: column;
   gap: 8px;
   margin: 0;
-  color: #6a7988;
+  color: #92705c;
   font-size: 0.8125rem;
   font-weight: 700;
   line-height: 1.4;
@@ -165,23 +166,21 @@
   justify-content: center;
   min-width: 0;
   border-radius: 999px;
-  background: var(--surface-muted);
+  background: #fffaf4;
+  box-shadow: inset 0 0 0 1px rgb(185 124 83 / 10%);
   padding: 7px 10px;
   text-align: center;
 }
 
 .metaRow .statusSucceeded {
-  background: #e8f4ee;
   color: #246b45;
 }
 
 .metaRow .statusFailed {
-  background: #f7ecec;
   color: #9a342f;
 }
 
 .metaRow .statusRunning {
-  background: #e8f1fb;
   color: #1f5f9f;
 }
 
@@ -218,3 +217,18 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.summarySection { display: grid; gap: 12px; margin-bottom: 24px; color: #513729; }
+.summaryGrid, .averageGrid { display: grid; gap: 12px; margin: 0; }
+.summaryGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.summaryCard, .averageGrid > div { min-width: 0; border: 1px solid rgb(185 124 83 / 20%); border-radius: 12px; background: rgb(255 253 249 / 94%); padding: 18px 20px; }
+.summarySection dt { color: #765849; font-size: .8125rem; font-weight: 600; }
+.summarySection dd { margin: 8px 0 0; font-size: 1.75rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.outcomeValues { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.outcomeValues > span { display: grid; gap: 4px; }
+.outcomeValues > span + span { border-left: 1px solid rgb(185 124 83 / 20%); padding-left: 16px; }
+.outcomeValues strong { font-weight: 650; }
+.outcomeValues span span { font-size: .75rem; font-weight: 500; color: #765849; }
+.averageGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.averageGrid dd { font-size: 1.375rem; }
+@media (max-width: 760px) { .summaryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .summaryGrid > :last-child { grid-column: 1 / -1; } .averageGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .summaryCard, .averageGrid > div { padding: 16px; } }

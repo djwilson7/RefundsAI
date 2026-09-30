@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ApplicationHelpLayer } from "./application-help-layer";
 import { CustomerMainScreen } from "./customer-main-screen";
@@ -52,17 +52,29 @@ describe("CustomerMainScreen", () => {
   it("renders the shared customer home header", () => {
     renderCustomerMainScreen();
 
-    expect(screen.getByText("Welcome")).toBeInTheDocument();
+    expect(screen.getByText("physical", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("digital", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("subscription", { exact: true })).toBeInTheDocument();
+
+    expect(screen.queryByText("Welcome")).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { level: 1, name: "Avery Brooks" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Summary Dashboard")).toBeInTheDocument();
+    expect(screen.queryByText("Summary Dashboard")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Log out" }),
-    ).toBeInTheDocument();
+      screen.getByRole("link", { name: "Exit" }),
+    ).toHaveAttribute("href", "/");
     expect(
       screen.getByRole("button", { name: "Open help chat" }),
     ).toBeInTheDocument();
+    const navigation = within(screen.getByRole("navigation", { name: "Primary navigation" }));
+    const helpButton = navigation.getByRole("button", { name: "Open help chat" });
+    expect(helpButton.nextElementSibling).toBe(navigation.getByRole("button", { name: "Switch to admin view" }));
+    expect(helpButton.nextElementSibling?.nextElementSibling).toBe(navigation.getByRole("link", { name: "Exit" }));
+    fireEvent.click(helpButton);
+    expect(screen.getByRole("complementary", { name: "Help panel" })).toBeInTheDocument();
+    fireEvent.click(navigation.getByRole("button", { name: "Close help chat" }));
+    expect(screen.queryByRole("complementary", { name: "Help panel" })).not.toBeInTheDocument();
   });
 
   it("renders customer summary metrics from purchases", () => {

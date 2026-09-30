@@ -9,6 +9,7 @@ import {
 } from "@/lib/application-api";
 import { ArrowRightIcon } from "./icons";
 import styles from "./admin-home-page.module.css";
+import { isDemoModeEnabled } from "@/lib/demo-mode";
 
 const auditSessionPageSize = 10;
 const liveUpdateDebounceMs = 250;
@@ -16,11 +17,13 @@ const liveUpdateDebounceMs = 250;
 type AdminAuditSessionListProps = Readonly<{
   initialHasMore: boolean;
   initialInvocations: readonly ModelAuditInvocation[];
+  tour?: boolean;
 }>;
 
 export function AdminAuditSessionList({
   initialHasMore,
   initialInvocations,
+  tour = false,
 }: AdminAuditSessionListProps) {
   const [invocations, setInvocations] = useState<readonly ModelAuditInvocation[]>(
     initialInvocations,
@@ -42,6 +45,7 @@ export function AdminAuditSessionList({
   }, [hasMore]);
 
   useEffect(() => {
+    if (tour || isDemoModeEnabled()) return;
     const missingPromptSessionIds = invocations
       .filter((invocation) => invocation.description === "Original prompt unavailable")
       .map((invocation) => invocation.id);
@@ -80,9 +84,10 @@ export function AdminAuditSessionList({
     return () => {
       cancelled = true;
     };
-  }, [invocations]);
+  }, [invocations, tour]);
 
   const loadMoreInvocations = useCallback(async () => {
+    if (tour || isDemoModeEnabled()) return;
     if (isLoadingMoreRef.current || !hasMoreRef.current) {
       return;
     }
@@ -113,9 +118,10 @@ export function AdminAuditSessionList({
     });
     isLoadingMoreRef.current = false;
     setIsLoadingMore(false);
-  }, []);
+  }, [tour]);
 
   useEffect(() => {
+    if (tour || isDemoModeEnabled()) return;
     const sentinel = sentinelRef.current;
 
     if (!sentinel || typeof IntersectionObserver === "undefined") {
@@ -138,9 +144,10 @@ export function AdminAuditSessionList({
     return () => {
       observer.disconnect();
     };
-  }, [loadMoreInvocations]);
+  }, [loadMoreInvocations, tour]);
 
   useEffect(() => {
+    if (tour || isDemoModeEnabled()) return;
     if (typeof EventSource === "undefined") {
       return;
     }
@@ -200,7 +207,7 @@ export function AdminAuditSessionList({
         clearTimeout(refreshTimer);
       }
     };
-  }, []);
+  }, [tour]);
 
   if (invocations.length === 0) {
     return <p className={styles.emptyState}>No model invocations captured yet.</p>;
@@ -210,7 +217,7 @@ export function AdminAuditSessionList({
     <>
       <div className={styles.sessionGrid}>
         {invocations.map((invocation) => (
-          <AuditSessionCard invocation={invocation} key={invocation.id} />
+          <AuditSessionCard invocation={invocation} key={invocation.id} tour={tour} />
         ))}
       </div>
       <div
@@ -222,7 +229,7 @@ export function AdminAuditSessionList({
         {loadError ? "Older audit sessions could not be loaded." : null}
         {!loadError && isLoadingMore ? "Loading older audit sessions..." : null}
         {!loadError && !isLoadingMore && !hasMore
-          ? "All stored audit sessions loaded."
+          ? tour ? "All simulated audit sessions loaded." : "All stored audit sessions loaded."
           : null}
       </div>
     </>
@@ -231,11 +238,12 @@ export function AdminAuditSessionList({
 
 function AuditSessionCard({
   invocation,
-}: Readonly<{ invocation: ModelAuditInvocation }>) {
+  tour,
+}: Readonly<{ invocation: ModelAuditInvocation; tour: boolean }>) {
   return (
     <Link
       className={styles.sessionCard}
-      href={`/admin/sessions/${invocation.id}`}
+      href={`/admin/sessions/${invocation.id}${tour ? "?tour=admin" : ""}`}
     >
       <div className={styles.cardHeader}>
         <h3 className={styles.cardTitle}>{invocation.title}</h3>

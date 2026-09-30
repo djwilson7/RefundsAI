@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
+    "test:demo": "vitest run --project demo",
+    "test:integrated": "vitest run --project integrated",
     "coverage": "vitest run --coverage"
   },
   "dependencies": {

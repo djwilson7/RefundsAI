@@ -1,4 +1,5 @@
 "use client";
+import { isDemoModeEnabled } from "@/lib/demo-mode";
 
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
@@ -770,6 +771,7 @@ function readStringPolicyFact(value: unknown) {
 }
 
 async function confirmCarrierAcceptance(purchaseId: string) {
+  if (isDemoModeEnabled()) throw new Error("External services are disabled in demo mode.");
   const response = await fetch(
     `/api/purchases/${purchaseId}/physical/confirm-carrier-acceptance`,
     {
@@ -791,6 +793,7 @@ async function confirmCarrierAcceptance(purchaseId: string) {
 }
 
 async function loadRefundWorkflow(purchaseId: string) {
+  if (isDemoModeEnabled()) throw new Error("External services are disabled in demo mode.");
   const response = await fetch(
     `/api/purchases/${purchaseId}/refund/eligibility`,
     {

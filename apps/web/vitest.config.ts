@@ -5,6 +5,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    projects: [
+      { extends: true, test: { name: "demo", include: ["src/**/*.demo.test.{ts,tsx}"], env: { REFUNDS_AI_DEMO_MODE: "true" } } },
+      { extends: true, test: { name: "integrated", exclude: ["**/node_modules/**", "src/**/*.demo.test.{ts,tsx}"], env: { REFUNDS_AI_DEMO_MODE: "false" } } },
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

@@ -1,7 +1,7 @@
 .button {
-  --icon-button-background: var(--accent-strong);
-  --icon-button-color: #ffffff;
-  --icon-button-idle-color: #ffffff;
+  --icon-button-background: #6b4430;
+  --icon-button-color: #ffd0b1;
+  --icon-button-idle-color: #ffd0b1;
 
   position: fixed;
   right: 24px;
@@ -9,10 +9,11 @@
   z-index: 20;
   width: 54px;
   height: 54px;
-  border-color: var(--accent);
+  border-color: rgba(255, 226, 207, 0.3);
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 14px 30px rgb(15 23 42 / 18%);
+  background: linear-gradient(135deg, rgba(103, 78, 62, 0.94), rgba(77, 55, 40, 0.9));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 12px 28px rgba(91, 51, 26, 0.2);
+  backdrop-filter: blur(12px);
   transition:
     background 160ms ease,
     border-color 160ms ease,
@@ -21,7 +22,38 @@
 }
 
 .open {
-  right: calc(min(380px, 86vw) + 24px);
+  right: calc(min(380px, 86vw) + clamp(16px, 2vw, 32px) + 16px);
+}
+
+.inline {
+  --icon-button-background: #f7e5d7;
+  --icon-button-color: #a64d24;
+  --icon-button-idle-color: #a64d24;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(163, 99, 57, 0.2);
+  border-radius: 13px;
+  background: #fffaf4;
+}
+
+@media (width < 860px) {
+  .inline {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (max-width: 360px) {
+  .inline {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+@media (max-width: 900px) {
+  .open {
+    display: none;
+  }
 }
 
 @media (max-width: 520px) {

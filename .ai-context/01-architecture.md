@@ -40,17 +40,39 @@ Routes:
 | Route | Current behavior |
 | --- | --- |
 | `/` | Product landing page by default; mock authentication when `REFUNDS_AI_DEMO_MODE=false`. |
-| `/user-home?customerId=...` | Server-loads customer profile and purchase history. |
-| `/admin-home` | Admin home screen with compact model-invocation audit cards loaded from persisted audit sessions and events. |
-| `/admin/sessions/[sessionId]` | Admin session detail screen with request identity, process and token metrics, tool purposes/outcomes, and a narrative rendering of every ordered audit event. |
-| `/purchase-details/[purchaseId]` | Server-loads purchase detail data and refund workflow state. |
+| `/technical-tour` | Client/Admin perspective cards with a shared product header and Exit link to `/`; Client selects a seeded mock customer and opens `/user-home`, Admin opens `/admin-home?tour=admin`. |
+| `/user-home?customerId=...` | Demo builds always generate local history; integrated builds server-load profile/history outside `tour=client`. |
+| `/admin-home` | Admin home screen with compact audit cards; demo mode or `tour=admin` renders generated examples, otherwise loads persisted audit records. |
+| `/admin/sessions/[sessionId]` | Admin session detail screen with request identity, process/token metrics, tool outcomes, and ordered events; demo mode or `tour=admin` uses the generated example identified by the route. |
+| `/purchase-details/[purchaseId]` | Demo mode and client tour render generated detail facts/policy summaries; integrated reads remain backend-owned. |
 
 The root layout wraps every page in `ApplicationHelpLayer`. The help layer is only
 available on `/user-home` and purchase detail routes.
+Desktop chat reserves a responsive gap beside the page, with the tour background
+continuing through that spacing and no visible divider. At viewport widths of
+900px or less, chat occupies the full viewport with an X close control; background
+content is inert and scrolling is locked until the panel closes. `ProductHeader`
+uses its container width, capped at 1240px, with an intrinsic content minimum.
+At 860px and above, the client identity header is a centered tab capped at 1240px;
+its 1152px minimum adapts to available space with 12px side margins, keeping it
+wider than the purchase body without crossing the reserved help-panel gap.
+Below 860px, it spans the available page width, the brand uses its icon, and the
+customer name stays centered in the same row as the swap and exit controls.
+On the customer purchase-history screen, the help launcher is inline in that
+header before swap and exit; tour purchase details use the same inline launcher.
+Technical-tour headers, perspective cards, customer summary cards, and purchase
+cards use light warm glass surfaces with brown text. Purchase category labels and
+subtle right-edge gradients distinguish digital, physical, and subscription types.
+The public landing header retains its dark treatment. Tour purchase details reuse
+the client header and inline help control, with a back link preserving tour context.
+`demo-purchase-detail.ts` mirrors seed events, not backend eligibility decisions.
+The help composer starts at one line and uses CSS content sizing to grow upward
+as text wraps, capped at 180px or 30% of the viewport height before scrolling.
+Text reserves space for the send button, anchored inside the bottom-right corner.
 
 The product landing branch is presentational. It does not load backend data or expose
 chat and refund controls. The root route opts out of static prerendering so selection
-can be evaluated at runtime from server-side `REFUNDS_AI_DEMO_MODE`; the public landing
+uses the shared build/development mode flag from `demo-mode.ts`; the public landing
 is the default when the variable is absent.
 
 Frontend-only Docker development uses `docker-compose.dev.yml` and the `development`
@@ -62,6 +84,21 @@ production-style integrated web/API topology.
 The customer home screen renders purchase cards from backend data. Before navigating,
 each card stores a small session-storage header summary for purchase detail continuity.
 The detail route still loads authoritative detail data from FastAPI.
+For `tour=client`, `apps/web/src/lib/demo-purchases.ts` instead builds display-only
+history from frontend-owned identity and purchase seed snapshots in `src/lib/fixtures`. It mirrors the
+backend's seed ordering, IDs, product selection, statuses, and date offsets with the
+current UTC day anchored at 14:00. The server rebuilds the snapshot for every load;
+there are no API reads or persisted purchase objects. The entry selects Avery Brooks
+consistently. Tour cards are labeled `Simulated Purchase History` and link to presentation-only purchase details preserving customer and tour context. The help trigger opens a fixed local preview with no live service connection.
+Integrated pages retain their backend data and mutation paths.
+The customer home uses `ProductHeader` and `tour-shell.module.css` to share the tour
+entrance banner and light gradient. The customer name is centered in the banner;
+the body begins with summary metrics and purchase history without a separate welcome
+card. Its icon-only Exit link clears the mock customer selection and returns to `/`.
+A dual-arrow button opens a native confirmation dialog before navigating to the admin
+entry: Continue stays on the client tour, Swap opens `/admin-home?tour=admin`. The dialog warns
+that tour progress is not saved and the admin tour starts from the beginning. It does
+not reset persisted purchases, refunds, or audit records. Admin tour pages reuse the warm glass layout and signed-in banner; swapping from admin restarts the fixed client tour.
 
 ## Purchase Detail Rendering
 
@@ -326,3 +363,40 @@ arrive.
 The admin client preserves every persisted event and original sequence number. It maps
 low-level trace types into audience-readable narrative titles, summaries, domain fact
 labels, and labeled footer metadata without changing stored payloads.
+
+
+### Admin tour presentation
+
+`apps/web/src/lib/demo-audit.ts` rebuilds six terminal illustrative audit sessions
+with stable IDs and dates relative to the current UTC day. Explicit `tour=admin`
+list/detail routes skip backend reads and live subscriptions. Unknown example IDs
+return not found. Cards preserve tour context; direct detail reloads rebuild the
+same examples. `AdminAuditSessionList` disables repair reads, pagination, and SSE
+in tour mode, while `AdminSessionDetailPage` omits live refresh. All examples are
+presentation-only and model/provider metrics remain separate from backend estimates.
+
+Admin tour summaries aggregate the complete generated set with
+`audit-summary.ts`: session count, shared success/failure card, provider token total,
+and per-session averages for events, tools, latency, and time to response. Timing
+averages exclude unavailable values. Admin cards use restrained warm neutral surfaces
+and light borders, retaining the shared tour header and background.
+
+Admin tour session detail review leads with a six-metric session snapshot, the
+conversation, tool purposes/outcomes, and every event in its original sequence.
+`AdminSessionDetailPage` keeps full session metadata, tool fields, event context,
+and raw payloads in expandable inspection sections (open initially for live routes).
+Timestamped events show elapsed time from session start where parsing is possible;
+original timestamps remain available for inspection. No stored evidence is discarded.
+
+### Frontend-only deployment boundary
+
+`demo-mode.ts` defaults to demo and uses the mode fixed by `next.config.ts` at build
+or development startup. Server and client guards share the same public flag. Query
+parameters and production runtime environment changes cannot unlock a demo build.
+All customer/admin page routes select local fixtures before any API reads; unknown
+IDs do not fall back to FastAPI. All nine service proxies reject demo requests with
+404/DEMO_SERVICE_DISABLED before consuming input or making requests. The API data
+layer, chat submission, audit subscriptions, and live purchase calls also guard
+against accidental use. Demo help is a fixed local preview with a disabled composer.
+The demo CSP allows connections/assets only to the same origin. Local Next navigation
+remains available. Integrated code requires an explicit non-demo build.

@@ -3,15 +3,20 @@ import { AdminAuditLiveUpdates } from "./admin-audit-live-updates";
 import { AppCard } from "./app-card";
 import type { ModelAuditSessionDetail } from "@/lib/application-api";
 import styles from "./admin-session-detail-page.module.css";
+import { ProductHeader } from "./product-header";
+import shellStyles from "./tour-shell.module.css";
+import { ArrowRightIcon } from "./icons";
 
 type AdminSessionDetailPageProps = Readonly<{
   detail: ModelAuditSessionDetail | null;
   sessionId: string;
+  tour?: boolean;
 }>;
 
 export function AdminSessionDetailPage({
   detail,
   sessionId,
+  tour = false,
 }: AdminSessionDetailPageProps) {
   if (!detail) {
     return (
@@ -31,12 +36,18 @@ export function AdminSessionDetailPage({
   }
 
   return (
-    <main className={styles.page}>
-      <AdminAuditLiveUpdates sessionId={detail.invocation.id} />
+    <div className={tour ? shellStyles.page : undefined}>
+      {tour ? <ProductHeader tour tourRole="admin" identityName="System Administrator" /> : null}
+    <main className={`${styles.page} ${tour ? styles.tourPage : ""}`}>
+      {!tour ? <AdminAuditLiveUpdates sessionId={detail.invocation.id} /> : null}
+      {tour ? <div className={styles.topbar}>
+        <Link className={styles.backIcon} href="/admin-home?tour=admin" aria-label="Back to audit history" title="Back to audit history"><ArrowRightIcon /></Link>
+        <span>Simulated Audit Session</span>
+      </div> : null}
       <AppCard className={styles.content}>
-        <Link className={styles.backLink} href="/admin-home">
+        {!tour ? <Link className={styles.backLink} href="/admin-home">
           Back to audit history
-        </Link>
+        </Link> : null}
         <p className={styles.eyebrow}>Session Detail</p>
         <div className={styles.header}>
           <div>
@@ -47,6 +58,16 @@ export function AdminSessionDetailPage({
           </span>
         </div>
 
+        <dl className={styles.sessionSnapshot} aria-label="Session at a glance">
+          <div><dt>Duration</dt><dd>{detail.metrics.duration}</dd></div>
+          <div><dt>Events</dt><dd>{detail.invocation.eventCount}</dd></div>
+          <div><dt>Tools</dt><dd>{detail.metrics.toolCalls}</dd></div>
+          <div><dt>Model calls</dt><dd>{detail.metrics.modelCalls}</dd></div>
+          <div><dt>Provider tokens</dt><dd>{detail.metrics.totalTokens.toLocaleString("en-US")}</dd></div>
+          <div><dt>Failures</dt><dd>{detail.invocation.failureCount}</dd></div>
+        </dl>
+        <details className={styles.sessionMetadata} open={!tour}>
+          <summary>Session metrics and identity</summary>
         <div className={styles.metaSections}>
           <section className={styles.metaSection} aria-labelledby="request-identity">
             <h2 className={styles.metaSectionTitle} id="request-identity">
@@ -150,21 +171,24 @@ export function AdminSessionDetailPage({
             </div>
           </section>
         </div>
+        </details>
       </AppCard>
 
-      <section className={styles.section}>
+      <div className={`${styles.section} ${styles.conversationGrid}`}>
+      <section className={styles.conversationSection}>
         <h2 className={styles.sectionTitle}>User Prompt</h2>
-        <article className={styles.panel}>
+        <article className={`${styles.panel} ${styles.promptPanel}`}>
           <p className={styles.responseText}>{detail.prompt}</p>
         </article>
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Model Response</h2>
-        <article className={styles.panel}>
+      <section className={styles.conversationSection}>
+        <h2 className={styles.sectionTitle}>{tour && detail.metrics.modelCalls === 0 ? "Backend Response" : "Model Response"}</h2>
+        <article className={`${styles.panel} ${styles.responsePanel}`}>
           <p className={styles.responseText}>{detail.finalResponse}</p>
         </article>
       </section>
+      </div>
 
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Tool History</h2>
@@ -173,14 +197,18 @@ export function AdminSessionDetailPage({
             {detail.toolCalls.map((toolCall) => (
               <article className={styles.panel} key={toolCall.id}>
                 <div className={styles.panelHeader}>
-                  <h3>{toolCall.toolName}</h3>
+                  <h3>{tour ? readableToolName(toolCall.toolName) : toolCall.toolName}</h3>
                   <span>{toolCall.status}</span>
                 </div>
                 <p className={styles.toolPurpose}>{toolCall.description}</p>
                 <p className={styles.toolOutcome}>
                   <strong>Recorded outcome:</strong> {toolCall.summary}
                 </p>
+                <details className={styles.inspectionDetails} open={!tour}>
+                  <summary>Inspect tool details</summary>
                 <dl className={styles.toolDetails}>
+                  <div><dt>Tool</dt><dd>{toolCall.toolName}</dd></div>
+                  <div><dt>Sequence</dt><dd>{toolCall.sequenceNumber}</dd></div>
                   <div><dt>Latency</dt><dd>{toolCall.latency}</dd></div>
                   <div><dt>Source</dt><dd>{toolCall.source}</dd></div>
                   <div><dt>Workflow</dt><dd>{toolCall.workflow}</dd></div>
@@ -211,6 +239,7 @@ export function AdminSessionDetailPage({
                   ) : null}
                 </dl>
                 <p className={styles.timestamp}>{toolCall.occurredAt}</p>
+                </details>
               </article>
             ))}
           </div>
@@ -233,6 +262,12 @@ export function AdminSessionDetailPage({
                   </span>
                 </div>
                 <p>{event.summary}</p>
+                <p className={styles.timestamp}>{eventTimeLabel(event.occurredAt, detail.invocation.startedAt)}</p>
+                {event.details.length > 0 || event.latency || event.tokenCount !== null || event.workflow || event.operation || event.rawPayload || event.status ? (
+                <details className={styles.inspectionDetails} open={!tour}>
+                  <summary>Inspect event details</summary>
+                  <p className={styles.eventLifecycle}>Recorded at: {event.occurredAt}</p>
+                  {event.status ? <p className={styles.eventLifecycle}>Lifecycle status: {event.status}</p> : null}
                 {event.details.length > 0 ? (
                   <dl className={styles.timelineDetails}>
                     {event.details.map((detail) => (
@@ -284,14 +319,27 @@ export function AdminSessionDetailPage({
                     <pre>{event.rawPayload}</pre>
                   </details>
                 ) : null}
-                <p className={styles.timestamp}>{event.occurredAt}</p>
+                </details>
+                ) : null}
               </div>
             </li>
           ))}
         </ol>
       </section>
     </main>
+    </div>
   );
+}
+
+function readableToolName(name: string) {
+  const label = name.replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function eventTimeLabel(occurredAt: string, startedAt: string) {
+  const elapsed = Date.parse(occurredAt) - Date.parse(startedAt);
+  if (!Number.isFinite(elapsed) || elapsed < 0) return occurredAt;
+  return elapsed < 1000 ? `+${elapsed}ms from session start` : `+${(elapsed / 1000).toFixed(2)}s from session start`;
 }
 
 function getStatusClassName(status: string) {

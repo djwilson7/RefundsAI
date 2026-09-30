@@ -42,6 +42,7 @@ describe("root experience", () => {
   });
 
   it("normalizes the demo mode environment value", () => {
+    delete process.env.REFUNDS_AI_DEMO_MODE;
     expect(isDemoModeEnabled(" FALSE ")).toBe(false);
     expect(isDemoModeEnabled("true")).toBe(true);
     expect(isDemoModeEnabled()).toBe(true);

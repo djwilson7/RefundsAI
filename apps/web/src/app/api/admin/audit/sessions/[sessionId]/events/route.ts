@@ -1,3 +1,4 @@
+import { isDemoModeEnabled, demoServiceUnavailable } from "@/lib/demo-mode";
 const defaultApiBaseUrl = "http://localhost:8000";
 
 type AdminAuditSessionEventsRouteContext = Readonly<{
@@ -10,6 +11,7 @@ export async function GET(
   _request: Request,
   context: AdminAuditSessionEventsRouteContext,
 ) {
+  if (isDemoModeEnabled()) return demoServiceUnavailable();
   const { sessionId } = await context.params;
   const backendUrl = new URL(
     `${getApiBaseUrl()}/api/admin/audit/sessions/${sessionId}/events`,

@@ -17,9 +17,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { ArrowUpIcon } from "./icons";
 import { loadSelectedMockCustomerId } from "./mock-auth-session";
 import styles from "./application-help-layer.module.css";
+import { isDemoModeEnabled } from "@/lib/demo-mode";
 
 type ApplicationHelpLayerProps = Readonly<{
   children: ReactNode;
+  demoMode?: boolean;
 }>;
 
 type ApplicationHelpContextValue = Readonly<{
@@ -74,13 +76,22 @@ const initialChatMessages: ChatMessage[] = [
   },
 ];
 
-export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
+const demoChatMessages: ChatMessage[] = [
+  { id: "demo-intro", role: "assistant", content: "This is a local preview of the support experience. The tour does not connect to an AI service or change purchases." },
+  { id: "demo-question", role: "user", content: "What is the refund policy for digital purchases?" },
+  { id: "demo-answer", role: "assistant", content: "Digital purchases have a 15-day refund window, and the code must remain unredeemed. Open a purchase to explore its details, or swap to Admin to inspect example audit sessions." },
+];
+
+export function ApplicationHelpLayer({ children, demoMode: modeFromServer = false }: ApplicationHelpLayerProps) {
+  const demoMode = modeFromServer || isDemoModeEnabled();
   const [isOpen, setIsOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] =
-    useState<ChatMessage[]>(initialChatMessages);
+    useState<ChatMessage[]>(demoMode ? demoChatMessages : initialChatMessages);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const pageContentRef = useRef<HTMLDivElement | null>(null);
+  const closePanelRef = useRef<HTMLButtonElement | null>(null);
   const chatMessageIdCounterRef = useRef(0);
   const chatSessionVersionRef = useRef(0);
   const [conversationState, setConversationState] =
@@ -97,10 +108,10 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     chatSessionVersionRef.current += 1;
     chatMessageIdCounterRef.current = 0;
     setChatInput("");
-    setChatMessages(initialChatMessages);
+    setChatMessages(demoMode ? demoChatMessages : initialChatMessages);
     setConversationState({});
     setChatState("idle");
-  }, []);
+  }, [demoMode]);
   const toggleHelpPanel = useCallback(() => {
     setIsOpen((current) => {
       if (current) {
@@ -119,6 +130,28 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     }),
     [isAvailable, isOpen, panelId, toggleHelpPanel],
   );
+
+  useEffect(() => {
+    if (!isOpen || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(max-width: 900px)");
+    const content = pageContentRef.current;
+    const previousOverflow = document.body.style.overflow;
+    const previousInert = content?.inert ?? false;
+    const returnFocus = document.activeElement as HTMLElement | null;
+    const updatePanelMode = () => {
+      document.body.style.overflow = media.matches ? "hidden" : previousOverflow;
+      if (content) content.inert = media.matches || previousInert;
+      if (media.matches) closePanelRef.current?.focus();
+    };
+    updatePanelMode();
+    media.addEventListener("change", updatePanelMode);
+    return () => {
+      media.removeEventListener("change", updatePanelMode);
+      document.body.style.overflow = previousOverflow;
+      if (content) content.inert = previousInert;
+      returnFocus?.focus();
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -143,6 +176,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
   }, [chatMessages.length, isOpen]);
 
   async function submitChatMessage() {
+    if (demoMode) return;
     const message = chatInput.trim();
 
     if (!message || chatState === "sending") {
@@ -234,6 +268,7 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
     <ApplicationHelpContext.Provider value={contextValue}>
       <div className={styles.shell}>
         <div
+          ref={pageContentRef}
           className={[
             styles.content,
             isAvailable && isOpen ? styles.contentOpen : "",
@@ -254,7 +289,12 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
             id={panelId}
           >
             <header className={styles.header}>
-              <p className={styles.title}>Help</p>
+              <p className={styles.title}>{demoMode ? "Support preview" : "Help"}</p>
+              <button ref={closePanelRef} className={styles.closePanel} type="button" aria-label="Close help panel" onClick={toggleHelpPanel}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+                  <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
             </header>
             <div className={styles.body}>
               <div className={styles.chatSurface}>
@@ -302,23 +342,24 @@ export function ApplicationHelpLayer({ children }: ApplicationHelpLayerProps) {
                     Message the AI assistant
                   </label>
                   <textarea
+                    disabled={demoMode}
                     className={styles.chatInput}
                     id={`${panelId}-chat`}
                     onChange={(event) => setChatInput(event.target.value)}
                     onKeyDown={handleChatInputKeyDown}
-                    placeholder="Ask about your purchases..."
+                    placeholder={demoMode ? "Example conversation · frontend demo" : "Ask about your purchases..."}
                     ref={chatInputRef}
-                    rows={3}
+                    rows={1}
                     value={chatInput}
                   />
                   <div className={styles.inputActions}>
                     <button
                       aria-label="Send message"
                       className={styles.iconAction}
-                      disabled={!chatInput.trim() || chatState === "sending"}
+                      disabled={demoMode || !chatInput.trim() || chatState === "sending"}
                       type="submit"
                     >
-                      <ArrowUpIcon size={18} />
+                      <ArrowUpIcon size={16} />
                     </button>
                   </div>
                 </form>

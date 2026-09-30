@@ -1,6 +1,8 @@
+import { isDemoModeEnabled, demoServiceUnavailable } from "@/lib/demo-mode";
 const defaultApiBaseUrl = "http://localhost:8000";
 
 export async function GET(request: Request) {
+  if (isDemoModeEnabled()) return demoServiceUnavailable();
   const url = new URL(request.url);
   const sessionId = url.searchParams.get("session_id");
   const streamUrl = new URL(`${getApiBaseUrl()}/api/admin/audit/events/stream`);

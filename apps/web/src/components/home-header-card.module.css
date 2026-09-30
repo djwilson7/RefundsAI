@@ -3,6 +3,18 @@
   padding: 32px 20px 128px;
 }
 
+.tourPage {
+  min-height: calc(100svh - 82px);
+}
+
+.page.tourPage {
+  padding-top: 16px;
+}
+
+.tourPage .body {
+  margin-top: 0;
+}
+
 .content {
   width: min(100%, 1120px);
   margin: 0 auto;
@@ -52,5 +64,15 @@
 
   .heading {
     font-size: 2rem;
+  }
+
+  .page.tourPage {
+    padding-top: 12px;
+  }
+}
+
+@media (max-width: 540px) {
+  .tourPage {
+    min-height: calc(100svh - 74px);
   }
 }

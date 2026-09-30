@@ -4,6 +4,14 @@ import { loadPurchaseDetailsSummary } from "@/lib/purchase-details-data";
 import { PurchaseHistoryCard } from "./purchase-history-card";
 
 describe("PurchaseHistoryCard", () => {
+  it("links simulated cards without writing purchase objects to storage", () => {
+    window.sessionStorage.clear();
+    render(<PurchaseHistoryCard demo amount="$29.99" href="/purchase-details/example?customerId=customer&tour=client" purchasedAt="Purchased today" status="Completed" title="Tour purchase" />);
+    const link = screen.getByRole("link", { name: /Tour purchase/ });
+    expect(link).toHaveAttribute("href", "/purchase-details/example?customerId=customer&tour=client");
+    fireEvent.click(link);
+    expect(window.sessionStorage.length).toBe(0);
+  });
   it("renders purchase summary details", () => {
     const purchaseSummary = {
       headerMeta: {

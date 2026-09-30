@@ -15,6 +15,7 @@ type PurchaseHistoryCardProps = Readonly<{
   purchasedAt: string;
   status: string;
   title: string;
+  demo?: boolean;
 }>;
 
 export function PurchaseHistoryCard({
@@ -24,19 +25,17 @@ export function PurchaseHistoryCard({
   purchasedAt,
   status,
   title,
+  demo = false,
 }: PurchaseHistoryCardProps) {
-  return (
-    <Link
-      className={styles.card}
-      href={href}
-      onClick={() => {
-        if (purchaseSummary) {
-          savePurchaseDetailsSummary(purchaseSummary);
-        }
-      }}
-    >
+  const purchaseType = purchaseSummary?.purchaseType;
+  const cardClassName = [styles.card, purchaseType ? styles[purchaseType] : ""].filter(Boolean).join(" ");
+  const content = (
+    <>
       <div className={styles.header}>
-        <h3 className={styles.title}>{title}</h3>
+        <div>
+          {purchaseType ? <p className={styles.purchaseType}>{purchaseType}</p> : null}
+          <h3 className={styles.title}>{title}</h3>
+        </div>
         <p className={styles.amount}>{amount}</p>
       </div>
 
@@ -50,6 +49,10 @@ export function PurchaseHistoryCard({
           </span>
         </span>
       </div>
-    </Link>
+    </>
   );
+
+  return <Link className={cardClassName} href={href} onClick={() => {
+    if (!demo && purchaseSummary) savePurchaseDetailsSummary(purchaseSummary);
+  }}>{content}</Link>;
 }

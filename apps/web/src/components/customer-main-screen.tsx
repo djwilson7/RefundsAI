@@ -19,11 +19,13 @@ import styles from "./customer-main-screen.module.css";
 type CustomerMainScreenProps = Readonly<{
   customer: CustomerProfile;
   purchases: readonly CustomerPurchase[];
+  demo?: boolean;
 }>;
 
 export function CustomerMainScreen({
   customer,
   purchases,
+  demo = false,
 }: CustomerMainScreenProps) {
   const customerName = getIdentityDisplayName(customer);
   const customerSince = formatCustomerSinceYear(customer.createdAt);
@@ -40,6 +42,9 @@ export function CustomerMainScreen({
 
   return (
     <HomeHeaderCard
+      productBanner
+      customerId={customer.id}
+      helpAction={<HelpTriggerButton inline />}
       eyebrow="Welcome"
       heading={customerName}
       summary="Summary Dashboard"
@@ -59,13 +64,14 @@ export function CustomerMainScreen({
         aria-labelledby="purchase-history-title"
       >
         <h2 className={styles.sectionTitle} id="purchase-history-title">
-          Purchase History
+          {demo ? "Simulated Purchase History" : "Purchase History"}
         </h2>
         <div className={styles.purchaseGrid}>
           {purchases.map((purchase) => (
             <PurchaseHistoryCard
+              demo={demo}
               amount={formatCentsAsDollars(purchase.amountCents)}
-              href={buildPurchaseDetailsHref(purchase.id)}
+              href={demo ? `${buildPurchaseDetailsHref(purchase.id)}?customerId=${customer.id}&tour=client` : buildPurchaseDetailsHref(purchase.id)}
               key={purchase.id}
               purchaseSummary={buildPurchaseDetailsSummary(purchase)}
               purchasedAt={formatPurchaseDate(purchase.purchasedAt)}
@@ -75,7 +81,6 @@ export function CustomerMainScreen({
           ))}
         </div>
       </section>
-      <HelpTriggerButton />
     </HomeHeaderCard>
   );
 }

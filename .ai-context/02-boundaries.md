@@ -101,6 +101,24 @@ The frontend can:
 * Store small non-authoritative UI hints, such as selected mock customer and purchase detail header summary.
 * Send compact chat `page_context` and previous `conversation_state`.
 * Proxy browser calls to FastAPI through same-origin route handlers.
+* Generate presentation-only purchase examples for the explicit `tour=client`
+  surface from shared seed fixtures. These examples are not authoritative account
+  or refund facts and must not supply authoritative data to live chat, live detail, or
+  mutation workflows. Demo help shows a fixed local example, with no live requests.
+  Tour detail routes may display generated seed facts and plain-language policy
+  summaries, but must not evaluate eligibility, generate refund decisions, or
+  execute mutations. They do not cache purchase objects in browser storage.
+* Generate illustrative audit sessions for explicit `tour=admin` routes using
+  `apps/web/src/lib/demo-audit.ts`. These terminal examples describe model reads,
+  deterministic confirmations, and failures without invoking those operations.
+  Tour audit lists/details must not read live audit APIs, subscribe to SSE, or
+  persist records. Provider-token examples remain separate from backend estimates.
+* Enforce a deployment-wide demo boundary through `demo-mode.ts`: URLs cannot
+  opt into live services, service proxies return 404/DEMO_SERVICE_DISABLED before
+  any fetch, and shared readers/subscriptions/mutations fail closed. The mode is
+  fixed at production build time and shared with browser guards. Only an explicitly
+  integrated build may use backend services. Demo fixtures are owned by the frontend
+  and require no runtime backend imports, credentials, or connectivity.
 
 The frontend cannot:
 

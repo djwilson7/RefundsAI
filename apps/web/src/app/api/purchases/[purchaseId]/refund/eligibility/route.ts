@@ -1,3 +1,4 @@
+import { isDemoModeEnabled, demoServiceUnavailable } from "@/lib/demo-mode";
 const defaultApiBaseUrl = "http://localhost:8000";
 
 type RefundEligibilityRouteContext = Readonly<{
@@ -7,6 +8,7 @@ type RefundEligibilityRouteContext = Readonly<{
 }>;
 
 export async function GET(_request: Request, context: RefundEligibilityRouteContext) {
+  if (isDemoModeEnabled()) return demoServiceUnavailable();
   const { purchaseId } = await context.params;
 
   return proxyBackendRefundRequest(

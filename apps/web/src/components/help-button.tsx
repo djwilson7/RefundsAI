@@ -6,6 +6,7 @@ type HelpButtonProps = Readonly<
   ButtonHTMLAttributes<HTMLButtonElement> & {
     isOpen: boolean;
     panelId: string;
+    inline?: boolean;
   }
 >;
 
@@ -13,9 +14,10 @@ export function HelpButton({
   isOpen,
   panelId,
   className,
+  inline = false,
   ...buttonProps
 }: HelpButtonProps) {
-  const buttonClassName = [styles.button, isOpen ? styles.open : "", className]
+  const buttonClassName = [inline ? styles.inline : styles.button, !inline && isOpen ? styles.open : "", className]
     .filter(Boolean)
     .join(" ");
 

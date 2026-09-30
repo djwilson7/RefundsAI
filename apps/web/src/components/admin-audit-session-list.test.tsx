@@ -36,6 +36,18 @@ const liveInvocation = buildInvocation({
 });
 
 describe("AdminAuditSessionList", () => {
+  it("keeps tour records isolated from live reads, pagination, and streaming", () => {
+    const eventSource = vi.fn();
+    const observer = vi.fn();
+    vi.stubGlobal("EventSource", eventSource);
+    vi.stubGlobal("IntersectionObserver", observer);
+    render(<AdminAuditSessionList tour initialHasMore={false} initialInvocations={[firstInvocation]} />);
+    expect(eventSource).not.toHaveBeenCalled();
+    expect(observer).not.toHaveBeenCalled();
+    expect(getModelAuditInvocationPage).not.toHaveBeenCalled();
+    expect(getModelAuditInvocation).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: /Can you check/ })).toHaveAttribute("href", `/admin/sessions/${firstInvocation.id}?tour=admin`);
+  });
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();

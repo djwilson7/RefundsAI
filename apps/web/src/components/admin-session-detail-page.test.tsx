@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AdminSessionDetailPage } from "./admin-session-detail-page";
+import { buildDemoAuditSessions } from "@/lib/demo-audit";
 import type { ModelAuditSessionDetail } from "@/lib/application-api";
 
 vi.mock("next/navigation", () => ({
@@ -11,7 +12,7 @@ vi.mock("next/navigation", () => ({
 
 const detail: ModelAuditSessionDetail = {
   invocation: {
-    id: "70000000-0000-4000-8000-000000000001",
+    id: "70000000-0000-4000-8000-000000000001", startedAt: "2026-07-07T16:18:00Z",
     title: "July 7, 2026",
     lastActive: "Last active 4:18 PM",
     description:
@@ -97,6 +98,26 @@ const detail: ModelAuditSessionDetail = {
 };
 
 describe("AdminSessionDetailPage", () => {
+  it("leads with key metrics and retains full inspection data without cluttering the tour", () => {
+    const session = buildDemoAuditSessions("2026-09-30T12:00:00Z")[0];
+    render(<AdminSessionDetailPage tour detail={session} sessionId={session.invocation.id} />);
+    const disclosure = screen.getByText("Session metrics and identity").closest("details");
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(disclosure).toHaveTextContent("Request Identity");
+    expect(disclosure).toHaveTextContent("Process Metadata");
+    expect(disclosure).toHaveTextContent("Token Usage");
+    expect(screen.getByRole("heading", { name: "Purchase history lookup" })).toBeVisible();
+    screen.getAllByText(session.prompt).forEach((prompt) => expect(prompt).toBeVisible());
+    expect(screen.getByLabelText("Session at a glance")).toHaveTextContent("Provider tokens600");
+    const toolInspection = screen.getByText("Inspect tool details").closest("details");
+    expect(toolInspection).not.toHaveAttribute("open");
+    expect(toolInspection).toHaveTextContent(session.toolCalls[0].toolName);
+    expect(screen.getAllByText("Inspect event details")).toHaveLength(session.timelineEvents.length);
+    session.timelineEvents.forEach((event) => {
+      expect(screen.getByRole("heading", { name: event.title })).toBeVisible();
+      expect(screen.getByText((_, element) => element?.tagName === "PRE" && element.textContent === event.rawPayload)).toBeInTheDocument();
+    });
+  });
   it("renders prompt, model response, tool history, and timeline", () => {
     render(
       <AdminSessionDetailPage
@@ -126,7 +147,7 @@ describe("AdminSessionDetailPage", () => {
     expect(
       screen.getByText("Yes, the purchase is eligible for a refund."),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("get_refund_eligibility")).toHaveLength(2);
+    expect(screen.getAllByText("get_refund_eligibility")).toHaveLength(3);
     expect(
       screen.getByText(
         "Checks purchase facts and refund policy to determine whether the selected purchase is eligible and what must happen next.",

@@ -72,8 +72,10 @@ No standalone `refunds` table should be introduced under the current architectur
 
 The root route presents RefundsAI as a commercially integrable, policy-governed support
 product. It is a static conceptual surface and does not call the API, database, or model.
-`REFUNDS_AI_DEMO_MODE=false` restores the mock authentication screen at `/` for
-integrated application walkthroughs.
+The default frontend deployment is a self-contained demo with generated purchase and
+audit data, a local support preview, and blocked service proxies/readers/subscriptions.
+`REFUNDS_AI_DEMO_MODE=false` at build/development startup selects the integrated
+application and restores mock authentication at `/`.
 
 ### Customer Portal
 

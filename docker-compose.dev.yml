@@ -11,7 +11,6 @@ services:
     environment:
       NODE_ENV: development
       NEXT_TELEMETRY_DISABLED: "1"
-      REFUNDS_AI_API_BASE_URL: "${REFUNDS_AI_API_BASE_URL:-http://host.docker.internal:8000}"
       REFUNDS_AI_DEMO_MODE: "${REFUNDS_AI_DEMO_MODE:-true}"
       WATCHPACK_POLLING: "true"
     volumes:

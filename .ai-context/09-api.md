@@ -15,6 +15,12 @@ Implementation source:
 
 ## API Principles
 
+These contracts apply to explicitly integrated frontend builds. In the default
+frontend-only demo, all nine Next.js service proxies reject requests with HTTP 404
+and error code `DEMO_SERVICE_DISABLED` before parsing input or contacting FastAPI.
+The shared API readers return null without fetch; demo pages render local fixtures.
+Changing URL parameters cannot bypass the deployment mode.
+
 * Frontend code communicates through documented HTTP endpoints.
 * FastAPI remains authoritative for business behavior.
 * The frontend must not access Supabase or OpenAI directly.

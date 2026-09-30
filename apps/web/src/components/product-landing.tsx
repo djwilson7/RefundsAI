@@ -1,5 +1,6 @@
 import styles from "./product-landing.module.css";
 import { SmoothScrollLink } from "./smooth-scroll-link";
+import { ProductHeader } from "./product-header";
 
 const refundTypes = [
   { type: "Digital", signal: "Non-redeemed license", action: "Invalidate license", outcome: "Funds issued immediately", tone: "digitalRow" },
@@ -33,18 +34,7 @@ export function ProductLanding() {
         <span className={styles.grid} />
       </div>
 
-      <nav className={styles.nav} aria-label="Primary navigation">
-        <a className={styles.brand} href="#top" aria-label="RefundsAI home"><LockMark />RefundsAI</a>
-        <button
-          className={styles.tourButton}
-          disabled
-          title="The technical tour is coming in the next demo pass."
-          type="button"
-          aria-label="Technical tour (coming soon)"
-        >
-          Technical tour <span aria-hidden="true">↗</span>
-        </button>
-      </nav>
+      <ProductHeader />
 
       <section className={styles.hero} id="top">
         <div className={styles.heroCopy}>

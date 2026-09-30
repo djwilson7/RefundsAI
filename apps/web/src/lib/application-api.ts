@@ -1,3 +1,4 @@
+import { isDemoModeEnabled } from "./demo-mode";
 const defaultApiBaseUrl = "http://localhost:8000";
 
 type ApiResponse<TData> = Readonly<{
@@ -369,6 +370,7 @@ function getAuditReadBaseUrl() {
 }
 
 export async function getUserProfile(userId: string) {
+  if (isDemoModeEnabled()) return null;
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/users/${userId}`, {
       cache: "no-store",
@@ -391,6 +393,7 @@ export async function getUserProfile(userId: string) {
 }
 
 export async function getUserPurchases(userId: string) {
+  if (isDemoModeEnabled()) return null;
   try {
     const response = await fetch(`${getApiBaseUrl()}/api/users/${userId}/purchases`, {
       cache: "no-store",
@@ -415,6 +418,7 @@ export async function getUserPurchases(userId: string) {
 }
 
 export async function getPurchaseDetails(purchaseId: string) {
+  if (isDemoModeEnabled()) return null;
   try {
     const response = await fetch(
       `${getApiBaseUrl()}/api/purchases/${purchaseId}/details`,
@@ -440,6 +444,7 @@ export async function getPurchaseDetails(purchaseId: string) {
 }
 
 export async function getRefundWorkflow(purchaseId: string) {
+  if (isDemoModeEnabled()) return null;
   try {
     const response = await fetch(
       `${getApiBaseUrl()}/api/purchases/${purchaseId}/refund/eligibility`,
@@ -477,6 +482,7 @@ export async function getModelAuditInvocationPage({
   limit?: number;
   offset?: number;
 } = {}) {
+  if (isDemoModeEnabled()) return null;
   try {
     const requestedLimit = limit === undefined ? undefined : limit + 1;
     const query = new URLSearchParams();
@@ -559,6 +565,7 @@ export async function getModelAuditSessionDetail(sessionId: string) {
 }
 
 async function getModelAuditSession(sessionId: string) {
+  if (isDemoModeEnabled()) return null;
   try {
     const response = await fetch(
       `${getAuditReadBaseUrl()}/api/admin/audit/sessions/${sessionId}`,
@@ -586,6 +593,7 @@ async function getModelAuditSession(sessionId: string) {
 }
 
 async function getModelAuditSessionEvents(sessionId: string) {
+  if (isDemoModeEnabled()) return null;
   try {
     const response = await fetch(
       `${getAuditReadBaseUrl()}/api/admin/audit/sessions/${sessionId}/events`,

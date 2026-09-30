@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { isDemoModeEnabled } from "@/lib/demo-mode";
 
 const refreshDebounceMs = 250;
 
@@ -13,6 +14,7 @@ export function AdminAuditLiveUpdates({ sessionId }: AdminAuditLiveUpdatesProps)
   const router = useRouter();
 
   useEffect(() => {
+    if (isDemoModeEnabled()) return;
     if (typeof EventSource === "undefined") {
       return;
     }

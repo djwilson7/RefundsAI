@@ -37,6 +37,14 @@ export function LogoutIcon({ size = 20 }: IconProps) {
   );
 }
 
+export function SwapIcon({ size = 20 }: IconProps) {
+  return (
+    <svg aria-hidden="true" fill="none" height={size} width={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
 export function ArrowRightIcon({ size = 20 }: IconProps) {
   return (
     <svg

@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ProductLanding } from "./product-landing";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 describe("ProductLanding", () => {
   it("presents the product, refund workspace, and lifecycle-specific workflows", () => {
@@ -41,11 +43,11 @@ describe("ProductLanding", () => {
     expect(screen.queryByText("Confirm invalidate code and issue refund")).not.toBeInTheDocument();
   });
 
-  it("shows the intentionally unavailable technical tour control", () => {
+  it("links to the technical tour perspective selection", () => {
     render(<ProductLanding />);
 
     expect(
-      screen.getByRole("button", { name: "Technical tour (coming soon)" }),
-    ).toBeDisabled();
+      screen.getByRole("link", { name: "Technical tour" }),
+    ).toHaveAttribute("href", "/technical-tour");
   });
 });

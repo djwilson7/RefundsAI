@@ -16,6 +16,8 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        REFUNDS_AI_DEMO_MODE: "${REFUNDS_AI_DEMO_MODE:-true}"
     depends_on:
       - api
     ports:

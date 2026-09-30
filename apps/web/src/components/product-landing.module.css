@@ -127,8 +127,19 @@
   font-weight: 720;
   backdrop-filter: blur(14px) saturate(125%);
   -webkit-backdrop-filter: blur(14px) saturate(125%);
-  cursor: not-allowed;
+  cursor: pointer;
   opacity: 1;
+}
+
+.tourButton:hover {
+  border-color: rgba(227, 139, 85, 0.55);
+  background: rgba(198, 83, 32, 0.16);
+}
+
+.tourButton:focus-visible,
+.brand:focus-visible {
+  outline: 2px solid var(--orange-light);
+  outline-offset: 4px;
 }
 
 .tourButton span {

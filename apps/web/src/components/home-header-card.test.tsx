@@ -55,4 +55,16 @@ describe("HomeHeaderCard", () => {
     ).toBeNull();
     expect(replace).toHaveBeenCalledWith("/");
   });
+
+  it("uses the product banner for the client tour without a duplicate logout control", () => {
+    render(
+      <HomeHeaderCard productBanner eyebrow="Welcome" heading="Avery Brooks" summary="Summary Dashboard" />,
+    );
+
+    const banner = screen.getByRole("navigation", { name: "Primary navigation" });
+    expect(banner).toContainElement(screen.getByRole("heading", { name: "Avery Brooks" }));
+    expect(screen.getByRole("button", { name: "Switch to admin view" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Exit" })).toHaveAttribute("href", "/");
+    expect(screen.queryByRole("button", { name: "Log out" })).not.toBeInTheDocument();
+  });
 });

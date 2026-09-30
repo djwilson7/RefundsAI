@@ -79,6 +79,15 @@ describe("ApplicationHelpLayer", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("closes the panel using its own header control", () => {
+    setMockedPathname("/user-home");
+    render(<ApplicationHelpLayer><HelpTriggerButton /></ApplicationHelpLayer>);
+    fireEvent.click(screen.getByRole("button", { name: "Open help chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close help panel" }));
+    expect(screen.queryByRole("complementary", { name: "Help panel" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open help chat" })).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("requires the help-layer context provider for direct hook access", () => {
     function MissingProviderConsumer() {
       useApplicationHelpLayer();
