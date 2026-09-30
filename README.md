@@ -1,133 +1,144 @@
 # RefundsAI
 
-> A bounded AI agent that explains and executes refunds against strict backend policy.
+> AI-assisted refunds. Backend-owned policy. Visible execution.
 
-RefundsAI is a production-inspired customer support system for end-to-end refund
-workflows. The model interprets customer language, requests narrow read tools, and
-explains backend results. Deterministic services remain authoritative for policy,
-consent, refund amounts, and lifecycle transitions.
+Built as a seven-day technical delivery, RefundsAI combines conversational support
+with deterministic policy, explicit consent, guarded execution, and auditability.
 
-Exact confirmation turns can bypass the model entirely. The backend validates persisted
-consent, executes guarded refund operations, verifies the database result, and returns
-transactional wording without another provider call.
+The frontend showcases how that infrastructure can fit into a customer experience.
+The repository contains the backend workflow that gives it substance.
 
-The core implementation is complete through text chat, confirmation-gated refund
-execution, and administrative auditability.
+## Product Walkthrough
 
----
+Explore the customer experience and the evidence behind it.
+[Run locally](#local-development), then choose **Technical tour → Client or Admin → Begin Here**.
 
-## Project Goals
+### Landing page
 
-RefundsAI demonstrates:
+The product introduction establishes the central rule: the model interprets and explains;
+backend services decide what is allowed.
 
-* **Bounded Agentic Interface**: Natural-language understanding and grounded tool orchestration.
-* **Deterministic Enforcement**: Backend policy rules decide eligibility, not LLM inference.
-* **Safe Execution**: Exact, persisted, once-consumable confirmation gates protect mutations.
-* **Observability & Auditability**: Ordered model, tool, validation, and mutation evidence.
-* **Layered System Boundaries**: Clean separation between model, services, and database.
+![RefundsAI product landing page](docs/images/landing.jpg)
 
----
+### Choose a perspective
 
-## Features
+Client shows support in purchase context. Admin shows performance and execution evidence.
+Both use example identities, with swap and exit controls in the shared header.
 
-### Customer Portal
+![Client and Admin walkthrough entry](docs/images/perspectives.jpg)
 
-* Mock customer login (stored in local session storage)
-* Customer dashboard and purchase history overview
-* Type-specific purchase detail pages (Digital, Physical, Subscription)
-* AI support panel with conversational history and active result grounding
-* Chat-driven refund workflow controls with backend confirmation gates
+### Client: purchase history and support
 
-### Admin Dashboard (AI Auditability)
+The support panel sits beside purchase history, illustrating an integration within an
+existing customer portal. Purchase context stays visible throughout the conversation.
 
-* Mock administrator login
-* **Audit Session Overview**: Chronological list of customer-agent chat sessions
-* **Audit Session Details**: Request identity, process metrics, token usage, tool history, and complete narrative timeline
-* **Realtime Audit Stream**: SSE-backed refresh from persisted PostgreSQL events
+![Client purchase history with the support panel open](docs/images/client-history.jpg)
 
----
+### Client: purchase details
+
+Status, lifecycle events, and refund policy provide the facts the support workflow needs.
+Digital, physical, and subscription purchases each have their own requirements.
+
+![Purchase details and refund policy alongside the support panel](docs/images/purchase-details.jpg)
+
+### Admin: performance overview
+
+Review successes, failures, total tokens, and average events, tool calls, latency,
+and time to response across example sessions.
+
+![Admin overview with aggregate metrics and example audit history](docs/images/admin-overview.jpg)
+
+### Admin: execution evidence
+
+Follow a request through its response, tool outcomes, and ordered events.
+Expand inspection sections for identity, token breakdowns, and payloads.
+
+![Admin session with prompt, response, tools, and execution evidence](docs/images/admin-session.jpg)
+
+<details>
+<summary>Additional support and mobile views</summary>
+
+![Support preview within the client experience](docs/images/client-support.jpg)
+
+The client experience adapts to mobile, with full-screen support when opened.
+
+<img src="docs/images/client-mobile.jpg" alt="Mobile client dashboard with compact header actions and purchase history" width="390" />
+
+</details>
+
+**Walkthrough boundary:** these screens use local examples. Support is a fixed preview
+with a disabled composer; no external services or refund actions run in the walkthrough.
+
+## Seven-Day Core Delivery
+
+The backend implementation supplies the workflow illustrated above.
+
+| Capability | Responsibility |
+| --- | --- |
+| Language and context | Resolve intent, purchase references, and active workflow scope. |
+| Grounded tools | Read purchase facts, policy, and evaluated eligibility. |
+| Policy enforcement | Determine eligibility from persisted facts. |
+| Confirmation gates | Validate exact, scoped, once-consumable consent. |
+| Guarded execution | Apply permitted lifecycle transitions and verify persistence. |
+| Auditability | Record model, tool, validation, and mutation evidence. |
+
+Exact confirmation turns can execute entirely in the backend, without another model call.
+Real authentication, payment processing, and production hardening are outside this scope.
 
 ## Architecture
 
-RefundsAI separates conversational orchestration from transaction authority.
+The API separates the presentation surface from the core workflow.
+Next.js is one example integration; another customer-facing interface can use the same boundary.
 
 ```text
-Customer / Administrator
-        |
-        v
-  Next.js Web UI
-        |
-        v
- FastAPI + LangGraph
-    /           \
-   v             v
-OpenAI read/   Deterministic routing,
-explanation   policy, consent, mutations
-    \           /
-     v         v
-   Backend services
-          |
-          v
- Supabase PostgreSQL
+Customer interface / Admin interface
+                 |
+          FastAPI + LangGraph
+             /         \
+      Model             Deterministic services
+      Interpret         Policy + consent
+      Request reads     Guarded execution
+      Explain           Verify outcomes
+             \         /
+          Supabase PostgreSQL
 ```
 
-### Business Policy & Authority
+| Layer | Owns |
+| --- | --- |
+| Frontend | Customer context, interaction, and presentation. |
+| Model | Language interpretation, read-tool requests, and grounded explanations. |
+| Backend | Policy decisions, consent validation, and refund execution. |
+| Database | Authoritative facts, lifecycle state, and ordered audit records. |
 
-* **Authoritative Policy**: Backend service helpers compute eligibility from real database facts. The AI model only reports eligibility and collects confirmations.
-* **Lifecycle State Separation**: Refund states are recorded directly in type-specific detail tables. The shared `purchases` table tracks shared order details and final refund facts.
-* **No Standalone `refunds` Table**: Lifecycle and confirmation facts belong directly to:
-  * `digital_purchase_details`
-  * `physical_purchase_details`
-  * `subscription_purchase_details`
-* **Gated Mutations**: Mutations require persisted, validated, once-consumable confirmation facts, preventing the model from authorizing writes.
-* **Database Triggers**: PostgreSQL triggers derive refund deadlines and defaults automatically from persisted purchase/detail state.
+Refund state lives with its product type: `digital_purchase_details`,
+`physical_purchase_details`, or `subscription_purchase_details`.
+The shared `purchases` table holds order and final refund summary facts.
 
-### End-to-End Refund Proof
+[Refund policy](docs/REFUND_POLICY.md) · [Engineering reasoning](docs/DEVELOPER_INSIGHTS.md) ·
+[Architecture reference](.ai-context/01-architecture.md)
 
-1. The customer asks about policy or a purchase.
-2. The backend resolves the customer, purchase scope, and workflow.
-3. Read-only tools return policy or eligibility facts.
-4. The assistant presents the exact product-specific confirmation command.
-5. The backend persists consent and executes guarded preparation or issuance.
-6. The purchase view refreshes from database state.
-7. The admin audit surface shows every model and deterministic step.
+## Explore or Integrate
 
----
+| Mode | Behavior |
+| --- | --- |
+| Default walkthrough | Local examples; no API, database, or model credentials required. |
+| Integrated build | Live backend reads, conversational support, guarded refunds, persisted audits, and SSE updates. |
+
+Set `REFUNDS_AI_DEMO_MODE=false` before building or starting development to use the
+integrated application. Its mock login supplies example identities, not production authentication.
+
+[Service isolation](#frontend-demo-isolation) documents the enforced walkthrough boundary.
+Dates in generated examples follow the current UTC day; screenshots were captured September 30, 2026.
 
 ## Technology Stack
 
-#### Frontend
-
-* Next.js (app router)
-* React & TypeScript
-* Tailwind CSS
-* Framer Motion
-
-#### Backend
-
-* FastAPI (endpoint serving)
-* Python (v3.12+)
-* Pydantic v2 (data schemas and input validation)
-* psycopg (PostgreSQL database driver)
-* pytest & pytest-cov (testing and coverage verification)
-* Ruff (linting and formatting)
-
-#### Database
-
-* Supabase PostgreSQL (relational database storage)
-* Triggers & PL/pgSQL functions (database-level policy/deadline enforcement)
-
-#### AI
-
-* LangGraph (graph-based conversational state and agent orchestration)
-* OpenAI APIs (structured completions and function calling)
-
-Voice-agent support is deferred and is not part of the current implemented surface.
-
-#### Development
-
-* Docker & Docker Compose
-* GitHub / Git Version Control
+| Surface | Technology |
+| --- | --- |
+| Frontend | Next.js, React, TypeScript, Tailwind CSS, Framer Motion |
+| API and orchestration | FastAPI, Python, Pydantic, LangGraph, OpenAI |
+| Persistence | Supabase PostgreSQL, psycopg, PL/pgSQL |
+| Validation | Vitest, ESLint, pytest, pytest-cov, Ruff |
+| Development | npm workspaces, Docker Compose, Git |
 
 ---
 
@@ -139,7 +150,9 @@ Production deployment is not the primary objective of this technical challenge.
 
 ### Frontend
 
-The frontend scaffold lives in `apps/web` and is managed through the root npm workspace.
+The frontend lives in `apps/web` and is managed through the root npm workspace.
+Its default demo needs only the frontend dependencies. Backend, database, and AI
+setup below applies to integrated development.
 
 Install frontend dependencies from the repository root:
 
@@ -182,7 +195,21 @@ The same commands are also exposed from the repository root as `npm run web:dev`
 
 The local development server runs on `http://localhost:3000`.
 
-The frontend server reads `REFUNDS_AI_API_BASE_URL` when calling the FastAPI backend from server-rendered routes. For local development this defaults to `http://localhost:8000`.
+#### Browser extension hydration warnings
+
+`apps/web/src/app/layout.tsx` uses `suppressHydrationWarning` on `<html>` and
+`<body>` to tolerate attributes injected before hydration by browser extensions,
+such as Grammarly's `data-new-gr-c-s-check-loaded` and `data-gr-ext-installed`.
+This prevents document-shell attribute warnings from interrupting the demo while
+keeping hydration checks enabled inside the application.
+
+This tolerance does not prevent extensions from changing page content. If an
+extension changes nested elements or breaks interactions, disable it for the demo
+site or use a browser profile with extensions disabled, then reload and inspect
+any remaining mismatch.
+
+Only integrated builds (`REFUNDS_AI_DEMO_MODE=false`) use
+`REFUNDS_AI_API_BASE_URL` for FastAPI calls (default `http://localhost:8000`).
 
 #### Frontend-only Docker development
 
@@ -202,8 +229,8 @@ default development bundler.
 
 The development container reads `REFUNDS_AI_DEMO_MODE` when it is created:
 
-* Unset or `true`: show the product landing page at `/`.
-* `false`: show the original mock authentication screen at `/`.
+* Unset or `true`: frontend-only demo, with generated data and no service calls.
+* `false`: integrated application and original mock authentication screen at `/`.
 
 Source edits hot reload immediately. After changing `.env`, recreate the container so
 Docker injects the updated process environment:
@@ -215,20 +242,42 @@ docker compose -f docker-compose.dev.yml up -d --force-recreate
 Set `REFUNDS_AI_WEB_PORT` when port 3000 is already occupied, for example
 `REFUNDS_AI_WEB_PORT=3010`.
 
-#### Root experience
+#### Demo routes and data
 
-The frontend root route (`/`) shows the public RefundsAI product landing page by
-default. Set `REFUNDS_AI_DEMO_MODE=false` to restore the original mock authentication
-entry screen for integrated application walkthroughs. The product landing page is
-presentational and makes no external service calls.
+* Client examples use local seed snapshots, with dates anchored to the current UTC day at 14:00.
+* Admin examples contain six stable sessions, without live pagination, SSE, or persistence.
+* Aggregates include failures and deterministic confirmations; missing timings are excluded.
+* Zero provider tokens and estimated backend payload tokens remain distinct.
+* Inspection sections start collapsed in walkthrough routes and open in integrated live routes.
 
-#### Mock frontend authentication
+#### Frontend demo isolation
 
-`Load User` selects a random seeded customer identity, builds mock credentials in the format `first_last@example.com` with password `12345Password`, animates those read-only credentials into the form, stores the selected mock customer in browser session storage, and routes to `/user-home?customerId={customerId}`. The `customerId` query parameter is used by `/user-home` to request the selected user through `GET /api/users/{user_id}` so the header name and customer metadata come from the backend API. If the backend is unavailable during frontend-only development, the screen falls back to the selected seeded identity.
+* **Build boundary:** `REFUNDS_AI_DEMO_MODE` is selected at build/development startup. Rebuild to change production mode.
+* **Route safety:** query parameters cannot unlock services. Unknown example IDs return not found.
+* **Service guards:** `src/lib/demo-mode.ts` blocks readers, chat, mutations, and subscriptions. Proxies return `404 DEMO_SERVICE_DISABLED` before processing requests.
+* **Browser boundary:** the CSP permits connections and assets only from the application's own origin.
+* **Local data:** `apps/web/src/lib/fixtures` owns the examples; no backend files or credentials are required.
+* **Containers:** development Compose runs only the frontend; standard Compose supports integrated development.
 
-`Load Admin` follows the same credential animation flow for the seeded administrator identity and routes to `/admin-home`.
+| Validation | Command |
+| --- | --- |
+| Service isolation | `npm run test:demo --workspace @refunds-ai/web` |
+| Integrated expectations, with mocked services | `npm run test:integrated --workspace @refunds-ai/web` |
+| Both test projects | `npm run web:test` |
 
-This mock login state is frontend-only. It does not authenticate against the FastAPI backend, does not grant production permissions, and does not make the frontend authoritative for customer, purchase, refund, or policy data.
+Isolation tests reject attempted fetch/SSE connections and cover direct URLs, proxies,
+accidental live-component mounts, and the disabled support composer.
+
+#### Integrated mock frontend authentication
+
+This login flow applies only to integrated builds. Walkthrough entry uses a fixed example identity.
+
+* `Load User` selects a seeded customer, displays mock credentials, and stores the identity in session storage.
+* `/user-home?customerId={customerId}` loads profile data through the backend, with a seeded identity fallback.
+* `Load Admin` uses the seeded administrator and opens `/admin-home`.
+
+Mock identity selection does not authenticate with FastAPI or grant production permissions.
+Backend facts remain authoritative for purchases, policy, and refunds.
 
 ### Frontend Container
 
@@ -242,7 +291,7 @@ reload. The container exposes the frontend on `http://localhost:3000`.
 
 ### Backend
 
-The backend scaffold lives in `apps/api` and uses FastAPI with pinned pip requirements.
+The integrated backend lives in `apps/api` and uses FastAPI with pinned pip requirements.
 
 Create the virtual environment from the repository root:
 
