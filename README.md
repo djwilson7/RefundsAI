@@ -2,16 +2,20 @@
 
 > AI-assisted refunds. Backend-owned policy. Visible execution.
 
+[Explore the product concept](https://refundsai.dontaiwilson.com) · [Dontai Wilson's portfolio](https://dontaiwilson.com)
+
+[Explore the product concept](https://refundsai.dontaiwilson.com) · [Dontai Wilson's portfolio](https://dontaiwilson.com)
+
 Built as a seven-day technical delivery, RefundsAI combines conversational support
 with deterministic policy, explicit consent, guarded execution, and auditability.
 
-The frontend showcases how that infrastructure can fit into a customer experience.
-The repository contains the backend workflow that gives it substance.
+The service architecture is the core product. The screens below illustrate how it
+could be integrated into customer support and operational review.
 
-## Product Walkthrough
+## Integration Examples
 
-Explore the customer experience and the evidence behind it.
-[Run locally](#local-development), then choose **Technical tour → Client or Admin → Begin Here**.
+Customer and administrator surfaces give the same infrastructure two perspectives:
+support in purchase context, and visibility into how each request was handled.
 
 ### Landing page
 
@@ -20,12 +24,12 @@ backend services decide what is allowed.
 
 ![RefundsAI product landing page](docs/images/landing.jpg)
 
-### Choose a perspective
+### Customer and administrator perspectives
 
-Client shows support in purchase context. Admin shows performance and execution evidence.
-Both use example identities, with swap and exit controls in the shared header.
+Customer-facing support and administrative inspection can be presented through
+separate interfaces backed by the same workflow.
 
-![Client and Admin walkthrough entry](docs/images/perspectives.jpg)
+![Customer and administrator perspective selection](docs/images/perspectives.jpg)
 
 ### Client: purchase history and support
 
@@ -43,15 +47,15 @@ Digital, physical, and subscription purchases each have their own requirements.
 
 ### Admin: performance overview
 
-Review successes, failures, total tokens, and average events, tool calls, latency,
-and time to response across example sessions.
+An operator dashboard can summarize successes, failures, token usage, and average
+events, tool calls, latency, and time to response.
 
 ![Admin overview with aggregate metrics and example audit history](docs/images/admin-overview.jpg)
 
 ### Admin: execution evidence
 
-Follow a request through its response, tool outcomes, and ordered events.
-Expand inspection sections for identity, token breakdowns, and payloads.
+Session evidence connects each request to its response, tool outcomes, and ordered
+events, with deeper inspection of identity, token breakdowns, and payloads.
 
 ![Admin session with prompt, response, tools, and execution evidence](docs/images/admin-session.jpg)
 
@@ -65,9 +69,6 @@ The client experience adapts to mobile, with full-screen support when opened.
 <img src="docs/images/client-mobile.jpg" alt="Mobile client dashboard with compact header actions and purchase history" width="390" />
 
 </details>
-
-**Walkthrough boundary:** these screens use local examples. Support is a fixed preview
-with a disabled composer; no external services or refund actions run in the walkthrough.
 
 ## Seven-Day Core Delivery
 
@@ -114,21 +115,15 @@ Refund state lives with its product type: `digital_purchase_details`,
 `physical_purchase_details`, or `subscription_purchase_details`.
 The shared `purchases` table holds order and final refund summary facts.
 
-[Refund policy](docs/REFUND_POLICY.md) · [Engineering reasoning](docs/DEVELOPER_INSIGHTS.md) ·
-[Architecture reference](.ai-context/01-architecture.md)
+## Explore the Implementation
 
-## Explore or Integrate
-
-| Mode | Behavior |
+| Reference | What to inspect |
 | --- | --- |
-| Default walkthrough | Local examples; no API, database, or model credentials required. |
-| Integrated build | Live backend reads, conversational support, guarded refunds, persisted audits, and SSE updates. |
-
-Set `REFUNDS_AI_DEMO_MODE=false` before building or starting development to use the
-integrated application. Its mock login supplies example identities, not production authentication.
-
-[Service isolation](#frontend-demo-isolation) documents the enforced walkthrough boundary.
-Dates in generated examples follow the current UTC day; screenshots were captured September 30, 2026.
+| [Architecture](.ai-context/01-architecture.md) | Service layers and request flow. |
+| [Responsibility boundaries](.ai-context/02-boundaries.md) | Where model capabilities end and backend authority begins. |
+| [Refund policy](docs/REFUND_POLICY.md) | Product-specific rules and lifecycle requirements. |
+| [Engineering insights](docs/DEVELOPER_INSIGHTS.md) | Implementation decisions and tradeoffs. |
+| [API contracts](.ai-context/09-api.md) | Integration points for customer and operator interfaces. |
 
 ## Technology Stack
 
@@ -142,156 +137,14 @@ Dates in generated examples follow the current UTC day; screenshots were capture
 
 ---
 
-## Local Development
+## Core Service Development
 
-This project is intentionally scoped for local-first development.
-
-Production deployment is not the primary objective of this technical challenge.
-
-### Frontend
-
-The frontend lives in `apps/web` and is managed through the root npm workspace.
-Its default demo needs only the frontend dependencies. Backend, database, and AI
-setup below applies to integrated development.
-
-Install frontend dependencies from the repository root:
-
-```bash
-npm install
-cd apps/web
-```
-
-Run the frontend:
-
-```bash
-npm run dev
-```
-
-Lint:
-
-```bash
-npm run lint
-```
-
-Test:
-
-```bash
-npm run test
-```
-
-Coverage:
-
-```bash
-npm run coverage
-```
-
-Build:
-
-```bash
-npm run build
-```
-
-The same commands are also exposed from the repository root as `npm run web:dev`, `npm run web:lint`, `npm run web:test`, `npm run web:coverage`, and `npm run web:build`.
-
-The local development server runs on `http://localhost:3000`.
-
-#### Browser extension hydration warnings
-
-`apps/web/src/app/layout.tsx` uses `suppressHydrationWarning` on `<html>` and
-`<body>` to tolerate attributes injected before hydration by browser extensions,
-such as Grammarly's `data-new-gr-c-s-check-loaded` and `data-gr-ext-installed`.
-This prevents document-shell attribute warnings from interrupting the demo while
-keeping hydration checks enabled inside the application.
-
-This tolerance does not prevent extensions from changing page content. If an
-extension changes nested elements or breaks interactions, disable it for the demo
-site or use a browser profile with extensions disabled, then reload and inspect
-any remaining mismatch.
-
-Only integrated builds (`REFUNDS_AI_DEMO_MODE=false`) use
-`REFUNDS_AI_API_BASE_URL` for FastAPI calls (default `http://localhost:8000`).
-
-#### Frontend-only Docker development
-
-Use the dedicated development Compose file when working on the product landing page or
-other frontend-only changes:
-
-```bash
-docker compose -f docker-compose.dev.yml up --build
-```
-
-This configuration starts only the Next.js development server. It bind-mounts
-`apps/web`, keeps the generated `.next` output in a Docker volume, and enables polling
-with Next.js webpack development mode so edits and atomic file replacements made on
-Windows trigger hot reload without rebuilding the image. The FastAPI and database
-services do not start. Local development outside Docker continues to use Next.js's
-default development bundler.
-
-The development container reads `REFUNDS_AI_DEMO_MODE` when it is created:
-
-* Unset or `true`: frontend-only demo, with generated data and no service calls.
-* `false`: integrated application and original mock authentication screen at `/`.
-
-Source edits hot reload immediately. After changing `.env`, recreate the container so
-Docker injects the updated process environment:
-
-```bash
-docker compose -f docker-compose.dev.yml up -d --force-recreate
-```
-
-Set `REFUNDS_AI_WEB_PORT` when port 3000 is already occupied, for example
-`REFUNDS_AI_WEB_PORT=3010`.
-
-#### Demo routes and data
-
-* Client examples use local seed snapshots, with dates anchored to the current UTC day at 14:00.
-* Admin examples contain six stable sessions, without live pagination, SSE, or persistence.
-* Aggregates include failures and deterministic confirmations; missing timings are excluded.
-* Zero provider tokens and estimated backend payload tokens remain distinct.
-* Inspection sections start collapsed in walkthrough routes and open in integrated live routes.
-
-#### Frontend demo isolation
-
-* **Build boundary:** `REFUNDS_AI_DEMO_MODE` is selected at build/development startup. Rebuild to change production mode.
-* **Route safety:** query parameters cannot unlock services. Unknown example IDs return not found.
-* **Service guards:** `src/lib/demo-mode.ts` blocks readers, chat, mutations, and subscriptions. Proxies return `404 DEMO_SERVICE_DISABLED` before processing requests.
-* **Browser boundary:** the CSP permits connections and assets only from the application's own origin.
-* **Local data:** `apps/web/src/lib/fixtures` owns the examples; no backend files or credentials are required.
-* **Containers:** development Compose runs only the frontend; standard Compose supports integrated development.
-
-| Validation | Command |
-| --- | --- |
-| Service isolation | `npm run test:demo --workspace @refunds-ai/web` |
-| Integrated expectations, with mocked services | `npm run test:integrated --workspace @refunds-ai/web` |
-| Both test projects | `npm run web:test` |
-
-Isolation tests reject attempted fetch/SSE connections and cover direct URLs, proxies,
-accidental live-component mounts, and the disabled support composer.
-
-#### Integrated mock frontend authentication
-
-This login flow applies only to integrated builds. Walkthrough entry uses a fixed example identity.
-
-* `Load User` selects a seeded customer, displays mock credentials, and stores the identity in session storage.
-* `/user-home?customerId={customerId}` loads profile data through the backend, with a seeded identity fallback.
-* `Load Admin` uses the seeded administrator and opens `/admin-home`.
-
-Mock identity selection does not authenticate with FastAPI or grant production permissions.
-Backend facts remain authoritative for purchases, policy, and refunds.
-
-### Frontend Container
-
-```bash
-docker compose up web --build
-```
-
-The standard Compose configuration builds the production-style standalone frontend
-and starts its API dependency. Use `docker-compose.dev.yml` for frontend-only hot
-reload. The container exposes the frontend on `http://localhost:3000`.
+The service implementation lives in `apps/api`. The following setup runs the API,
+configures its database and model dependencies, and validates the core workflow.
 
 ### Backend
 
-The integrated backend lives in `apps/api` and uses FastAPI with pinned pip requirements.
+The backend uses FastAPI with pinned pip requirements.
 
 Create the virtual environment from the repository root:
 
