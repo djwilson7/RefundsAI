@@ -19,3 +19,9 @@ __pycache__
 *.pyc
 .git
 *.log
+.env
+.env.*
+**/.env
+**/.env.*
+*.tsbuildinfo
+**/*.tsbuildinfo

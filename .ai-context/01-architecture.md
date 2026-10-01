@@ -46,6 +46,9 @@ Routes:
 | `/admin/sessions/[sessionId]` | Admin session detail screen with request identity, process/token metrics, tool outcomes, and ordered events; demo mode or `tour=admin` uses the generated example identified by the route. |
 | `/purchase-details/[purchaseId]` | Demo mode and client tour render generated detail facts/policy summaries; integrated reads remain backend-owned. |
 
+The shared `app/not-found.tsx` redirects unknown page paths and detail records that
+call `notFound()` to `/`. Known API handlers retain their explicit error responses.
+
 The root layout wraps every page in `ApplicationHelpLayer`. The help layer is only
 available on `/user-home` and purchase detail routes.
 Desktop chat reserves a responsive gap beside the page, with the tour background
@@ -80,6 +83,13 @@ target in `apps/web/Dockerfile`. That topology runs only the Next.js development
 bind-mounts `apps/web`, keeps `.next` in a container volume, and uses webpack polling
 for reliable Windows bind-mount updates. The standard `docker-compose.yml` remains the
 production-style integrated web/API topology.
+
+The public Render deployment is defined in the root `render.yaml`: a Docker web
+service using `apps/web/Dockerfile` with repository-root build context and
+`REFUNDS_AI_DEMO_MODE=true` at build and runtime. It runs only the standalone Next.js
+frontend, without an API/database deployment or credentials. Deployment and DNS
+setup are documented in `docs/RENDER_DEPLOYMENT.md`; the main README presents the
+product concept and portfolio links without hosting setup instructions.
 
 The customer home screen renders purchase cards from backend data. Before navigating,
 each card stores a small session-storage header summary for purchase detail continuity.

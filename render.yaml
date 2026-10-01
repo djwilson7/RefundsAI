@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: refundsai
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    autoDeployTrigger: commit
+    healthCheckPath: /
+    domains:
+      - refundsai.dontaiwilson.com
+    envVars:
+      - key: REFUNDS_AI_DEMO_MODE
+        value: "true"
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: HOSTNAME
+        value: "0.0.0.0"
+      - key: PORT
+        value: "10000"

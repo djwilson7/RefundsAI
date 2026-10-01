@@ -26,11 +26,15 @@ const network = vi.fn(() => { throw new Error("Demo attempted network access"); 
 const liveStream = vi.fn(() => { throw new Error("Demo attempted streaming"); });
 
 beforeEach(() => {
+  // Render has no backend connection settings; every demo path must work without them.
+  vi.stubEnv("REFUNDS_AI_API_BASE_URL", undefined);
+  vi.stubEnv("SUPABASE_DB_URL", undefined);
+  vi.stubEnv("OPENAI_API_KEY", undefined);
   vi.stubGlobal("fetch", network);
   vi.stubGlobal("EventSource", liveStream);
   network.mockClear(); liveStream.mockClear();
 });
-afterEach(() => { vi.unstubAllGlobals(); window.sessionStorage.clear(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); window.sessionStorage.clear(); });
 
 describe("frontend-only deployment", () => {
   it("restricts browser services and assets to the demo origin", async () => {
