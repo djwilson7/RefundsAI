@@ -84,12 +84,18 @@ bind-mounts `apps/web`, keeps `.next` in a container volume, and uses webpack po
 for reliable Windows bind-mount updates. The standard `docker-compose.yml` remains the
 production-style integrated web/API topology.
 
-The public Render deployment is defined in the root `render.yaml`: a Docker web
-service using `apps/web/Dockerfile` with repository-root build context and
-`REFUNDS_AI_DEMO_MODE=true` at build and runtime. It runs only the standalone Next.js
-frontend, without an API/database deployment or credentials. Deployment and DNS
-setup are documented in `docs/RENDER_DEPLOYMENT.md`; the main README presents the
-product concept and portfolio links without hosting setup instructions.
+The public Render deployment uses a Static Site defined in `render.yaml`.
+`npm run web:build:static` builds the separate `apps/web/static-site` route tree
+with `output: "export"` into `apps/web/static-site/out`. It reuses presentation
+components and local generators but contains no API handlers or integrated pages.
+Demo mode is fixed to true in this build. Exported detail routes cover all local
+purchase and audit IDs; the browser hydrates the build-date snapshot before
+recalculating examples against the current UTC day. No server process or backend
+credentials are deployed. Render redirects missing resources to `/`, while the
+static 404 page supplies a browser fallback. The original integrated Next.js app
+and Docker topology remain available separately.
+Deployment and DNS setup are documented in `docs/RENDER_DEPLOYMENT.md`; the README
+presents product illustrations and portfolio links without hosting instructions.
 
 The customer home screen renders purchase cards from backend data. Before navigating,
 each card stores a small session-storage header summary for purchase detail continuity.

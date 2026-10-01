@@ -2,9 +2,9 @@
 
 > AI-assisted refunds. Backend-owned policy. Visible execution.
 
-[Explore the product concept](https://refundsai.dontaiwilson.com) · [Dontai Wilson's portfolio](https://dontaiwilson.com)
+[Portfolio project](https://www.dontaiwilson.com/projects/RefundsAI)
 
-[Explore the product concept](https://refundsai.dontaiwilson.com) · [Dontai Wilson's portfolio](https://dontaiwilson.com)
+[Explore the product concept](https://refundsai.dontaiwilson.com)
 
 Built as a seven-day technical delivery, RefundsAI combines conversational support
 with deterministic policy, explicit consent, guarded execution, and auditability.

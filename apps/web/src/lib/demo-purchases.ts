@@ -2,7 +2,7 @@ import purchaseSeed from "./fixtures/purchase_seed.json";
 import identitySeed from "./fixtures/identity_seed.json";
 import type { CustomerPurchase, PurchaseType } from "./application-api";
 
-// Match the backend's daily UTC 14:00 anchor; generate once on the server per load.
+// Match the backend's daily UTC 14:00 anchor; used by server and static-browser examples.
 const dayMs = 86_400_000;
 const minuteMs = 60_000;
 

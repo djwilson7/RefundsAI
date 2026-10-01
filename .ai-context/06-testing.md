@@ -121,3 +121,11 @@ Vitest projects separate `demo` (`*.demo.test.tsx`, demo mode enabled) from exis
 proxy guards, API-reader guards, direct URLs without tour parameters, accidental
 live-component mounts, the support preview, and the demo CSP. The normal test command
 runs both projects; `test:integrated` selects existing application tests separately.
+
+Static-site validation additionally runs `npm run web:build:static`, checks all
+exported detail paths and absence of API/server artifacts in the publish directory,
+and exercises navigation and direct reloads using a plain static file server.
+Static-screen tests verify current-day examples and zero service/stream requests
+with backend settings absent. Render redirect and response-header behavior must
+be checked on the deployed site because the local file server does not implement
+those hosting rules.

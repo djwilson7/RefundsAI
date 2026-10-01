@@ -238,3 +238,13 @@ Repository contributors must:
 * Validate security-sensitive changes before merge.
 * Update `.ai-context/12-security.md` when trust boundaries change.
 * Update tests when security behavior is enforced by code.
+
+## Public static export
+
+The Render Static Site publishes only `apps/web/static-site/out`. Its route tree
+has no API handlers or server readers. It selects local examples unconditionally,
+so backend environment variables cannot enable live pages. Shared components retain
+the existing demo guards; support submission, live reads, and streaming remain
+inactive. A same-origin CSP supplies an additional browser boundary. Integrated
+service-proxy rejection tests apply to the separate Next.js application, not to
+published API endpoints: the static export has none.

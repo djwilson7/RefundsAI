@@ -10,6 +10,7 @@
   "scripts": {
     "web:dev": "npm run dev --workspace @refunds-ai/web",
     "web:build": "npm run build --workspace @refunds-ai/web",
+    "web:build:static": "npm run build:static --workspace @refunds-ai/web",
     "web:start": "npm run start --workspace @refunds-ai/web",
     "web:lint": "npm run lint --workspace @refunds-ai/web",
     "web:test": "npm run test --workspace @refunds-ai/web",

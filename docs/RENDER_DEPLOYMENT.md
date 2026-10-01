@@ -1,124 +1,104 @@
-# Render deployment
+# Render static-site deployment
 
-This deployment serves the frontend product concept at
-`https://refundsai.dontaiwilson.com`. The core API and database are not deployed here.
+The public product concept at `https://refundsai.dontaiwilson.com` is a frontend-only
+static export. The core services remain in the repository and are not deployed here.
 
-## Service type
+## Render settings
 
-Use a **Web Service** with the **Docker** runtime. The current Next.js application
-uses server-rendered routes and `output: "standalone"`, so it is not a static export.
-Render Static Sites require an exported `out` directory instead.
-
-## Create the service
-
-GitHub is already connected to Render. Choose one of these setup paths:
-
-* **Blueprint:** New → Blueprint → select `djwilson7/RefundsAI`, branch `main`, and
-  apply the root `render.yaml`. Review the free service plan before deploying.
-* **Manual:** New → Web Service → select the same repository and use the settings below.
+Choose **New → Static Site**, connect `djwilson7/RefundsAI`, and enter:
 
 | Setting | Value |
 | --- | --- |
 | Name | `refundsai` |
 | Branch | `main` |
-| Runtime / Language | Docker |
-| Root directory | Leave blank: repository root |
-| Dockerfile path | `./apps/web/Dockerfile` |
-| Docker build context | `.` |
-| Docker command | Leave blank to use the image's `CMD` |
-| Image startup command | `node apps/web/server.js` |
-| Health check path | `/` |
+| Root directory | Leave blank (repository root) |
+| Build command | `npm ci --workspace @refunds-ai/web && npm run web:build:static` |
+| Publish directory | `apps/web/static-site/out` |
 | Auto-deploy | On Commit |
 
-Render builds the Dockerfile directly. Do not supply a Docker Compose command,
-`docker run`, or the development-stage command. The final `runner` stage contains
-the production Next.js standalone server and static assets.
+The root `render.yaml` also defines these settings for Blueprint setup.
+There is no Docker command, start command, port, or server process.
 
-## Environment
-
-Set these values before the first deployment:
+## Build environment
 
 | Variable | Value |
 | --- | --- |
-| `REFUNDS_AI_DEMO_MODE` | `true` |
+| `NODE_VERSION` | `24.13.1` |
 | `NEXT_TELEMETRY_DISABLED` | `1` |
-| `HOSTNAME` | `0.0.0.0` |
-| `PORT` | `10000` |
+| `SKIP_INSTALL_DEPS` | `true` |
 
-Render passes Docker service environment variables as build arguments and runtime
-variables. The Dockerfile's `REFUNDS_AI_DEMO_MODE` build argument selects the demo
-branch for both server and browser code. Rebuild after changing this value.
+Dependency installation is included in the build command, so disable Render's
+automatic installation. No backend credentials or demo-mode variable are needed.
+The static entry fixes demo mode at build time and contains no API route handlers.
+Its pages use local identity, purchase, and audit generators. The browser updates
+the reference date to the current UTC day after hydrating the exported snapshot.
 
-Do not attach a backend environment group or configure `REFUNDS_AI_API_BASE_URL`,
-`SUPABASE_DB_URL`, or `OPENAI_API_KEY` for this service. The demo uses local fixtures;
-its API proxies and live readers remain blocked. Local environment files are excluded
-from the Docker build context.
+## Unknown paths and headers
 
-## Custom domain
+In Redirects/Rewrites, add:
 
-1. After deployment, confirm the assigned `*.onrender.com` URL loads the landing page.
-2. In Settings → Custom Domains, add `refundsai.dontaiwilson.com` if the Blueprint
-   has not already added it.
+| Source | Destination | Action |
+| --- | --- | --- |
+| `/*` | `/` | Redirect |
+
+Render serves existing files before applying this rule, preserving the exported
+pages and assets while redirecting missing paths and unknown record IDs to root.
+Use Redirect rather than Rewrite so the address bar returns to `/`.
+The exported 404 page also returns to root when JavaScript loads.
+
+In Headers, add the following for path `/*` (also included in `render.yaml`):
+
+```text
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; frame-src 'none'; form-action 'self'; object-src 'none'; base-uri 'self'
+```
+
+Same-origin asset and page navigation requests are supported. The support preview
+cannot submit requests, and there are no published service endpoints.
+
+## Cloudflare DNS
+
+1. Confirm the assigned `*.onrender.com` URL loads after the initial deployment.
+2. In Render Settings → Custom Domains, add `refundsai.dontaiwilson.com`.
 3. In Cloudflare, select `dontaiwilson.com` → DNS → Records → Add record:
 
    | Field | Value |
    | --- | --- |
    | Type | CNAME |
    | Name | `refundsai` |
-   | Target | The service's exact assigned `*.onrender.com` hostname, without `https://` |
-   | Proxy status | DNS only (gray cloud) during verification |
+   | Target | The site's exact assigned `*.onrender.com` hostname, without `https://` |
+   | Proxy status | DNS only (gray cloud) |
    | TTL | Auto |
 
-4. Leave the portfolio root domain's records unchanged. Remove conflicting records
-   only for the `refundsai` hostname, if present.
-5. Return to Render and verify the custom domain. Render provisions HTTPS after
-   verification; check the custom URL once DNS and routing have propagated.
+4. Preserve the existing portfolio/apex records. Resolve conflicting records only
+   for `refundsai`, if any.
+5. Return to Render, verify the domain, and wait for its HTTPS certificate.
 
-Keep DNS only while Render verifies the hostname and issues its certificate. After
-the certificate is valid, Cloudflare proxying is optional. If enabled, use Full
-or Full (strict) encryption, not Flexible; confirm this is compatible with the
-portfolio's existing zone settings before changing a zone-wide SSL/TLS setting.
+Copy the target hostname from Render; the site name does not guarantee its address.
+After the certificate is valid, Cloudflare proxying is optional. If enabled, use
+Full or Full (strict) encryption; avoid changing zone-wide settings without checking
+how they affect the existing portfolio.
 
-The service's assigned hostname must be copied from Render; the service name does
-not guarantee a particular `onrender.com` address.
-
-## Deployment verification
-
-* Landing page, perspective selection, Client purchases, and Admin audits load.
-* Unknown page paths and missing purchase/session detail records redirect to `/`.
-* Both perspectives show local examples with no backend credentials configured.
-* Demo pages select fixture data before reaching API readers. Support submission,
-  live refresh, pagination, and SSE subscription paths return before any network call.
-* The support preview is visible and its composer is disabled.
-* `POST /api/chat` returns `404` with error code `DEMO_SERVICE_DISABLED`.
-* A service proxy such as `/api/admin/audit/sessions` returns the same blocked result.
-* Response headers include the demo Content Security Policy with `connect-src 'self'`.
-
-`npm run test:demo --workspace @refunds-ai/web` removes all three backend connection
-variables and replaces fetch/EventSource with spies that throw on any attempt.
-It verifies zero calls from page reads, support submission, service proxies, and
-accidental live-component mounts. Proxy rejection is an additional boundary,
-not the mechanism the UI relies on to avoid requests.
-
-For the same image locally:
+## Verification
 
 ```bash
-docker build -f apps/web/Dockerfile --build-arg REFUNDS_AI_DEMO_MODE=true -t refundsai-demo .
-docker run --rm -p 3010:10000 -e PORT=10000 -e HOSTNAME=0.0.0.0 -e REFUNDS_AI_DEMO_MODE=true refundsai-demo
+npm run test:demo --workspace @refunds-ai/web
+npm run web:build:static
+python -m http.server 3010 --bind 127.0.0.1 --directory apps/web/static-site/out
 ```
 
-## Redeployments
+Check the landing page, perspective selection, client history and details, admin
+history and details, and support preview. Direct detail URLs must work after reload.
+The output contains HTML, browser assets, and navigation payloads, with no API
+routes or Next.js server. No backend configuration is required.
 
-Once this service is created with the connected GitHub repository, `main` branch,
-and On Commit auto-deploy, pushes to `main` trigger image rebuilds and redeployments.
-A repository push alone does not create the service or configure DNS.
+Verify unknown-path redirects and the response header on Render after deployment;
+the basic local file server does not implement Render's redirect/header rules.
+Once the site exists with On Commit enabled, future pushes to `main` trigger builds
+and deployments. A push does not create the site or configure DNS.
 
 ## References
 
-* [Next.js on Render](https://render.com/docs/deploy-nextjs-app)
-* [Docker on Render](https://render.com/docs/docker)
+* [Render Static Sites](https://render.com/docs/static-sites)
+* [Redirects and rewrites](https://render.com/docs/redirects-rewrites)
 * [Blueprint settings](https://render.com/docs/blueprint-spec)
-* [Automatic deployments](https://render.com/docs/deploys)
-* [Custom domains](https://render.com/docs/custom-domains)
-* [Subdomain DNS configuration](https://render.com/docs/configure-other-dns)
-* [Cloudflare configuration](https://render.com/docs/configure-cloudflare-dns)
+* [Cloudflare DNS configuration](https://render.com/docs/configure-cloudflare-dns)

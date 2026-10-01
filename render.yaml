@@ -1,21 +1,25 @@
 services:
   - type: web
     name: refundsai
-    runtime: docker
-    plan: free
+    runtime: static
     branch: main
-    dockerfilePath: ./apps/web/Dockerfile
-    dockerContext: .
+    buildCommand: npm ci --workspace @refunds-ai/web && npm run web:build:static
+    staticPublishPath: ./apps/web/static-site/out
     autoDeployTrigger: commit
-    healthCheckPath: /
     domains:
       - refundsai.dontaiwilson.com
     envVars:
-      - key: REFUNDS_AI_DEMO_MODE
+      - key: SKIP_INSTALL_DEPS
         value: "true"
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
-      - key: HOSTNAME
-        value: "0.0.0.0"
-      - key: PORT
-        value: "10000"
+      - key: NODE_VERSION
+        value: "24.13.1"
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; frame-src 'none'; form-action 'self'; object-src 'none'; base-uri 'self'"
+    routes:
+      - type: redirect
+        source: /*
+        destination: /

@@ -100,7 +100,7 @@ export function ApplicationHelpLayer({ children, demoMode: modeFromServer = fals
     "idle",
   );
   const panelId = useId();
-  const pathname = usePathname();
+  const pathname = usePathname()?.replace(/\/+$/, "") || "/";
   const router = useRouter();
   const isAvailable = isHelpAvailable(pathname);
   const purchaseId = getPurchaseIdFromPathname(pathname);
