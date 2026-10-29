@@ -1,6 +1,7 @@
 {
   "name": "refunds-ai",
   "version": "0.1.0",
+  "packageManager": "npm@11.8.0",
   "private": true,
   "license": "UNLICENSED",
   "description": "Policy-governed AI customer support for refund workflows.",
